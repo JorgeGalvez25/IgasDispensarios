@@ -212,6 +212,7 @@ var
   LinEstadoGen :string;
   key:OleVariant;
   claveCre,key3DES:string;
+  Sw47:boolean;
 
 implementation
 
@@ -1094,12 +1095,10 @@ begin
   end;
 end;
 
-procedure Togcvdispensarios_hongyang.ProcesoComandoA(xResp: string);
-// Receiver  0C  03  * 64 17 00  * 00 00 00 * 07 13 00 5C
-//                IMPORTE=0013.07          LITROS=0017.64
-//           0C  12    00 40 00    00 00 00   92 01 00 0F
+procedure Togcvdispensarios_hongyang.ProcesoComandoA(xResp:string);
 var ss:string;
     ee,xp,ne:integer;
+    ximp,xvol,xpre:real;
 begin
   with TMangueras[MangCmnd] do begin
     ss:=StrToHexSep(xResp);
@@ -1109,128 +1108,93 @@ begin
       exit;
     if ne<9 then
       exit;
-    try
-      if PreciosInicio then
-        IniciarPrecios;
-      estatusant:=estatus;
-      importeant:=importe;
-      volumenant:=volumen;
-      importe:=ExtraeBCD(ss,3,5);
-      volumen:=ExtraeBCD(ss,9,11);
-      if preciofisico>0 then
-        precio:=preciofisico
+    estatusant:=estatus;
+    importeant:=importe;
+    volumenant:=volumen;
+    importe:=ExtraeBCD(ss,3,5);
+    volumen:=ExtraeBCD(ss,9,11);
+    precio:=ajustafloat(dividefloat(importe,volumen),2);
+    if precio>0.01 then
+      precioant:=precio;
+    estatus:=ee;
+    if (Estatusant=5)and(estatus=5)and(importe<importeant-0.5) then begin       // CAMBIO
+      AgregaLog('>>Cambio importe '+inttostr(MangCmnd)+FormatoNumero(importeant,10,2)+FormatoNumero(importe,10,2));
+      ximp:=importe;  importe:=importeant;
+      xvol:=volumen;  volumen:=volumenant;
+      xpre:=precio;   precio:=precioant;
+      try
+        swdesp:=true;
+      finally
+        importe:=ximp;
+        volumen:=xvol;
+        precio:=xpre;
+      end;
+    end;
+    if (estatusant=0)and(estatus<>0) then begin
+      SwCargaTotales:=true;
+      ActualizarPrecio:=true;
+    end;
+    if (estatus=1)and(finventa=1)and(swfinventa) then begin
+      if not SwVentaValidada then begin
+        estatus:=8;
+        if estatusant=5 then
+          HoraFV:=Now;
+        AgregaLog('>>Estatus 8 en Manguera '+inttostr(MangCmnd));
+      end
       else
-        precio:=ajustafloat(dividefloat(importe,volumen),2);
-      if precio>0.01 then
-        precioant:=precio;
-      estatus:=ee;
-      if (estatusant=0)and(estatus<>0) then begin
-        SwCargaTotales:=true;
-        ActualizarPrecio:=true;
-      end;
-      if (estatus=1)and(finventa=1)and(swfinventa) then begin
-        if not SwVentaValidada then begin
-          estatus:=8;
-          if estatusant=5 then
-            HoraFV:=Now;
-          AgregaLog('>>Estatus 8 en Manguera '+inttostr(MangCmnd));
-        end
-        else
-          estatus:=7;
-      end;
-      if (estatus in [7,8])and((now-HoraFV)>10*tmsegundo) then begin
-        estatus:=1;
-        swfinventa:=false;
-      end;
-      case estatus of
-        1:begin  // Inactivo
-            descestat:='Inactivo';
-            SwPreset:=false;
-            Swfinventa:=false;
-            ContInicDesp:=0;
-            if EstatusAnt<>1 then begin
-              FinVenta:=0;
-            end
-            else if importe<>importeant then begin
-              importe:=importeant;
-              volumen:=volumenant;
-              if preciofisico>0 then
-                precio:=preciofisico
-              else
-                precio:=ajustafloat(dividefloat(importe,volumen),2);
-              if (swprepagom)and(not swenllavado) then
-                MeteACola('C'+inttoclavenum(MangCmnd,2));
-            end;
-          end;
-        2:descestat:='Autorizado';
-        3:descestat:='Pistola Levantada';
-        5:begin                // Despachando
-            descestat:='Despachando';
-            swcargando:=true;
-            swfinventa:=true;
-            ContTotErr:=0;
-            SwVentaValidada:=false;
-            if (SwPrepagoM)and(Importe<=0.001) then
-              descestat:='Autorizado';
-            Inc(ContInicDesp);
-          end;
-        7,8:descestat:='Fin de Venta';
-        9:descestat:='Enllavado';
-      end;
-      if (Estatus in [1,8])and(swcargando) then begin
-        swcargando:=false;
-        swdesptot:=true;
-        SwCargaTotales:=true;
-      end;
-      if poscomb in [1..3] then with TPosCarga[PosCarga] do begin
-        PosEstatus[poscomb]:=estatus;
-        if estatus in [5,7] then
-          posactual2:=poscomb;
-        posactual:=1;
-        for xp:=2 to 3 do
-          if posestatus[xp]>posestatus[posactual] then
-            posactual:=xp;
-      end;
-    except
-      on e:Exception do
-        AgregaLog('ProcesoComandoA: '+e.Message);
+        estatus:=7;
+    end;
+    if (estatus in [7,8])and((now-HoraFV)>10*tmsegundo) then begin
+      estatus:=1;
+      swfinventa:=false;
+    end;
+    case estatus of
+      1:begin  // Inactivo
+          descestat:='Inactivo';
+          SwPreset:=false;
+          Swfinventa:=false;
+          ContInicDesp:=0;
+          if EstatusAnt<>1 then
+            FinVenta:=0;
+        end;
+      2:descestat:='Autorizado';
+      //3:descestat:='Pistola Levantada';
+      5:begin                // Despachando
+          descestat:='Despachando';
+          swcargando:=true;
+          swfinventa:=true;
+          ContTotErr:=0;
+          SwVentaValidada:=false;
+          if (SwPrepagoM)and(Importe<=0.001) then
+            descestat:='Autorizado';
+          Inc(ContInicDesp);
+        end;
+      7,8:descestat:='Fin de Venta';
+      9:descestat:='Enllavado';
+    end;
+    if (Estatus in [1,8])and((swcargando)or(sw47)) then begin
+      swcargando:=false;
+      swdesptot:=true;
+      SwCargaTotales:=true;
+    end;
+    if poscomb in [1..3] then with TPosCarga[PosCarga] do begin
+      PosEstatus[poscomb]:=estatus;
+      if estatus in [5,7] then
+        posactual2:=poscomb;
+      posactual:=1;
+      for xp:=2 to 3 do
+        if posestatus[xp]>posestatus[posactual] then
+          posactual:=xp;
     end;
   end;
 end;
 
-function Togcvdispensarios_hongyang.DameEstatus(xstr: string; var swlocked,
-  swerror: boolean): integer;
-//  [5] Motor encendido
-//  [2] Pistola levantada
-
-{
-
-8   CAMBIO DE PRECIO
-7   CAMBIO IMPORTE
-6   CAMBIO TOTALES
-5   MOTOR ON
-4   BLOQUEADO
-3   ESTATUS ERROR
-2   PISTOLA LEVANTADA NO USADO
-
-FIN DE VENTA
-46 - 06 - 02
-4A - 06 - 02
-46 - 12 - 52 - 02
-12  0001 0010   inactivo enllavado
-02  0000 0010   inactivo desenllavado
-4A  0100 1010   despachando
-06  0000 0110   fin venta PISTOLA COLGADA
-16  0001 0110   fin venta PISTOLA COLGADA
-0A  0000 1010   despachando
-1A  0001 1010   despachando
-0E  0000 1110   despachando
-46  0100 0110   FIN VENTA PISTOLA LEVANTADA
-52  0101 0010
-4E  0100 1110}
+function Togcvdispensarios_hongyang.DameEstatus(xstr:string;var SwLocked,swerror:boolean):integer;
 var xst,ss:string;
     ee:integer;
+
 begin
+  sw47:=false;
   ee:=0;
   ss:=ExtraeElemStrSep(xstr,2,' ');
   xst:=HexToBinario(ss);
@@ -1248,11 +1212,14 @@ begin
     ee:=9;
   swerror:=(xst[3]='1');
 
-  if (ss='06')or(ss='16')or(ss='46') then      // fin venta
+  if (ss='06')or(ss='03')or(ss='16')or(ss='46')or(ss[2]='7') then begin     // fin venta                47
+    ee:=1;
+    if (ss[2]='7') then
+      sw47:=true;
+  end
+  else if (ss='12')or(ss='02') then            // inativo
     ee:=1
-  else if (ss='02')or(ss='12') then            // inativo
-    ee:=1
-  else if (ss='4A')or(ss='0A')or(ss='0E')or(ss='1A') then  // despachando
+  else if (ss='4A')or(ss='4B')or(ss='0A')or(ss='0E')or(ss='1A') then  // despachando            4B
     ee:=5;
 
   SwLocked:=false;
