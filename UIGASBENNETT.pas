@@ -690,7 +690,7 @@ begin
     if FinLinea then begin
       if Linea[2]='N' then begin
         RespuestasPendientes.Add(Linea);
-        AgregaLog('**AGREGÓ RESPUESTA N');
+        AgregaLog('**AGREGï¿½ RESPUESTA N');
       end;
       LineaTimer:=Linea;
       AgregaLog('R '+LineaTimer);
@@ -699,7 +699,7 @@ begin
       ProcesaLinea;
       LineaTimer:='';
       if RespuestasPendientes.Count>0 then begin
-        AgregaLog('**PROCESÓ RESPUESTA PENDIENTE');
+        AgregaLog('**PROCESï¿½ RESPUESTA PENDIENTE');
         ProcesaLinea;
       end;
       SwEspera:=false;
@@ -942,7 +942,7 @@ begin
    'N':begin // totales de la bomba
          if RespuestasPendientes.Count>0 then begin
            RespuestasPendientes.Delete(0);
-           AgregaLog('**SE ELIMINÓ RESPUESTA PENDIENTE');
+           AgregaLog('**SE ELIMINï¿½ RESPUESTA PENDIENTE');
          end;
          NumPaso:=3;
          xpos:=StrToIntDef(copy(lin,2,2),0);
@@ -1034,7 +1034,7 @@ begin
         xmodo:=xmodo+ModoOpera[1];
         if not SwDesHabilitado then begin
           case estatus of
-            0:xestado:=xestado+'0'; // Sin Comunicación
+            0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
             1:xestado:=xestado+'1'; // Inactivo (Idle)
             5:xestado:=xestado+'2'; // Cargando (In Use)
             7:if not swcargando then
@@ -1269,7 +1269,6 @@ begin
                 if (not TPosCarga[xpos].swcargando) then begin
                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
                   ComandoConsola(ss);
-                  TPosCarga[xpos].SwCargaTotales:=true;
                 end
                 else
                   rsp:='Posicion no esta despachando';
@@ -1625,13 +1624,14 @@ var
   cmd,cantidad,posCarga,comb,finv:string;
 begin
   try
-    if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),0)>0 then begin
-      cmd:='OCC';
-      cantidad:=ExtraeElemStrSep(msj,3,'|');
-    end
-    else if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
+
+    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
       cmd:='OCL';
       cantidad:=ExtraeElemStrSep(msj,4,'|');
+    end
+    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
+      cmd:='OCC';
+      cantidad:=ExtraeElemStrSep(msj,3,'|');
     end
     else begin
       Result:='False|Favor de indicar la cantidad que se va a despachar|';
@@ -2031,6 +2031,7 @@ begin
   aCrc:=TCRC.Create(CRC16Desc);
   aCrc.CalcBlock(pin,insize);
   Result:=UpperCase(IntToHex(aCrc.Finish,4));
+  aCrc.Destroy;
 end;
 
 function Togcvdispensarios_bennett.Login(mensaje: string): string;
@@ -2056,6 +2057,7 @@ begin
   hash := idmd5.HashValue(usuario);
   Result := idmd5.AsHex(hash);
   Result := AnsiLowerCase(Result);
+  idmd5.Destroy;
 end;
 
 function Togcvdispensarios_bennett.Parametros(json: string): string;
