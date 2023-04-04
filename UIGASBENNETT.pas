@@ -43,6 +43,7 @@ type
   public
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
+    ListaComandos:TStringList;
     RespuestasPendientes:TStringList;
     rutaLog:string;
     licencia:string;
@@ -102,6 +103,7 @@ type
     function TotalesBomba(msj: string):string;
     function Shutdown:string;
     function Terminar:string;
+    procedure GuardaLogComandos;
     { Public declarations }
   end;
 
@@ -172,7 +174,7 @@ const idSTX = #2;
 var
   ogcvdispensarios_bennett: Togcvdispensarios_bennett;
   TPosCarga:array[1..100] of tiposcarga;
-  TabCmnd  :array[1..40] of RegCmnd;
+  TabCmnd  :array[1..100] of RegCmnd;
   LPrecios  :array[1..4] of Double;
   AvanceBar:integer;
   SwAplicaCmnd,
@@ -230,6 +232,7 @@ begin
     SegundosFinv:=30;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
+    ListaComandos:=TStringList.Create;
 
     CoInitialize(nil);
     Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
@@ -2102,6 +2105,26 @@ begin
     end;
   end;
   PreciosInicio:=False;
+end;
+
+procedure Togcvdispensarios_bennett.GuardaLogComandos;
+var
+  i:Integer;
+begin
+  try
+    for i:=1 to 100 do begin
+      with TabCmnd[i] do begin
+        if SwActivo then
+          ListaComandos.Add(FechaHoraExtToStr(hora)+' Folio: '+IntToClaveNum(folio,3)+' Comando: '+Comando);
+      end;
+
+    end;
+    ListaComandos.SaveToFile(rutaLog+'\LogComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+  except
+    on e:Exception do
+      Exception.Create('GuardaLogComandos: '+e.Message);
+  end;
+
 end;
 
 end.
