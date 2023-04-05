@@ -174,7 +174,7 @@ const idSTX = #2;
 var
   ogcvdispensarios_bennett: Togcvdispensarios_bennett;
   TPosCarga:array[1..100] of tiposcarga;
-  TabCmnd  :array[1..100] of RegCmnd;
+  TabCmnd  :array[1..200] of RegCmnd;
   LPrecios  :array[1..4] of Double;
   AvanceBar:integer;
   SwAplicaCmnd,
@@ -253,7 +253,6 @@ begin
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
     CoUninitialize;
-    FreeAndNil(Key);    
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -586,10 +585,7 @@ begin
         SwA:=false;
         SwPrec:=false;
         existe:=false;
-        if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-          ModoOpera:='Normal'
-        else
-          ModoOpera:='Prepago';
+        ModoOpera:='Prepago';
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
@@ -799,43 +795,25 @@ begin
                    swcargando:=false;
                    if swprec then
                      swprec:=false;
-                   if (estatusant=2)and(PresetImpo>=0.01) then begin  // vuelve a autorizar
-                     SnPosCarga:=xpos;
-                     SnImporte:=PresetImpo;
-                     inc(PresetImpoN);
-                     if PresetImpoN<=3 then
-                       estatus:=estatusant;
-                     EnviaPreset(rsp,PresetComb);
-                   end
-                   else begin
-                     if estatusant<>1 then begin
-                       SwPresetHora:=false;
-                       //SwArosMag:=false;
-                       //PosAutorizada:=0;
-                       FinVenta:=0;
-                       TipoPago:=0;
-                       SwOcc:=false;
-                       ContOcc:=0;
-                       PresetImpo:=0;
-                       PresetImpoN:=0;
-                       if SwCmndF then begin
-                         ss:='F'+IntToClaveNum(xpos,2)+'9999';
-                         ComandoConsolaBuff(ss,false);
-                         SwCmndF:=false;
-                       end;
+                   if estatusant<>1 then begin
+                     SwPresetHora:=false;
+                     //SwArosMag:=false;
+                     //PosAutorizada:=0;
+                     FinVenta:=0;
+                     TipoPago:=0;
+                     SwOcc:=false;
+                     ContOcc:=0;
+                     PresetImpo:=0;
+                     PresetImpoN:=0;
+                     if SwCmndF then begin
+                       ss:='F'+IntToClaveNum(xpos,2)+'9999';
+                       ComandoConsolaBuff(ss,false);
+                       SwCmndF:=false;
                      end;
                    end;
                  end;
                2:begin
                    descestat:='Autorizado';
-                   if (SwPresetHora)and((now-PresetHora)>5*TmSegundo) then begin
-                     ss:='E'+IntToClaveNum(xpos,2); // Desautorizar
-                     ComandoConsolaBuff(ss,false);
-                   end
-                   else if estatusant=4 then begin
-                     SwPresetHora:=true;
-                     PresetHora:=Now;
-                   end;
                  end;
                3:begin
                    swcargando:=false;
@@ -1142,7 +1120,7 @@ begin
                   SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
                   rsp:=ValidaCifra(SnImporte,4,2);
                   if (SnImporte<0.01) then
-                    rsp:='Importe en cero no permitido';
+                    SnImporte:=9999;
                 except
                   rsp:='Error en Importe';
                 end;
@@ -1368,14 +1346,18 @@ begin
     rsp:='Posicion Bloqueada';
     exit;
   end;
-  ss:='K'+IntToClaveNum(xpos,2)+'2'; // Modo PrePago
-  ComandoConsolaBuff(ss,false);
-  ss:='P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',SnImporte));
-  ComandoConsolaBuff(ss,false);
-  ss:='L'+IntToClaveNum(xpos,2)+NivelPrecioContado; // Nivel de Precios
-  ComandoConsolaBuff(ss,false);
+  if SnImporte<>9999 then begin
+    ss:='K'+IntToClaveNum(xpos,2)+'2'; // Modo PrePago
+    ComandoConsolaBuff(ss,false);
+    ss:='P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',SnImporte));
+    ComandoConsolaBuff(ss,false);
+    ss:='L'+IntToClaveNum(xpos,2)+NivelPrecioContado; // Nivel de Precios
+    ComandoConsolaBuff(ss,false);
+  end;
+
   ss:='S'+IntToClaveNum(xpos,2); // Autorizar
-  if xcomb>0 then with TPosCarga[xpos] do begin
+  
+  if (xcomb>0) and (SnImporte<>9999) then with TPosCarga[xpos] do begin
     xp:=0;
     for xc:=1 to NoComb do
       if TComb[xc]=xcomb then
@@ -1429,9 +1411,9 @@ begin
       TabCmnd[ind].SwResp:=false;
       TabCmnd[ind].SwNuevo:=true;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>40);
+  until (not TabCmnd[ind].SwActivo)or(ind>200);
   // Si no lo encuentra se sale
-  if ind>40 then begin
+  if ind>200 then begin
     result:=0;
     exit;
   end;
@@ -1558,6 +1540,7 @@ begin
   try
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
+    GuardaLogComandos;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt';
   except
     on e:Exception do
@@ -1784,10 +1767,10 @@ begin
 
     if xpos=0 then begin
       for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Normal';
+        TPosCarga[xpos].ModoOpera:='Prepago';
     end
     else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Normal';
+      TPosCarga[xpos].ModoOpera:='Prepago';
 
     Result:='True|';
   except
@@ -1864,7 +1847,8 @@ end;
 
 function Togcvdispensarios_bennett.TotalesBomba(msj: string): string;
 var
-  xpos:Integer;
+  xpos,xfolioCmnd:Integer;
+  valor:string;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -1873,7 +1857,11 @@ begin
       Exit;
     end;
 
-    Result:='True|0|0|0|0|0|0|'+IntToStr(EjecutaComando('TOTAL'+' '+IntToStr(xpos)))+'|';
+    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
+
+    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
+
+    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -2112,14 +2100,14 @@ var
   i:Integer;
 begin
   try
-    for i:=1 to 100 do begin
+    ListaComandos.Clear;
+    for i:=1 to 200 do begin
       with TabCmnd[i] do begin
         if SwActivo then
           ListaComandos.Add(FechaHoraExtToStr(hora)+' Folio: '+IntToClaveNum(folio,3)+' Comando: '+Comando);
-      end;
-
+      end;      
     end;
-    ListaComandos.SaveToFile(rutaLog+'\LogComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
   except
     on e:Exception do
       Exception.Create('GuardaLogComandos: '+e.Message);
