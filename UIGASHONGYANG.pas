@@ -36,6 +36,7 @@ type
     ListaCmnd    :TStrings;
     confPos:string;
     FolioCmnd   :integer;
+    ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
@@ -100,6 +101,7 @@ type
    procedure IniciarPrecios;
    function Bloquear(msj:string): string;
    function Desbloquear(msj:string): string;
+   procedure GuardaLogComandos;
   end;
 
 type
@@ -186,7 +188,7 @@ var
   ogcvdispensarios_hongyang: Togcvdispensarios_hongyang;
   TPosCarga :array[1..32] of tipoposcarga;
   TMangueras:array[1..100] of tipomanguera;
-  TabCmnd  :array[1..40] of RegCmnd;
+  TabCmnd  :array[1..200] of RegCmnd;
   LPrecios  :array[1..4] of Double;
   PreciosInicio:Boolean;
   MaxMangueras:integer;
@@ -215,6 +217,8 @@ var
   Sw47:boolean;
 
 implementation
+
+uses StrUtils;
 
 {$R *.DFM}
 
@@ -268,7 +272,6 @@ begin
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
     CoUninitialize;
-    FreeAndNil(Key);
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -424,6 +427,7 @@ begin
   aCrc:=TCRC.Create(CRC16Desc);
   aCrc.CalcBlock(pin,insize);
   Result:=UpperCase(IntToHex(aCrc.Finish,4));
+  aCrc.Destroy;
 end;
 
 procedure Togcvdispensarios_hongyang.Responder(socket: TCustomWinSocket;
@@ -729,6 +733,7 @@ begin
   hash := idmd5.HashValue(usuario);
   Result := idmd5.AsHex(hash);
   Result := AnsiLowerCase(Result);
+  idmd5.Destroy;
 end;
 
 function Togcvdispensarios_hongyang.ConvierteBCD(xvalor: real;
@@ -987,9 +992,9 @@ begin
       TabCmnd[ind].SwResp:=false;
       TabCmnd[ind].SwNuevo:=true;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>40);
+  until (not TabCmnd[ind].SwActivo)or(ind>200);
   // Si no lo encuentra se sale
-  if ind>40 then begin
+  if ind>200 then begin
     result:=0;
     exit;
   end;
@@ -1014,13 +1019,14 @@ var
   cmd,cantidad,posCarga,comb,finv:string;
 begin
   try
-    if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),0)>0 then begin
-      cmd:='OCC';
-      cantidad:=ExtraeElemStrSep(msj,3,'|');
-    end
-    else if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
+
+    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
       cmd:='OCL';
       cantidad:=ExtraeElemStrSep(msj,4,'|');
+    end
+    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
+      cmd:='OCC';
+      cantidad:=ExtraeElemStrSep(msj,3,'|');
     end
     else begin
       Result:='False|Favor de indicar la cantidad que se va a despachar|';
@@ -1500,7 +1506,7 @@ begin
       with TMangueras[xmang] do begin
         xmodo:=xmodo+ModoOpera[1];
         case estatus of
-          0:xestado:=xestado+'0'; // Sin Comunicación
+          0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
           1:xestado:=xestado+'1'; // Inactivo (Idle)
           5,8:xestado:=xestado+'2'; // Cargando (In Use)
           7:if not swcargando then
@@ -1748,7 +1754,7 @@ begin
                 rsp:=ValidaCifra(xImporte,4,2);
                 if rsp='OK' then
                   if (xImporte<1) then
-                    rsp:='Importe minimo permitido: $1.00';
+                    xImporte:=9999;
               except
                 xImporte:=0;
                 rsp:='Error en Importe';
@@ -2017,6 +2023,8 @@ function Togcvdispensarios_hongyang.GuardarLog: string;
 begin
   try
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    GuardarLogPetRes;
+    GuardaLogComandos;    
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt';
   except
     on e:Exception do
@@ -2109,7 +2117,8 @@ end;
 
 function Togcvdispensarios_hongyang.TotalesBomba(msj: string): string;
 var
-  xpos:Integer;
+  xpos,xfolioCmnd:Integer;
+  valor:string;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -2118,7 +2127,11 @@ begin
       Exit;
     end;
 
-    Result:='True|0|0|0|0|0|0|'+IntToStr(EjecutaComando('TOTAL'+' '+IntToStr(xpos)))+'|';
+    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
+
+    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
+
+    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -2220,6 +2233,26 @@ begin
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
   end;
+end;
+
+procedure Togcvdispensarios_hongyang.GuardaLogComandos;
+var
+  i:Integer;
+begin
+  try
+    ListaComandos.Clear;
+    for i:=1 to 200 do begin
+      with TabCmnd[i] do begin
+        if SwActivo then
+          ListaComandos.Add(FechaHoraExtToStr(hora)+' Folio: '+IntToClaveNum(folio,3)+' Comando: '+Comando);
+      end;      
+    end;
+    ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+  except
+    on e:Exception do
+      Exception.Create('GuardaLogComandos: '+e.Message);
+  end;
+
 end;
 
 end.

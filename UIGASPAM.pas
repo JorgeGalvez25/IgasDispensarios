@@ -64,7 +64,8 @@ type
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
     ContadorTotPos,
-    ContadorTot :Integer;   
+    ContadorTot :Integer;
+    ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -114,6 +115,7 @@ type
     function Login(mensaje: string): string;
     function Logout: string;
     function MD5(const usuario: string): string;
+    procedure GuardaLogComandos;
     { Public declarations }
   end;
 
@@ -189,7 +191,7 @@ const idSTX = #2;
 var
   ogcvdispensarios_pam: Togcvdispensarios_pam;
   TPosCarga:array[1..32] of tiposcarga;
-  TabCmnd  :array[1..40] of RegCmnd;
+  TabCmnd  :array[1..200] of RegCmnd;
   LPrecios :array[1..4] of Double;
   MaxPosCarga:integer;
   MaxPosCargaActiva:integer;
@@ -209,6 +211,8 @@ var
   claveCre,key3DES:string;
 
 implementation
+
+uses StrUtils;
 
 {$R *.DFM}
 
@@ -263,7 +267,6 @@ begin
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
     CoUninitialize;
-    FreeAndNil(Key);
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -1179,7 +1182,7 @@ begin
                       rsp:=ValidaCifra(SnImporte,3,2);
                     if rsp='OK' then
                       if (SnImporte<0.50) then
-                        rsp:='Minimo permitido: $0.50';
+                        SnImporte:=9999;
                   except
                     rsp:='Error en Importe';
                   end;
@@ -1311,8 +1314,6 @@ begin
                 ss:='R'+IntToClaveNum(xpos,2); // VENTA COMPLETA
                 ComandoConsola(ss);
                 EsperaMiliSeg(100);
-                for i:=1 to 4 do
-                  TPosCarga[xpos].SwTotales[i]:=true;
               end
               else begin
                 if (TPosCarga[xpos].swcargando)and(TPosCarga[xpos].Estatus=1) then begin
@@ -1643,10 +1644,7 @@ begin
         SwA:=false;
         SwPrec:=false;
         existe:=false;
-        if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-          ModoOpera:='Normal'
-        else
-          ModoOpera:='Prepago';
+        ModoOpera:='Prepago';
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
@@ -1724,9 +1722,9 @@ begin
       TabCmnd[ind].SwResp:=false;
       TabCmnd[ind].SwNuevo:=true;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>40);
+  until (not TabCmnd[ind].SwActivo)or(ind>200);
   // Si no lo encuentra se sale
-  if ind>40 then begin
+  if ind>200 then begin
     result:=0;
     exit;
   end;
@@ -1751,13 +1749,14 @@ var
   cmd,cantidad,posCarga,comb,finv:string;
 begin
   try
-    if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),0)>0 then begin
-      cmd:='OCC';
-      cantidad:=FormatoMoneda(StrToFloat(ExtraeElemStrSep(msj,3,'|')));
-    end
-    else if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
+
+    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
       cmd:='OCL';
-      cantidad:=FormatoMoneda(StrToFloat(ExtraeElemStrSep(msj,4,'|')));
+      cantidad:=ExtraeElemStrSep(msj,4,'|');
+    end
+    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
+      cmd:='OCC';
+      cantidad:=ExtraeElemStrSep(msj,3,'|');
     end
     else begin
       Result:='False|Favor de indicar la cantidad que se va a despachar|';
@@ -1858,10 +1857,10 @@ begin
 
     if xpos=0 then begin
       for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Normal';
+        TPosCarga[xpos].ModoOpera:='Prepago';
     end
     else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Normal';
+      TPosCarga[xpos].ModoOpera:='Prepago';
 
     Result:='True|';
   except
@@ -1997,7 +1996,8 @@ end;
 
 function Togcvdispensarios_pam.TotalesBomba(msj: string): string;
 var
-  xpos:Integer;
+  xpos,xfolioCmnd:Integer;
+  valor:string;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -2006,7 +2006,11 @@ begin
       Exit;
     end;
 
-    Result:='True|0|0|0|0|0|0|'+IntToStr(EjecutaComando('TOTAL'+' '+IntToStr(xpos)))+'|';
+    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
+
+    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
+
+    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -2078,7 +2082,8 @@ function Togcvdispensarios_pam.GuardarLog:string;
 begin
   try
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-    ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    GuardarLogPetRes;
+    GuardaLogComandos;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
   except
     on e:Exception do
@@ -2338,6 +2343,7 @@ begin
   aCrc:=TCRC.Create(CRC16Desc);
   aCrc.CalcBlock(pin,insize);
   Result:=UpperCase(IntToHex(aCrc.Finish,4));
+  aCrc.Destroy;
 end;
 
 function Togcvdispensarios_pam.NoElemStrEnter(xstr:string):word;
@@ -2402,6 +2408,7 @@ begin
   hash := idmd5.HashValue(usuario);
   Result := idmd5.AsHex(hash);
   Result := AnsiLowerCase(Result);
+  idmd5.Destroy;
 end;
 
 function Togcvdispensarios_pam.Logout: string;
@@ -2424,6 +2431,26 @@ begin
     end;
   end;
   PreciosInicio:=False;
+end;
+
+procedure Togcvdispensarios_pam.GuardaLogComandos;
+var
+  i:Integer;
+begin
+  try
+    ListaComandos.Clear;
+    for i:=1 to 200 do begin
+      with TabCmnd[i] do begin
+        if SwActivo then
+          ListaComandos.Add(FechaHoraExtToStr(hora)+' Folio: '+IntToClaveNum(folio,3)+' Comando: '+Comando);
+      end;      
+    end;
+    ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+  except
+    on e:Exception do
+      Exception.Create('GuardaLogComandos: '+e.Message);
+  end;
+
 end;
 
 end.

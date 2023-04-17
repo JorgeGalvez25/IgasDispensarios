@@ -77,7 +77,8 @@ type
     CharCmnd     :char;
     SwEsperaRsp  :boolean;
     ContEsperaRsp:integer;
-    FolioCmnd   :integer;    
+    FolioCmnd   :integer;
+    ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     procedure Responder(socket:TCustomWinSocket;resp:string);
@@ -124,6 +125,7 @@ type
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
     procedure EnviaPreset(xcomb:integer;var rsp:string);
     function MangueraEnPosicion(xpos,xposcarga:integer):integer;
+    procedure GuardaLogComandos;
   end;
 
 type
@@ -216,12 +218,14 @@ var
   ListaCmnd    :TStrings;
   SwEsperaRsp  :boolean;
   Token        :string;
-  TabCmnd  :array[1..40] of RegCmnd;
+  TabCmnd  :array[1..200] of RegCmnd;
   LinEstadoGen  :string;
   key:OleVariant;
   claveCre,key3DES:string;
 
 implementation
+
+uses StrUtils;
 
 {$R *.DFM}
 
@@ -283,6 +287,7 @@ begin
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
+    CoUninitialize;
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -422,6 +427,7 @@ begin
   aCrc:=TCRC.Create(CRC16Desc);
   aCrc.CalcBlock(pin,insize);
   Result:=UpperCase(IntToHex(aCrc.Finish,4));
+  aCrc.Destroy;
 end;
 
 procedure Togcvdispensarios_wayne.AgregaLogPetRes(lin: string);
@@ -644,10 +650,7 @@ begin
         cPos:=ExtraeElemStrSep(confPos,xpos,';');
         SwDesp:=false;
         SwPrec:=false;
-        if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-          ModoOpera:='Normal'
-        else
-          ModoOpera:='Prepago';
+        ModoOpera:='Prepago';
         //Mapa:=Q_BombIbImpreTarjetas.AsString;
         if InicializaWayne='Si' then
           RefrescaEnllavados:=true
@@ -717,6 +720,7 @@ begin
   hash := idmd5.HashValue(usuario);
   Result := idmd5.AsHex(hash);
   Result := AnsiLowerCase(Result);
+  idmd5.Destroy;
 end;
 
 function Togcvdispensarios_wayne.IniciaPrecios(msj: string): string;
@@ -895,9 +899,9 @@ begin
       TabCmnd[ind].SwResp:=false;
       TabCmnd[ind].SwNuevo:=true;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>40);
+  until (not TabCmnd[ind].SwActivo)or(ind>200);
   // Si no lo encuentra se sale
-  if ind>40 then begin
+  if ind>200 then begin
     result:=0;
     exit;
   end;
@@ -922,13 +926,14 @@ var
   cmd,cantidad,posCarga,comb,finv:string;
 begin
   try
-    if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),0)>0 then begin
-      cmd:='OCC';
-      cantidad:=FormatoMoneda(StrToFloat(ExtraeElemStrSep(msj,3,'|')));
-    end
-    else if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
+
+    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
       cmd:='OCL';
-      cantidad:=FormatoMoneda(StrToFloat(ExtraeElemStrSep(msj,4,'|')));
+      cantidad:=ExtraeElemStrSep(msj,4,'|');
+    end
+    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
+      cmd:='OCC';
+      cantidad:=ExtraeElemStrSep(msj,3,'|');
     end
     else begin
       Result:='False|Favor de indicar la cantidad que se va a despachar|';
@@ -1029,10 +1034,10 @@ begin
 
     if xpos=0 then begin
       for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Normal';
+        TPosCarga[xpos].ModoOpera:='Prepago';
     end
     else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Normal';
+      TPosCarga[xpos].ModoOpera:='Prepago';
 
     Result:='True|';
   except
@@ -1169,7 +1174,8 @@ end;
 
 function Togcvdispensarios_wayne.TotalesBomba(msj: string): string;
 var
-  xpos:Integer;
+  xpos,xfolioCmnd:Integer;
+  valor:string;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -1178,7 +1184,11 @@ begin
       Exit;
     end;
 
-    Result:='True|0|0|0|0|0|0|'+IntToStr(EjecutaComando('TOTAL'+' '+IntToStr(xpos)))+'|';
+    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
+
+    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
+
+    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -1266,6 +1276,8 @@ function Togcvdispensarios_wayne.GuardarLog: string;
 begin
   try
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    GuardarLogPetRes;
+    GuardaLogComandos;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
   except
     on e:Exception do
@@ -1917,32 +1929,6 @@ begin
           rsp:='OK';
           SwCerrar:=true;
         end
-        // CMND: ACTIVA MODO PREPAGO
-        else if ss='AMP' then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          if xpos=0 then begin
-            for xpos:=1 to MaxPosCarga do
-              TPosCarga[xpos].ModoOpera:='Prepago';
-            rsp:='OK';
-          end
-          else if (xpos in [1..maxposcarga]) then begin
-            TPosCarga[xpos].ModoOpera:='Prepago';
-            rsp:='OK';
-          end;
-        end
-        // CMND: DESACTIVA MODO PREPAGO
-        else if ss='DMP' then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          if xpos=0 then begin
-            for xpos:=1 to MaxPosCarga do
-              TPosCarga[xpos].ModoOpera:='Normal';
-            rsp:='OK';
-          end
-          else if (xpos in [1..maxposcarga]) then begin
-            TPosCarga[xpos].ModoOpera:='Normal';
-            rsp:='OK';
-          end;
-        end
         // ORDENA CARGA DE COMBUSTIBLE
         else if ss='OCC' then begin
           rsp:='OK';
@@ -1985,7 +1971,7 @@ begin
                   rsp:=ValidaCifra(SnImporte,5,2);
                   if rsp='OK' then
                     if (SnImporte<0.01) then
-                      rsp:='Importe en cero no permitido';
+                      SnImporte:=9999;
                 except
                   rsp:='Error en Importe';
                 end;
@@ -2097,8 +2083,6 @@ begin
                   TPosCarga[xpos].estatusant:=1;
                   TPosCarga[xpos].finventa:=0;
                 end;
-                for i:=1 to 4 do
-                  TPosCarga[xpos].SwCargaTotales[i]:=true;
             end
             else begin // EOT
               rsp:='Posicion aun no esta en fin de venta: Estat='+inttostr(TPosCarga[xpos].Estatus);
@@ -2388,6 +2372,26 @@ begin
     end;
   end;
   PreciosInicio:=False;
+end;
+
+procedure Togcvdispensarios_wayne.GuardaLogComandos;
+var
+  i:Integer;
+begin
+  try
+    ListaComandos.Clear;
+    for i:=1 to 200 do begin
+      with TabCmnd[i] do begin
+        if SwActivo then
+          ListaComandos.Add(FechaHoraExtToStr(hora)+' Folio: '+IntToClaveNum(folio,3)+' Comando: '+Comando);
+      end;      
+    end;
+    ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+  except
+    on e:Exception do
+      Exception.Create('GuardaLogComandos: '+e.Message);
+  end;
+
 end;
 
 end.
