@@ -188,6 +188,13 @@ const idSTX = #2;
       MaxEspera2=20;
       MaxEspera3=10;
 
+type TMetodos = (NOTHING_e, INITIALIZE_e, PARAMETERS_e, LOGIN_e, LOGOUT_e,
+             PRICES_e, AUTHORIZE_e, STOP_e, START_e, SELFSERVICE_e, FULLSERVICE_e,
+             BLOCK_e, UNBLOCK_e, PAYMENT_e, TRANSACTION_e, STATUS_e, TOTALS_e, HALT_e,
+             RUN_e, SHUTDOWN_e, TERMINATE_e, STATE_e, TRACE_e, SAVELOGREQ_e, RESPCMND_e,
+             LOG_e, LOGREQ_e);
+
+
 var
   ogcvdispensarios_pam: Togcvdispensarios_pam;
   TPosCarga:array[1..32] of tiposcarga;
@@ -212,7 +219,7 @@ var
 
 implementation
 
-uses StrUtils;
+uses StrUtils, TypInfo;
 
 {$R *.DFM}
 
@@ -235,9 +242,7 @@ begin
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',1001);
-    confPos:=config.ReadString('CONF','ConfPos','');
     licencia:=config.ReadString('CONF','Licencia','');
-    VersionPam1000:=config.ReadString('CONF','VersionPam1000','3');
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -281,6 +286,7 @@ procedure Togcvdispensarios_pam.ServerSocket1ClientRead(Sender: TObject;
     mensaje,comando,checksum,parametro:string;
     i:Integer;
     chks_valido:Boolean;
+    metodoEnum:TMetodos;
 begin
   try
     mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
@@ -314,7 +320,7 @@ begin
       if not chks_valido then begin
         Responder(Socket,'DISPENSERS|'+comando+'|False|Checksum invalido|');
         Exit;
-      end;    
+      end;
 
       if NoElemStrSep(mensaje,'|')>2 then begin
         for i:=3 to NoElemStrSep(mensaje,'|') do
@@ -324,62 +330,64 @@ begin
           Delete(parametro,Length(parametro),1);
       end;
 
-      if comando='NOTHING' then
-        Responder(Socket,'DISPENSERS|NOTHING|True|')
-      else if comando='INITIALIZE' then
-        Responder(Socket,'DISPENSERS|INITIALIZE|'+Inicializar(parametro))
-      else if comando='PARAMETERS' then
-        Responder(Socket,'DISPENSERS|PARAMETERS|True|')
-      else if comando='LOGIN' then
-        Responder(Socket,'DISPENSERS|LOGIN|'+Login(parametro))
-      else if comando='LOGOUT' then
-        Responder(Socket,'DISPENSERS|LOGOUT|'+Logout)
-      else if comando='PRICES' then
-        Responder(Socket,'DISPENSERS|PRICES|'+IniciaPrecios(parametro))
-      else if comando='AUTHORIZE' then
-        Responder(Socket,'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro))
-      else if comando='STOP' then
-        Responder(Socket,'DISPENSERS|STOP|'+DetenerVenta(parametro))
-      else if comando='START' then
-        Responder(Socket,'DISPENSERS|START|'+ReanudarVenta(parametro))
-      else if comando='SELFSERVICE' then
-        Responder(Socket,'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro))
-      else if comando='FULLSERVICE' then
-        Responder(Socket,'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro))
-      else if comando='BLOCK' then
-        Responder(Socket,'DISPENSERS|BLOCK|'+Bloquear(parametro))
-      else if comando='UNBLOCK' then
-        Responder(Socket,'DISPENSERS|UNBLOCK|'+Desbloquear(parametro))
-      else if comando='PAYMENT' then
-        Responder(Socket,'DISPENSERS|PAYMENT|'+FinVenta(parametro))
-      else if comando='TRANSACTION' then
-        Responder(Socket,'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro))
-      else if comando='STATUS' then
-        Responder(Socket,'DISPENSERS|STATUS|'+EstadoPosiciones(parametro))
-      else if comando='TOTALS' then
-        Responder(Socket,'DISPENSERS|TOTALS|'+TotalesBomba(parametro))
-      else if comando='HALT' then
-        Responder(Socket,'DISPENSERS|HALT|'+Detener)
-      else if comando='RUN' then
-        Responder(Socket,'DISPENSERS|RUN|'+Iniciar)
-      else if comando='SHUTDOWN' then
-        Responder(Socket,'DISPENSERS|SHUTDOWN|'+Shutdown)
-      else if comando='TERMINATE' then
-        Responder(Socket,'DISPENSERS|TERMINATE|'+Terminar)
-      else if comando='STATE' then
-        Responder(Socket,'DISPENSERS|STATE|'+ObtenerEstado)
-      else if comando='TRACE' then
-        Responder(Socket,'DISPENSERS|TRACE|'+GuardarLog)
-      else if comando='SAVELOGREQ' then
-        Responder(Socket,'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes)
-      else if comando='RESPCMND' then
-        Responder(Socket,'DISPENSERS|RESPCMND|'+RespuestaComando(parametro))
-      else if comando='LOG' then
-        Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro,0))))
-      else if comando='LOGREQ' then
-        Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro,0))))
+      metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
+
+      case metodoEnum of
+        NOTHING_e:
+          Responder(Socket, 'DISPENSERS|NOTHING|True|');
+        INITIALIZE_e:
+          Responder(Socket, 'DISPENSERS|INITIALIZE|'+Inicializar(parametro));
+        PARAMETERS_e:
+          Responder(Socket, 'DISPENSERS|PARAMETERS|True|');
+        LOGIN_e:
+          Responder(Socket, 'DISPENSERS|LOGIN|'+Login(parametro));
+        LOGOUT_e:
+          Responder(Socket, 'DISPENSERS|LOGOUT|'+Logout);
+        PRICES_e:
+          Responder(Socket, 'DISPENSERS|PRICES|'+IniciaPrecios(parametro));
+        AUTHORIZE_e:
+          Responder(Socket, 'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro));
+        STOP_e:
+          Responder(Socket, 'DISPENSERS|STOP|'+DetenerVenta(parametro));
+        START_e:
+          Responder(Socket, 'DISPENSERS|START|'+ReanudarVenta(parametro));
+        SELFSERVICE_e:
+          Responder(Socket, 'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro));
+        FULLSERVICE_e:
+          Responder(Socket, 'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro));
+        BLOCK_e:
+          Responder(Socket, 'DISPENSERS|BLOCK|'+Bloquear(parametro));
+        UNBLOCK_e:
+          Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
+        PAYMENT_e:
+          Responder(Socket, 'DISPENSERS|PAYMENT|'+FinVenta(parametro));
+        TRANSACTION_e:
+          Responder(Socket, 'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro));
+        STATUS_e:
+          Responder(Socket, 'DISPENSERS|STATUS|'+EstadoPosiciones(parametro));
+        TOTALS_e:
+          Responder(Socket, 'DISPENSERS|TOTALS|'+TotalesBomba(parametro));
+        HALT_e:
+          Responder(Socket, 'DISPENSERS|HALT|'+Detener);
+        RUN_e:
+          Responder(Socket, 'DISPENSERS|RUN|'+Iniciar);
+        SHUTDOWN_e:
+          Responder(Socket, 'DISPENSERS|SHUTDOWN|'+Shutdown);
+        TERMINATE_e:
+          Responder(Socket, 'DISPENSERS|TERMINATE|'+Terminar);
+        STATE_e:
+          Responder(Socket, 'DISPENSERS|STATE|'+ObtenerEstado);
+        TRACE_e:
+          Responder(Socket, 'DISPENSERS|TRACE|'+GuardarLog);
+        SAVELOGREQ_e:
+          Responder(Socket, 'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes);
+        LOG_e:
+          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+        LOGREQ_e:
+          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
       else
-        Responder(Socket,'DISPENSERS|'+comando+'|False|Comando desconocido|');
+        Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
+      end;
     end
     else
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
@@ -660,8 +668,6 @@ begin
            xestado:='';
            if MaxPosCargaActiva>MaxPosCarga then
              MaxPosCargaActiva:=MaxPosCarga;
-           if PreciosInicio then
-             IniciarPrecios;
            for xpos:=1 to MaxPosCargaActiva do begin
              with TPosCarga[xpos] do begin
                SwAutorizando:=false;
@@ -750,8 +756,6 @@ begin
              end;
            end;
 
-           //Pendiente hasta definir como se manejara versiones de PAM
-
            if not SwComandoB then begin
              SwComandoB:=true;
              if VersionPam1000='3' then begin
@@ -794,23 +798,8 @@ begin
                        SwInicio:=false;
                      end;
                    5:if (not SwDesHabilitado)and(not swautorizada) then begin
-                       if (ModoOpera='Normal') then begin
-                         if (ModoAutorizaPam=0)or(VersionPam1000='1') then begin
-                           ss:='S'+IntToClaveNum(xpos,2); // AUTHORIZATION FOR FILLUP
-                           ComandoConsola(ss);
-                           esperamiliseg(100);
-                           TipoPago:=0;
-                           SwAutorizando:=true;
-                         end
-                         else begin
-                           SnImporte:=9999.00;
-                           SnLitros:=0;
-                           SnPosCarga:=xpos;
-                           TipoPago:=0;
-                           EnviaPreset3(ss,0)
-                         end;
+                       if (ModoOpera='Normal') then
                          SwInicio:=false;
-                       end;
                      end
                      else if (swautorizada)and(ReautorizaPam='Si') then begin
                        if (now-TPosCarga[xpos].HoraOcc)<=60*tmsegundo then begin
@@ -822,9 +811,9 @@ begin
                        end;
                      end;
                    8:if (ModoOpera='Normal') then begin
-                         ss:='G'+IntToClaveNum(xpos,2); // RESTART
-                         ComandoConsola(ss);
-                         EsperaMiliSeg(100);
+                       ss:='G'+IntToClaveNum(xpos,2); // RESTART
+                       ComandoConsola(ss);
+                       EsperaMiliSeg(100);
                      end;
                  end;
                end;
@@ -849,11 +838,11 @@ begin
                  importeant:=importe;
                  simp:=copy(lin,14,8);
                  if digiImp=1 then
-                   importe:=StrToFloat(simp)/10
-                 else if digiImp=2 then
                    importe:=StrToFloat(simp)/100
+                 else if digiImp=2 then
+                   importe:=StrToFloat(simp)/1000
                  else
-                   importe:=StrToFloat(simp)/1000;
+                   importe:=StrToFloat(simp)/10000;
                  volumen:=0;
                  precio:=0;
                  CombActual:=0;
@@ -895,10 +884,10 @@ begin
                        precio:=StrToFloat(spre)/10000;
 
                      if digiImp=1 then
-                       importe:=StrToFloat(simp)/10
-                     else if digiImp=2 then
                        importe:=StrToFloat(simp)/100
-                     else importe:=StrToFloat(simp)/1000;
+                     else if digiImp=2 then
+                       importe:=StrToFloat(simp)/1000
+                     else importe:=StrToFloat(simp)/10000;
 
                      if (2*volumen*precio<importe) then
                        importe:=importe/10;
@@ -1046,10 +1035,7 @@ begin
             0:xestado:=xestado+'0'; // Sin Comunicacion
             1:xestado:=xestado+'1'; // Inactivo (Idle)
             2:xestado:=xestado+'2'; // Cargando (In Use)
-            3:if not swcargando then
-                xestado:=xestado+'3' // Fin de Carga (Used)
-              else
-                xestado:=xestado+'2';
+            3:xestado:=xestado+'3'; // Fin de Carga (Used)
             5:xestado:=xestado+'5'; // Llamando (Calling) Pistola Levantada
             9:xestado:=xestado+'9'; // Autorizado
             8:xestado:=xestado+'8'; // Detenido (Stoped)
@@ -1176,13 +1162,12 @@ begin
                   try
                     SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
                     SnLitros:=0;
-                    if VersionPam1000='3' then
-                      rsp:=ValidaCifra(SnImporte,4,2)
-                    else
-                      rsp:=ValidaCifra(SnImporte,3,2);
-                    if rsp='OK' then
-                      if (SnImporte<0.50) then
-                        SnImporte:=9999;
+                    if SnImporte<>0 then begin
+                      if VersionPam1000='3' then
+                        rsp:=ValidaCifra(SnImporte,4,2)
+                      else
+                        rsp:=ValidaCifra(SnImporte,3,2);
+                    end;
                   except
                     rsp:='Error en Importe';
                   end;
@@ -1440,9 +1425,16 @@ begin
   end;
   NivelPrec:='1';
   if not swlitros then begin // PRESET IMPORTE
-    ss:='P'+IntToClaveNum(xpos,2)+'0'+NivelPrec+'000'+FiltraStrNum(FormatFloat('000.00',snimporte))+'0';
-    TPosCarga[xpos].ImportePreset:=SnImporte;
-    TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(SnImporte);
+    if (snimporte=0) then begin
+      ss:='S'+IntToClaveNum(xpos,2);
+      TPosCarga[xpos].ImportePreset:=999;
+      TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(999);
+    end
+    else begin
+      ss:='P'+IntToClaveNum(xpos,2)+'0'+NivelPrec+'000'+FiltraStrNum(FormatFloat('000.00',snimporte))+'0';
+      TPosCarga[xpos].ImportePreset:=SnImporte;
+      TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(SnImporte);
+    end;
   end
   else begin // PRESET LITROS
     for xp:=1 to 4 do
@@ -1499,9 +1491,16 @@ begin
     end;
   end;
   if not swlitros then begin // PRESET EN IMPORTE
-    ss:='@02'+'0'+IntToClaveNum(xpos,2)+'0'+NivelPrec+FiltraStrNum(FormatFloat('0000.00',snimporte))+xprodauto;
-    TPosCarga[xpos].ImportePreset:=SnImporte;
-    TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(SnImporte);
+    if (snimporte=0) then begin
+      ss:='S'+IntToClaveNum(xpos,2);
+      TPosCarga[xpos].ImportePreset:=999;
+      TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(999);
+    end
+    else begin
+      ss:='@02'+'0'+IntToClaveNum(xpos,2)+'0'+NivelPrec+FiltraStrNum(FormatFloat('0000.00',snimporte))+xprodauto;
+      TPosCarga[xpos].ImportePreset:=SnImporte;
+      TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(SnImporte);
+    end;
   end
   else begin // PRESET EN LITROS
     ss:='@02'+'0'+IntToClaveNum(xpos,2)+'1'+NivelPrec+FiltraStrNum(FormatFloat('0000.00',snlitros))+xprodauto;
@@ -1639,7 +1638,6 @@ begin
       if xpos>MaxPosCarga then
         MaxPosCarga:=xpos;
       with TPosCarga[xpos] do begin
-        cPos:=ExtraeElemStrSep(confPos,xpos,';');
         SwDesp:=false;
         SwA:=false;
         SwPrec:=false;
@@ -1649,8 +1647,7 @@ begin
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
           xcomb:=mangueras.Child[j].Field['ProductId'].Value;
-          cMang:=ExtraeElemStrSep(cPos,xcomb,',');
-          conPosicion:=StrToInt(Copy(cMang,Length(cMang),1));
+          conPosicion:=mangueras.Child[j].Field['HoseId'].Value;
           for k:=1 to NoComb do
             if TComb[k]=xcomb then
               existe:=true;
@@ -1658,14 +1655,14 @@ begin
           if not existe then begin
             inc(NoComb);
             TComb[NoComb]:=xcomb;
-            TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+            TMang[NoComb]:=conPosicion;
             if conPosicion>0 then
               TPosx[NoComb]:=conPosicion
             else if NoComb<=2 then
               TPosx[NoComb]:=NoComb
             else
               TPosx[NoComb]:=1;
-            TMapa[NoComb]:='X'+IntToClaveNum(StrToInt(Copy(cMang,1,Length(cMang)-2)),2)+Copy(cMang,Length(cMang)-1,2);
+            TMapa[NoComb]:='X'+IntToClaveNum(xpos,2)+IntToStr(xcomb)+IntToStr(conPosicion);
             SwMapea[NoComb]:=True;
           end;
         end;
@@ -2277,35 +2274,22 @@ begin
     if Result<>'' then
       Exit;
 
-    productos := js.Field['Products'];
-
-    for i:=0 to productos.Count-1 do begin
-      productID:=productos.Child[i].Field['ProductId'].Value;
-      if productos.Child[i].Field['Price'].Value<0 then begin
-        Result:='False|El precio '+IntToStr(productID)+' es incorrecto|';
-        Exit;
-      end
-      else begin
-        LPrecios[productID]:=productos.Child[i].Field['Price'].Value;
-
-        ComandoConsola('X'+'00'+IntToStr(productID)+'1'+'00'+IntToClaveNum(Trunc(LPrecios[productID]*100+0.5),4)); // contado
-        EsperaMiliSeg(300);
-        ComandoConsola('X'+'00'+IntToStr(productID)+'2'+'00'+IntToClaveNum(Trunc(LPrecios[productID]*100+0.5),4)); // credito
-        EsperaMiliSeg(200);
-      end;
-    end;
-
     digiVol:=2;
     digiPrec:=1;
     digiImp:=2;
+    VersionPam1000:='3';
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
-      if ExtraeElemStrSep(variable,1,'=')='DecimalesLitros' then
+      if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESLITROS' then
         digiVol:=StrToInt(ExtraeElemStrSep(variable,2,'='))
-      else if ExtraeElemStrSep(variable,1,'=')='DecimalesPrecio' then
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRECIO' then
         digiPrec:=StrToInt(ExtraeElemStrSep(variable,2,'='))
-      else if ExtraeElemStrSep(variable,1,'=')='DecimalesPesos' then
-        digiImp:=StrToInt(ExtraeElemStrSep(variable,2,'='));
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPESOS' then
+        digiImp:=StrToInt(ExtraeElemStrSep(variable,2,'='))
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='SETUPPAM1000' then
+        SetUpPAM1000:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='VERSIONPAM1000' then
+        VersionPam1000:=ExtraeElemStrSep(variable,2,'=');
     end;
     PreciosInicio:=true;
     estado:=0;
