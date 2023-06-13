@@ -44,7 +44,6 @@ type
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
     ListaComandos:TStringList;
-    RespuestasPendientes:TStringList;
     rutaLog:string;
     licencia:string;
     detenido:Boolean;
@@ -170,6 +169,17 @@ const idSTX = #2;
       NivelPrecioCredito='2';
       MaxEsperaRsp=5;
 
+type
+  TMetodos = (
+    NOTHING_e, INITIALIZE_e,PARAMETERS_e,
+    LOGIN_e, LOGOUT_e,PRICES_e,
+    AUTHORIZE_e,STOP_e, START_e, SELFSERVICE_e,
+    FULLSERVICE_e, BLOCK_e, UNBLOCK_e,
+    PAYMENT_e, TRANSACTION_e, STATUS_e,
+    TOTALS_e, HALT_e, RUN_e, SHUTDOWN_e,
+    TERMINATE_e, STATE_e, TRACE_e,
+    SAVELOGREQ_e, RESPCMND_e, LOG_e, LOGREQ_e);
+
 
 var
   ogcvdispensarios_bennett: Togcvdispensarios_bennett;
@@ -198,7 +208,7 @@ var
 
 implementation
 
-uses StrUtils;
+uses StrUtils, TypInfo;
 
 {$R *.DFM}
 
@@ -224,7 +234,6 @@ begin
     licencia:=config.ReadString('CONF','Licencia','');
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
-    RespuestasPendientes:=TStringList.Create;
     SwEsperaRsp:=false;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -267,9 +276,16 @@ procedure Togcvdispensarios_bennett.ServerSocket1ClientRead(Sender: TObject;
     mensaje,comando,checksum,parametro:string;
     i:Integer;
     chks_valido:Boolean;
+    metodoEnum:TMetodos;
 begin
   try
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
+    mensaje:=Socket.ReceiveText;
+    if StrToIntDef(mensaje,-99) in [0,1] then begin
+      pSerial.Open:=mensaje='1';
+      Socket.SendText('1');
+      Exit;
+    end;
+    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,mensaje);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -308,64 +324,68 @@ begin
 
         if parametro[Length(parametro)]='|' then
           Delete(parametro,Length(parametro),1);
-      end;      
+      end;
 
-      if comando='NOTHING' then
-        Responder(Socket,'DISPENSERS|NOTHING|True|')
-      else if comando='INITIALIZE' then
-        Responder(Socket,'DISPENSERS|INITIALIZE|'+Inicializar(parametro))
-      else if comando='PARAMETERS' then
-        Responder(Socket,'DISPENSERS|PARAMETERS|'+Parametros(parametro))
-      else if comando='LOGIN' then
-        Responder(Socket,'DISPENSERS|LOGIN|'+Login(parametro))
-      else if comando='LOGOUT' then
-        Responder(Socket,'DISPENSERS|LOGOUT|'+Logout)
-      else if comando='PRICES' then
-        Responder(Socket,'DISPENSERS|PRICES|'+IniciaPrecios(parametro))
-      else if comando='AUTHORIZE' then
-        Responder(Socket,'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro))
-      else if comando='STOP' then
-        Responder(Socket,'DISPENSERS|STOP|'+DetenerVenta(parametro))
-      else if comando='START' then
-        Responder(Socket,'DISPENSERS|START|'+ReanudarVenta(parametro))
-      else if comando='SELFSERVICE' then
-        Responder(Socket,'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro))
-      else if comando='FULLSERVICE' then
-        Responder(Socket,'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro))
-      else if comando='BLOCK' then
-        Responder(Socket,'DISPENSERS|BLOCK|'+Bloquear(parametro))
-      else if comando='UNBLOCK' then
-        Responder(Socket,'DISPENSERS|UNBLOCK|'+Desbloquear(parametro))
-      else if comando='PAYMENT' then
-        Responder(Socket,'DISPENSERS|PAYMENT|'+FinVenta(parametro))
-      else if comando='TRANSACTION' then
-        Responder(Socket,'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro))
-      else if comando='STATUS' then
-        Responder(Socket,'DISPENSERS|STATUS|'+EstadoPosiciones(parametro))
-      else if comando='TOTALS' then
-        Responder(Socket,'DISPENSERS|TOTALS|'+TotalesBomba(parametro))
-      else if comando='HALT' then
-        Responder(Socket,'DISPENSERS|HALT|'+Detener)
-      else if comando='RUN' then
-        Responder(Socket,'DISPENSERS|RUN|'+Iniciar)
-      else if comando='SHUTDOWN' then
-        Responder(Socket,'DISPENSERS|SHUTDOWN|'+Shutdown)
-      else if comando='TERMINATE' then
-        Responder(Socket,'DISPENSERS|TERMINATE|'+Terminar)
-      else if comando='STATE' then
-        Responder(Socket,'DISPENSERS|STATE|'+ObtenerEstado)
-      else if comando='TRACE' then
-        Responder(Socket,'DISPENSERS|TRACE|'+GuardarLog)
-      else if comando='SAVELOGREQ' then
-        Responder(Socket,'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes)
-      else if comando='RESPCMND' then
-        Responder(Socket,'DISPENSERS|RESPCMND|'+RespuestaComando(parametro))
-      else if comando='LOG' then
-        Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro,0))))
-      else if comando='LOGREQ' then
-        Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro,0))))
+      metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
+
+      case metodoEnum of
+        NOTHING_e:
+          Responder(Socket, 'DISPENSERS|NOTHING|True|');
+        INITIALIZE_e:
+          Responder(Socket, 'DISPENSERS|INITIALIZE|'+Inicializar(parametro));
+        PARAMETERS_e:
+          Responder(Socket, 'DISPENSERS|PARAMETERS|'+Parametros(parametro));
+        LOGIN_e:
+          Responder(Socket, 'DISPENSERS|LOGIN|'+Login(parametro));
+        LOGOUT_e:
+          Responder(Socket, 'DISPENSERS|LOGOUT|'+Logout);
+        PRICES_e:
+          Responder(Socket, 'DISPENSERS|PRICES|'+IniciaPrecios(parametro));
+        AUTHORIZE_e:
+          Responder(Socket, 'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro));
+        STOP_e:
+          Responder(Socket, 'DISPENSERS|STOP|'+DetenerVenta(parametro));
+        START_e:
+          Responder(Socket, 'DISPENSERS|START|'+ReanudarVenta(parametro));
+        SELFSERVICE_e:
+          Responder(Socket, 'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro));
+        FULLSERVICE_e:
+          Responder(Socket, 'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro));
+        BLOCK_e:
+          Responder(Socket, 'DISPENSERS|BLOCK|'+Bloquear(parametro));
+        UNBLOCK_e:
+          Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
+        PAYMENT_e:
+          Responder(Socket, 'DISPENSERS|PAYMENT|'+FinVenta(parametro));
+        TRANSACTION_e:
+          Responder(Socket, 'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro));
+        STATUS_e:
+          Responder(Socket, 'DISPENSERS|STATUS|'+EstadoPosiciones(parametro));
+        TOTALS_e:
+          Responder(Socket, 'DISPENSERS|TOTALS|'+TotalesBomba(parametro));
+        HALT_e:
+          Responder(Socket, 'DISPENSERS|HALT|'+Detener);
+        RUN_e:
+          Responder(Socket, 'DISPENSERS|RUN|'+Iniciar);
+        SHUTDOWN_e:
+          Responder(Socket, 'DISPENSERS|SHUTDOWN|'+Shutdown);
+        TERMINATE_e:
+          Responder(Socket, 'DISPENSERS|TERMINATE|'+Terminar);
+        STATE_e:
+          Responder(Socket, 'DISPENSERS|STATE|'+ObtenerEstado);
+        TRACE_e:
+          Responder(Socket, 'DISPENSERS|TRACE|'+GuardarLog);
+        SAVELOGREQ_e:
+          Responder(Socket, 'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes);
+        RESPCMND_e:
+          Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
+        LOG_e:
+          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+        LOGREQ_e:
+          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
       else
-        Responder(Socket,'DISPENSERS|'+comando+'|False|Comando desconocido|');
+        Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
+      end;
     end
     else
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
@@ -687,20 +707,12 @@ begin
         FinLinea:=true;
     end;
     if FinLinea then begin
-      if Linea[2]='N' then begin
-        RespuestasPendientes.Add(Linea);
-        AgregaLog('**AGREG� RESPUESTA N');
-      end;
       LineaTimer:=Linea;
       AgregaLog('R '+LineaTimer);
       Linea:='';
       FinLinea:=false;
       ProcesaLinea;
       LineaTimer:='';
-      if RespuestasPendientes.Count>0 then begin
-        AgregaLog('**PROCES� RESPUESTA PENDIENTE');
-        ProcesaLinea;
-      end;
       SwEspera:=false;
     end
     else SwEspera:=true;
@@ -729,9 +741,7 @@ var lin,ss,ss2,rsp,rsp2,
     swerr           :boolean;
     totlts:array[1..4] of real;
 begin
-  if (LineaTimer='') and (RespuestasPendientes.Count>0) then
-    LineaTimer:=RespuestasPendientes[0]
-  else if (LineaTimer='') then
+  if (LineaTimer='') then
     exit;
   SwEsperaRsp:=false;
   ContEsperaRsp:=0;
@@ -921,10 +931,6 @@ begin
          end;
        end;
    'N':begin // totales de la bomba
-         if RespuestasPendientes.Count>0 then begin
-           RespuestasPendientes.Delete(0);
-           AgregaLog('**SE ELIMIN� RESPUESTA PENDIENTE');
-         end;
          NumPaso:=3;
          xpos:=StrToIntDef(copy(lin,2,2),0);
          if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
