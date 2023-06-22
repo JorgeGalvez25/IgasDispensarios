@@ -381,6 +381,8 @@ begin
           Responder(Socket, 'DISPENSERS|TRACE|'+GuardarLog);
         SAVELOGREQ_e:
           Responder(Socket, 'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes);
+        RESPCMND_e:
+          Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
           Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
         LOGREQ_e:
