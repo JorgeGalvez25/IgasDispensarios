@@ -527,20 +527,20 @@ begin
     for xpos:=1 to MaxPosCargaActiva do begin
       with TPosCarga[xpos] do if xpos<=MaximoDePosiciones then begin
         for i:=1 to NoComb do begin
-          precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,i,'|'),-1);
+          precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,TComb[i],'|'),-1);
           if precioComb=-1 then begin
             Result:='False|El precio '+IntToStr(i)+' es incorrecto|';
             Exit;
           end;
           if precioComb<=0 then
             Continue;
-          LPrecios[i]:=precioComb;
+          LPrecios[TComb[i]]:=precioComb;
           // precio contado
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(i)+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[NoComb])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
           esperamiliseg(100);
           // precio credito
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(i)+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[NoComb])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
           esperamiliseg(100);
         end;
@@ -616,11 +616,14 @@ begin
           if not existe then begin
             inc(NoComb);
             TComb[NoComb]:=xcomb;
-            TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
-            if NoComb<=MCxP then
-              TPos[NoComb]:=NoComb
-            else
-              TPos[NoComb]:=1;
+            if mangueras.Child[j].Field['HoseId'].Value=3 then begin
+              TMang[NoComb]:=4;
+              TPos[NoComb]:=4;
+            end
+            else begin
+              TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+              TPos[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+            end;
           end;
         end;
       end;
@@ -1313,9 +1316,9 @@ begin
               ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
             end;
             if not SwCargaTotales then begin
-              rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
-                              FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
-                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
+              rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
+                              FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
+                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
               SwAplicaCmnd:=True;
             end
             else
@@ -1402,6 +1405,8 @@ begin
       if TPos[i]=xposcarga then
         result:=TMang[i];
     end;
+    if Result=4 then
+      Result:=3;
   end;
 end;
 
@@ -1992,7 +1997,7 @@ begin
       end;
       LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
     end;
-    PreciosInicio:=true;
+    PreciosInicio:=False;
     estado:=0;
     Result:='True|';
   except
@@ -2087,14 +2092,16 @@ begin
   for i:=1 to 4 do begin
     if LPrecios[i]>0 then begin
       for xpos:=1 to MaxPosCargaActiva do begin
-        // precio contado
-        ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(i)+FiltraStrNum(FormatoNumeroSinComas(LPrecios[i],5,2));
-        ComandoConsolaBuff(ss,false);
-        esperamiliseg(100);
-        // precio credito
-        ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(i)+FiltraStrNum(FormatoNumeroSinComas(LPrecios[i],5,2));
-        ComandoConsolaBuff(ss,false);
-        esperamiliseg(100);
+        with TPosCarga[xpos] do begin
+          // precio contado
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
+          ComandoConsolaBuff(ss,false);
+          esperamiliseg(100);
+          // precio credito
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
+          ComandoConsolaBuff(ss,false);
+          esperamiliseg(100);
+        end;
       end;
     end;
   end;
