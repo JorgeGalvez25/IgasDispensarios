@@ -2293,7 +2293,7 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='VERSIONPAM1000' then
         VersionPam1000:=ExtraeElemStrSep(variable,2,'=');
     end;
-    PreciosInicio:=true;
+    PreciosInicio:=False;
     estado:=0;
     Result:='True|';
   except

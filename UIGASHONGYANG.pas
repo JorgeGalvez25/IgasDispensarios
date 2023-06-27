@@ -578,7 +578,7 @@ begin
       end;
       LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
     end;
-    PreciosInicio:=true;
+    PreciosInicio:=False;
     estado:=0;
     Result:='True|';
   except
