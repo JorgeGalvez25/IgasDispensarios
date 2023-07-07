@@ -35,6 +35,7 @@ type
     estado:Integer;
     ListaCmnd    :TStrings;
     confPos:string;
+    modoPreset:Boolean;
     FolioCmnd   :integer;
     ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
@@ -109,10 +110,13 @@ type
        posactual    :integer;
        posactual2   :integer;
        PosManguera  :array [1..3] of integer;
+       PosMangueraDisp  :array [1..3] of integer;
        PosEstatus   :array [1..3] of integer;
        TotalLitros:array[1..3] of real;
        SwDesHabilitado :Boolean;
        ModoOpera    :String;
+       Combustible   :array [1..3] of integer;
+       SwDisponible :Boolean;
       end;
 
      TipoManguera = record
@@ -250,6 +254,7 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     confPos:=config.ReadString('CONF','ConfPos','');
+    modoPreset:=config.ReadString('CONF','ModoPreset','Si')='Si';
     licencia:=config.ReadString('CONF','Licencia','');
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
@@ -389,7 +394,7 @@ begin
         LOGREQ_e:
           Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
       else
-          Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
+        Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
     end
     else
@@ -611,6 +616,7 @@ begin
         posestatus[j]:=0;
       end;
       TPosCarga[i].SwDesHabilitado:=False;
+      SwDisponible:=true;
     end;
     for i:=1 to 100 do with TMangueras[i] do begin
       address:=0;
@@ -644,7 +650,7 @@ begin
       SwVentaValidada:=false;
       SwErrorCmnd:=false;
       SwCargaPreset:=false;
-      SwCargaTotales:=true;
+      SwCargaTotales:=false;
       SwActivo:=false;
       tipopago:=0;
       finventa:=0;
@@ -659,7 +665,7 @@ begin
         MaxPosiciones:=xpos;
       mangueras:=posiciones.Child[i].Field['Hoses'];
       if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-        TPosCarga[xpos].ModoOpera:='Normal'
+        TPosCarga[xpos].ModoOpera:='Prepago'
       else
         TPosCarga[xpos].ModoOpera:='Prepago';
       for j:=0 to mangueras.Count-1 do begin
@@ -670,10 +676,13 @@ begin
         cMang:=ExtraeElemStrSep(cPos,xpcomb,',');
         xaddr:=StrToInt(ExtraeElemStrSep(cMang,1,':'));
         xlado:=StrToInt(ExtraeElemStrSep(cMang,2,':'));
-        if xpcomb in [1..3] then
+        if xpcomb in [1..3] then begin
           TPosCarga[xpos].posmanguera[xpcomb]:=xmang;
+          TPosCarga[xpos].PosMangueraDisp[xpcomb]:=mangueras.Child[j].Field['HoseId'].Value;
+        end;
         if (xmang>MaxMangueras)and(xpos<=32) then
           MaxMangueras:=xmang;
+        TPosCarga[xpos].Combustible[xpcomb]:=xcomb;
         with TMangueras[xmang] do begin
           address:=xaddr;
           Lado:=xlado;
@@ -684,7 +693,7 @@ begin
           SwDesp:=false;
           SwDespTot:=false;
           if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-            ModoOpera:='Normal'
+            ModoOpera:='Prepago'
           else
             ModoOpera:='Prepago';
           SwPrepagoM:= (ModoOpera='Prepago');
@@ -1155,14 +1164,17 @@ begin
         estatus:=8;
         if estatusant=5 then
           HoraFV:=Now;
-        AgregaLog('>>Estatus 8 en Manguera '+inttostr(MangCmnd));
+        AgregaLog('>>Estatus 8 en Manguera FINV '+inttostr(MangCmnd));
       end
-      else
+      else begin
         estatus:=7;
+        AgregaLog('>>Estatus 7 en Manguera FINV '+inttostr(MangCmnd));
+      end;
     end;
     if (estatus in [7,8])and((now-HoraFV)>10*tmsegundo) then begin
       estatus:=1;
       swfinventa:=false;
+      AgregaLog('>>Salió de FINV '+inttostr(MangCmnd));
     end;
     case estatus of
       1:begin  // Inactivo
@@ -1191,12 +1203,13 @@ begin
     if (Estatus in [1,8])and((swcargando)or(sw47)) then begin
       swcargando:=false;
       swdesptot:=true;
-      SwCargaTotales:=true;
     end;
     if poscomb in [1..3] then with TPosCarga[PosCarga] do begin
       PosEstatus[poscomb]:=estatus;
-      if estatus in [5,7] then
+      if (estatus in [5,7]) and (SwDisponible) then begin
         posactual2:=poscomb;
+        AgregaLog('>>Se asignó posición activa '+IntToStr(posactual2)+' a manguera '+inttostr(MangCmnd)+' de posición '+IntToStr(PosCarga));
+      end;
       posactual:=1;
       for xp:=2 to 3 do
         if posestatus[xp]>posestatus[posactual] then
@@ -1358,6 +1371,7 @@ begin
             estatus:=7;
           AgregaLog('>>Fin de Venta Manguera '+inttostr(MangCmnd));
           SwVentaValidada:=true;
+          ProcesaComandosExternos;
         end
         else 
           SwFinVenta:=false;
@@ -1434,42 +1448,45 @@ procedure Togcvdispensarios_hongyang.ProcesaLineaRec(LineaRsp: string);
 var xstr,xstr2,xdv,xdv2:string;
 begin
   try
-    FinLinea:=false;  LineaProc:='';
-    SwEsperaCmnd:=false;
-    xstr:=StrToHexSep(LineaRsp);
-    AgregaLog('R '+xstr);
-    xdv:=copy(xstr,length(xstr)-1,2);
-    xstr2:=copy(LineaRsp,1,length(LineaRsp)-1);
-    xdv2:=StrToHexSep(CalculaBCC(xstr2));
-    if xdv<>xdv2 then begin
-      Inc(TotalErrores);
-      AgregaLog('>> error '+xdv+' '+xdv2);
-      if not SwReintentoCmnd then begin
-        //SwEsperaCmnd:=true;
-        SwReintentoCmnd:=true;
-        MeteACola(LinCmnd);
+    try
+      FinLinea:=false;  LineaProc:='';
+      xstr:=StrToHexSep(LineaRsp);
+      AgregaLog('R '+xstr);
+      xdv:=copy(xstr,length(xstr)-1,2);
+      xstr2:=copy(LineaRsp,1,length(LineaRsp)-1);
+      xdv2:=StrToHexSep(CalculaBCC(xstr2));
+      if xdv<>xdv2 then begin
+        Inc(TotalErrores);
+        AgregaLog('>> error '+xdv+' '+xdv2);
+        if not SwReintentoCmnd then begin
+          //SwEsperaCmnd:=true;
+          SwReintentoCmnd:=true;
+          MeteACola(LinCmnd);
+        end;
+        exit;
       end;
-      exit;
+      case CharCmnd of
+        'A':if length(LineaRsp)=12 then
+              ProcesoComandoA(LineaRsp);
+        'C':if length(LineaRsp)=3 then
+              ProcesoComandoC(LineaRsp);
+        'D':if length(LineaRsp)=3 then
+              ProcesoComandoD(LineaRsp);
+        'N':if length(LineaRsp)=21 then
+              ProcesoComandoN(LineaRsp);
+        'U':if length(LineaRsp)=3 then
+              ProcesoComandoU(LineaRsp);
+        'V':if length(LineaRsp)=7 then
+              ProcesoComandoV(LineaRsp);
+        'S':if length(LineaRsp)=3 then
+              ProcesoComandoS(LineaRsp);
+        'L':if length(LineaRsp)=3 then
+              ProcesoComandoL(LineaRsp);
+      end;
+    except
     end;
-    case CharCmnd of
-      'A':if length(LineaRsp)=12 then
-            ProcesoComandoA(LineaRsp);
-      'C':if length(LineaRsp)=3 then
-            ProcesoComandoC(LineaRsp);
-      'D':if length(LineaRsp)=3 then
-            ProcesoComandoD(LineaRsp);
-      'N':if length(LineaRsp)=21 then
-            ProcesoComandoN(LineaRsp);
-      'U':if length(LineaRsp)=3 then
-            ProcesoComandoU(LineaRsp);
-      'V':if length(LineaRsp)=7 then
-            ProcesoComandoV(LineaRsp);
-      'S':if length(LineaRsp)=3 then
-            ProcesoComandoS(LineaRsp);
-      'L':if length(LineaRsp)=3 then
-            ProcesoComandoL(LineaRsp);
-    end;
-  except
+  finally
+    SwEsperaCmnd:=false;
   end;
 end;
 
@@ -1518,11 +1535,8 @@ begin
         case estatus of
           0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
           1:xestado:=xestado+'1'; // Inactivo (Idle)
-          5,8:xestado:=xestado+'2'; // Cargando (In Use)
-          7:if not swcargando then
-              xestado:=xestado+'3' // Fin de Carga (Used)
-            else
-              xestado:=xestado+'2';
+          5:xestado:=xestado+'2'; // Cargando (In Use)
+          7,8:xestado:=xestado+'3'; // Fin de Carga (Used)
           3,4:xestado:=xestado+'5'; // Llamando (Calling)
           2:xestado:=xestado+'9'; // Autorizado
           6:xestado:=xestado+'8'; // Detenido (Stoped)
@@ -1533,6 +1547,11 @@ begin
         ss:=ss+'/'+FormatFloat('#0.##',precio);
         ss:=ss+'/'+FormatFloat('####0.##',importe);
         lin:=lin+'#'+ss;
+        if (SwDisponible) and (estatus<>1) then
+          AgregaLog('>>Se ocupó posición '+inttostr(xpos)+' con manguera '+IntToStr(xmang))
+        else if (not SwDisponible) and (estatus=1) then
+          AgregaLog('>>Se liberó posición '+inttostr(xpos)+' de manguera '+IntToStr(xmang));
+        SwDisponible:=estatus=1;
       end;
     end;
     if lin='' then
@@ -1575,8 +1594,10 @@ begin
               if MangCiclo<=MaxMangueras then with TMangueras[MangCiclo] do begin
                 if ContParo<=0 then begin
                   if (ContBrinca<=0)or(Estatus<>1)or(SwPreset) then begin
-                    if Estatus=1 then
-                      ContBrinca:=4;
+                    if (Estatus=1) and (not modoPreset) then
+                      ContBrinca:=4
+                    else
+                      ContBrinca:=200;
                     ComandoConsola('A'+IntToClavenum(MangCiclo,2));
                     inc(MangCiclo);
                   end
@@ -1607,7 +1628,7 @@ begin
         // LEE TOTALES
         'N':begin
               if MangCiclo<=MaxMangueras then with TMangueras[MangCiclo] do begin
-                if (SwCargaTotales)and(estatus>0) then begin
+                if (SwCargaTotales) then begin
                   ComandoConsola('N'+IntToClavenum(MangCiclo,2));
                   inc(MangCiclo);
                 end
@@ -1660,7 +1681,7 @@ begin
     end
     // MANEJO DE ESPERA
     else begin
-      if ((Now-TimeResp)>TmSegundo*0.15)and(LineaProc<>'') then begin
+      if ((Now-TimeResp)>TmSegundo*0.5)and(LineaProc<>'') then begin
         SwEsperaCmnd:=false;
         ProcesaLineaRec(LineaProc);
       end
@@ -1728,7 +1749,7 @@ begin
                 //if (TMangueras[i].PosCarga=xpos) then begin
                   MeteACola('D'+inttoclavenum(i,2));
                   TMangueras[i].SwPrepagoM:=false;
-                  TMangueras[i].ModoOpera:='Normal';
+                  TMangueras[i].ModoOpera:='Prepago';
                 //end;
               end;
             end;
@@ -1738,7 +1759,7 @@ begin
               if (TMangueras[i].PosCarga=xpos) then begin
                 MeteACola('D'+inttoclavenum(i,2));
                 TMangueras[i].SwPrepagoM:=false;
-                TMangueras[i].ModoOpera:='Normal';
+                TMangueras[i].ModoOpera:='Prepago';
               end;
             end;
           end;
@@ -1754,8 +1775,14 @@ begin
         xmang:=0;
         if not TPosCarga[xpos].SwDesHabilitado then begin
           for i:=1 to MaxMangueras do begin
-            if (TMangueras[i].PosCarga=xpos)and(TMangueras[i].Combustible=xcomb) then
-              xmang:=i;
+            if (TMangueras[i].PosCarga=xpos) then begin
+              if (TMangueras[i].Combustible=xcomb) then
+                xmang:=i;
+              if (not TMangueras[i].estatus in [1,3]) then begin
+                rsp:='Posicion de carga no esta disponible';
+                Break;
+              end;
+            end;
           end;
           if (xmang in [1..MaxMangueras]) then begin
             if (TMangueras[xmang].estatus in [1,3])then begin
@@ -1770,9 +1797,7 @@ begin
                 rsp:='Error en Importe';
               end;
               if rsp='OK' then begin
-                TMangueras[xmang].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
-                TMangueras[xmang].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
-                TMangueras[xmang].boucher:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,7,' ');
+//                TMangueras[xmang].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                 TMangueras[xmang].impopreset:=ximporte;
                 ximp:=Trunc(xImporte*100+0.5);
 
@@ -1798,8 +1823,14 @@ begin
         xmang:=0;
         if not TPosCarga[xpos].SwDesHabilitado then begin
           for i:=1 to MaxMangueras do begin
-            if (TMangueras[i].PosCarga=xpos)and(TMangueras[i].Combustible=xcomb) then
-              xmang:=i;
+            if (TMangueras[i].PosCarga=xpos) then begin
+              if (TMangueras[i].Combustible=xcomb) then
+                xmang:=i;
+              if (not TMangueras[i].estatus in [1,3]) then begin
+                rsp:='Posicion de carga no esta disponible';
+                Break;
+              end;
+            end;
           end;
           if (xmang in [1..MaxMangueras]) then begin
             if (TMangueras[xmang].estatus in [1,3])then begin
@@ -1814,9 +1845,7 @@ begin
                 rsp:='Error en Valor';
               end;
               if rsp='OK' then begin
-                TMangueras[xmang].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
-                TMangueras[xmang].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
-                TMangueras[xmang].boucher:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,7,' ');
+//                TMangueras[xmang].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                 TMangueras[xmang].litrospreset:=xlitros;
                 ximp:=Trunc(xLitros*100+0.5);
 
@@ -1849,16 +1878,25 @@ begin
                 if (TMangueras[i].PosCarga=xpos) then
                   TotalLitros[TMangueras[i].PosComb]:=TMangueras[i].TotalLitros;
               end;
-              rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
-                              FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
-                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
+              rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[Combustible[1]])+'|'+
+                              FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[Combustible[2]])+'|'+
+                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[Combustible[3]]);
               SwAplicaCmnd:=True;
             end;
           end;
         end;
       end
-      else if ss='FINV' then
-        rsp:='OK'
+      else if ss='FINV' then begin
+//        xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+//        with TPosCarga[xpos] do begin
+//          if TMangueras[PosManguera[PosActual2]].estatus in [7,8] then begin
+//            TMangueras[PosManguera[PosActual2]].estatus:=1;
+            rsp:='OK'
+//          end
+//          else
+//            rsp:='Posicion no esta en fin de venta';
+//        end;
+      end
       else rsp:='Comando no Soportado o no Existe';
       if SwAplicaCmnd then begin
         TabCmnd[xcmnd].SwResp:=true;
@@ -1916,7 +1954,7 @@ begin
     end;
 
     with TPosCarga[xpos] do with TMangueras[PosManguera[PosActual2]] do
-      Result:='True|'+FormatDateTime('yyyy-mm-dd',HoraFv)+'T'+FormatDateTime('hh:nn',HoraFv)+'|'+IntToStr(PosManguera[PosActual2])+'|'+IntToStr(Combustible)+'|'+
+      Result:='True|'+FormatDateTime('yyyy-mm-dd',HoraFv)+'T'+FormatDateTime('hh:nn',HoraFv)+'|'+IntToStr(PosMangueraDisp[PosActual2])+'|'+IntToStr(Combustible)+'|'+
               FormatFloat('0.000',volumen)+'|'+FormatFloat('0.00',precio)+'|'+FormatFloat('0.00',importe)+'|';
   except
     on e:Exception do
