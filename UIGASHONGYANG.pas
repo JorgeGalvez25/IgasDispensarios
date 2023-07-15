@@ -1138,7 +1138,7 @@ begin
     volumenant:=volumen;
     importe:=ExtraeBCD(ss,3,5);
     volumen:=ExtraeBCD(ss,9,11);
-    precio:=ajustafloat(dividefloat(importe,volumen),2);
+    precio:=LPrecios[Combustible];
     if precio>0.01 then
       precioant:=precio;
     estatus:=ee;
