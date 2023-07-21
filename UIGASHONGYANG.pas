@@ -229,7 +229,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo;
+uses StrUtils, TypInfo, DateUtils;
 
 {$R *.DFM}
 
@@ -596,7 +596,7 @@ function Togcvdispensarios_hongyang.AgregaPosCarga(
   posiciones: TlkJSONbase): string;
 var i,xpos,j,
     xcomb,xpcomb,
-    xaddr,xlado,xmang:integer;
+    xaddr,xlado,xmang,xbrinca:integer;
     cPos,cMang:string;
     mangueras:TlkJSONbase;
 begin
@@ -628,7 +628,7 @@ begin
       Estat_Cons:=' ';
       SwInicio2:=true;
       IniciaCarga:=false;
-      SwPrepagoM:=false;
+      SwPrepagoM:=True;
       SwEnllavado:=false;
       SwPreset:=false;
       ActualizarPrecio:=false;
@@ -697,6 +697,10 @@ begin
           else
             ModoOpera:='Prepago';
           SwPrepagoM:= (ModoOpera='Prepago');
+          inc(xbrinca);
+          if xbrinca=6 then
+            xbrinca:=1;
+          ContBrinca:=xbrinca;
         end;
       end;
     end;
@@ -909,128 +913,138 @@ procedure Togcvdispensarios_hongyang.ComandoConsola(ss: string);
 var s1,s2:string;
     xmang,xprecio,ximporte,xlitros:integer;
 begin
-  LinCmnd:=ss;
-  MangCmnd:=strtointdef(copy(LinCmnd,2,2),0);
-  if (MangCmnd>=1)and(MangCmnd<=MaxMangueras) then begin
-    CharCmnd:=LinCmnd[1];
-    SwEsperaCmnd:=true;
-    TimeCmnd:=Now;
-    TimeResp:=Now;
-    case Charcmnd of
-      'A':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoA(address,lado);
-          end;
-      'C':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoC(address,lado);
-          end;
-      'D':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoD(address,lado);
-          end;
-      'N':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoN(address,lado);
-          end;
-      'U':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            xprecio:=strtointdef(copy(LinCmnd,4,4),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoU(address,lado,xprecio);
-          end;
-      'V':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoV(address,lado);
-          end;
-      'S':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            ximporte:=strtointdef(copy(LinCmnd,4,6),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoS(address,lado,ximporte);
-          end;
-      'L':begin
-            xmang:=strtointdef(copy(LinCmnd,2,2),0);
-            xlitros:=strtointdef(copy(LinCmnd,4,6),0);
-            if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
-              LinCmndHJ:=ComandoL(address,lado,xlitros);
-          end;
-      else exit;
-    end;
-    Inc(TotalTramas);
-    inc(ContadorAlarma);
-    if ContadorAlarma>10 then
-      LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
-    //Timer1.Enabled:=false;
-    try
-      try
-        s1:=copy(LinCmndHJ,1,1);
-        s2:=copy(LinCmndHJ,2,length(LinCmndHJ)-1);
-        try
-          pSerial.Parity:=pNone;
-          pSerial.Parity:=pMark;
-        except
-        end;
-        pSerial.RTS:=false;
-        if pSerial.Open then
-          pSerial.Output:=s1;
-        try
-          pSerial.Parity:=pNone;
-          pSerial.Parity:=pSpace;
-        except
-        end;
-        if pSerial.Open then
-          pSerial.OutPut:=s2;
-        try
-          pSerial.Parity:=pSpace;
-        except
-        end;
-        AgregaLog('E '+StrToHexSep(LinCmndHJ)+'  >>'+ss);
-      except
+  try
+    LinCmnd:=ss;
+    MangCmnd:=strtointdef(copy(LinCmnd,2,2),0);
+    if (MangCmnd>=1)and(MangCmnd<=MaxMangueras) then begin
+      CharCmnd:=LinCmnd[1];
+      SwEsperaCmnd:=true;
+      TimeCmnd:=Now;
+      TimeResp:=Now;
+      case Charcmnd of
+        'A':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoA(address,lado);
+            end;
+        'C':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoC(address,lado);
+            end;
+        'D':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoD(address,lado);
+            end;
+        'N':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoN(address,lado);
+            end;
+        'U':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              xprecio:=strtointdef(copy(LinCmnd,4,4),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoU(address,lado,xprecio);
+            end;
+        'V':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoV(address,lado);
+            end;
+        'S':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              ximporte:=strtointdef(copy(LinCmnd,4,6),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoS(address,lado,ximporte);
+            end;
+        'L':begin
+              xmang:=strtointdef(copy(LinCmnd,2,2),0);
+              xlitros:=strtointdef(copy(LinCmnd,4,6),0);
+              if xmang in [1..MaxMangueras] then with TMangueras[xmang] do
+                LinCmndHJ:=ComandoL(address,lado,xlitros);
+            end;
+        else exit;
       end;
-    finally
-      Timer1.Enabled:=true;
+      Inc(TotalTramas);
+      inc(ContadorAlarma);
+      if ContadorAlarma>10 then
+        LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
+      //Timer1.Enabled:=false;
+      try
+        try
+          s1:=copy(LinCmndHJ,1,1);
+          s2:=copy(LinCmndHJ,2,length(LinCmndHJ)-1);
+          try
+            pSerial.Parity:=pNone;
+            pSerial.Parity:=pMark;
+          except
+          end;
+          pSerial.RTS:=false;
+          if pSerial.Open then
+            pSerial.Output:=s1;
+          try
+            pSerial.Parity:=pNone;
+            pSerial.Parity:=pSpace;
+          except
+          end;
+          if pSerial.Open then
+            pSerial.OutPut:=s2;
+          try
+            pSerial.Parity:=pSpace;
+          except
+          end;
+          AgregaLog('E '+StrToHexSep(LinCmndHJ)+'  >>'+ss);
+        except
+        end;
+      finally
+        Timer1.Enabled:=true;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ComandoConsola: '+e.Message);
   end;
 end;
 
 function Togcvdispensarios_hongyang.EjecutaComando(xCmnd: string): integer;
 var ind:integer;
 begin
-  // busca un registro disponible
-  ind:=0;
-  repeat
-    inc(ind);
-    if (TabCmnd[ind].SwActivo)and((now-TabCmnd[ind].hora)>tmMinuto) then begin
-      TabCmnd[ind].SwActivo:=false;
-      TabCmnd[ind].SwResp:=false;
-      TabCmnd[ind].SwNuevo:=true;
+  try
+    // busca un registro disponible
+    ind:=0;
+    repeat
+      inc(ind);
+      if (TabCmnd[ind].SwActivo)and((now-TabCmnd[ind].hora)>tmMinuto) then begin
+        TabCmnd[ind].SwActivo:=false;
+        TabCmnd[ind].SwResp:=false;
+        TabCmnd[ind].SwNuevo:=true;
+      end;
+    until (not TabCmnd[ind].SwActivo)or(ind>200);
+    // Si no lo encuentra se sale
+    if ind>200 then begin
+      result:=0;
+      exit;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>200);
-  // Si no lo encuentra se sale
-  if ind>200 then begin
-    result:=0;
-    exit;
+    // envia el comando
+    with TabCmnd[ind] do begin
+      inc(FolioCmnd);
+      if FolioCmnd<=0 then
+        FolioCmnd:=1;
+      Folio:=FolioCmnd;
+      hora:=Now;
+      SwActivo:=true;
+      Comando:=xCmnd;
+      SwResp:=false;
+      SwNuevo:=True;
+      Respuesta:='';
+    end;
+    Result:=FolioCmnd;
+  except
+    on e:Exception do
+      AgregaLog('Error EjecutaComando: '+e.Message);
   end;
-  // envia el comando
-  with TabCmnd[ind] do begin
-    inc(FolioCmnd);
-    if FolioCmnd<=0 then
-      FolioCmnd:=1;
-    Folio:=FolioCmnd;
-    hora:=Now;
-    SwActivo:=true;
-    Comando:=xCmnd;
-    SwResp:=false;
-    SwNuevo:=True;
-    Respuesta:='';
-  end;
-  Result:=FolioCmnd;
 end;
 
 function Togcvdispensarios_hongyang.AutorizarVenta(msj: string): string;
@@ -1125,96 +1139,105 @@ var ss:string;
     ee,xp,ne:integer;
     ximp,xvol,xpre:real;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    ne:=NoElemStrSep(ss,' ');
-    ee:=DameEstatus(ss,SwEnllavado,SwErrorCmnd);
-    if SwErrorCmnd then
-      exit;
-    if ne<9 then
-      exit;
-    estatusant:=estatus;
-    importeant:=importe;
-    volumenant:=volumen;
-    importe:=ExtraeBCD(ss,3,5);
-    volumen:=ExtraeBCD(ss,9,11);
-    precio:=LPrecios[Combustible];
-    if precio>0.01 then
-      precioant:=precio;
-    estatus:=ee;
-    if (Estatusant=5)and(estatus=5)and(importe<importeant-0.5) then begin       // CAMBIO
-      AgregaLog('>>Cambio importe '+inttostr(MangCmnd)+FormatoNumero(importeant,10,2)+FormatoNumero(importe,10,2));
-      ximp:=importe;  importe:=importeant;
-      xvol:=volumen;  volumen:=volumenant;
-      xpre:=precio;   precio:=precioant;
-      try
-        swdesp:=true;
-      finally
-        importe:=ximp;
-        volumen:=xvol;
-        precio:=xpre;
-      end;
-    end;
-    if (estatusant=0)and(estatus<>0) then begin
-      SwCargaTotales:=true;
-      ActualizarPrecio:=true;
-    end;
-    if (estatus=1)and(finventa=1)and(swfinventa) then begin
-      if not SwVentaValidada then begin
-        estatus:=8;
-        if estatusant=5 then
-          HoraFV:=Now;
-        AgregaLog('>>Estatus 8 en Manguera FINV '+inttostr(MangCmnd));
-      end
-      else begin
-        estatus:=7;
-        AgregaLog('>>Estatus 7 en Manguera FINV '+inttostr(MangCmnd));
-      end;
-    end;
-    if (estatus in [7,8])and((now-HoraFV)>10*tmsegundo) then begin
-      estatus:=1;
-      swfinventa:=false;
-      AgregaLog('>>Salió de FINV '+inttostr(MangCmnd));
-    end;
-    case estatus of
-      1:begin  // Inactivo
-          descestat:='Inactivo';
-          SwPreset:=false;
-          Swfinventa:=false;
-          ContInicDesp:=0;
-          if EstatusAnt<>1 then
-            FinVenta:=0;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      ne:=NoElemStrSep(ss,' ');
+      ee:=DameEstatus(ss,SwEnllavado,SwErrorCmnd);
+      if SwErrorCmnd then
+        exit;
+      if ne<9 then
+        exit;
+      estatusant:=estatus;
+      importeant:=importe;
+      volumenant:=volumen;
+      importe:=ExtraeBCD(ss,3,5);
+      volumen:=ExtraeBCD(ss,9,11);
+      precio:=LPrecios[Combustible];
+      if precio>0.01 then
+        precioant:=precio;
+      estatus:=ee;
+      if (Estatusant=5)and(estatus=5)and(importe<importeant-0.5) then begin       // CAMBIO
+        AgregaLog('>>Cambio importe '+inttostr(MangCmnd)+FormatoNumero(importeant,10,2)+FormatoNumero(importe,10,2));
+        ximp:=importe;  importe:=importeant;
+        xvol:=volumen;  volumen:=volumenant;
+        xpre:=precio;   precio:=precioant;
+        try
+          swdesp:=true;
+        finally
+          importe:=ximp;
+          volumen:=xvol;
+          precio:=xpre;
         end;
-      2:descestat:='Autorizado';
-      //3:descestat:='Pistola Levantada';
-      5:begin                // Despachando
-          descestat:='Despachando';
-          swcargando:=true;
-          swfinventa:=true;
-          ContTotErr:=0;
-          SwVentaValidada:=false;
-          if (SwPrepagoM)and(Importe<=0.001) then
-            descestat:='Autorizado';
-          Inc(ContInicDesp);
-        end;
-      7,8:descestat:='Fin de Venta';
-      9:descestat:='Enllavado';
-    end;
-    if (Estatus in [1,8])and((swcargando)or(sw47)) then begin
-      swcargando:=false;
-      swdesptot:=true;
-    end;
-    if poscomb in [1..3] then with TPosCarga[PosCarga] do begin
-      PosEstatus[poscomb]:=estatus;
-      if (estatus in [5,7]) and (SwDisponible) then begin
-        posactual2:=poscomb;
-        AgregaLog('>>Se asignó posición activa '+IntToStr(posactual2)+' a manguera '+inttostr(MangCmnd)+' de posición '+IntToStr(PosCarga));
       end;
-      posactual:=1;
-      for xp:=2 to 3 do
-        if posestatus[xp]>posestatus[posactual] then
-          posactual:=xp;
+      if (estatusant=0)and(estatus<>0) then begin
+        SwCargaTotales:=true;
+        ActualizarPrecio:=true;
+      end;
+      if (estatus=1)and(finventa=1)and(swfinventa) then begin
+        if not SwVentaValidada then begin
+          estatus:=8;
+          if estatusant=5 then
+            HoraFV:=Now;
+          AgregaLog('>>Estatus 8 en Manguera FINV '+inttostr(MangCmnd));
+        end
+        else begin
+          estatus:=7;
+          AgregaLog('>>Estatus 7 en Manguera FINV '+inttostr(MangCmnd));
+        end;
+      end;
+      if (estatus in [7,8])and((now-HoraFV)>10*tmsegundo) then begin
+        estatus:=1;
+        swfinventa:=false;
+        AgregaLog('>>Salio de FINV '+inttostr(MangCmnd));
+      end;
+      case estatus of
+        1:begin  // Inactivo
+            descestat:='Inactivo';
+            SwPreset:=false;
+            Swfinventa:=false;
+            ContInicDesp:=0;
+            if EstatusAnt<>1 then
+              FinVenta:=0;
+          end;
+        2:descestat:='Autorizado';
+        //3:descestat:='Pistola Levantada';
+        5:begin                // Despachando
+            descestat:='Despachando';
+            swcargando:=true;
+            swfinventa:=true;
+            ContTotErr:=0;
+            SwVentaValidada:=false;
+            if not SwPreset then begin
+              AgregaLog('>>Se inicio venta sin preset');
+              SwPreset:=True;
+            end;
+            if (SwPrepagoM)and(Importe<=0.001) then
+              descestat:='Autorizado';
+            Inc(ContInicDesp);
+          end;
+        7,8:descestat:='Fin de Venta';
+        9:descestat:='Enllavado';
+      end;
+      if (Estatus in [1,8])and((swcargando)or(sw47)) then begin
+        swcargando:=false;
+        swdesptot:=true;
+      end;
+      if poscomb in [1..3] then with TPosCarga[PosCarga] do begin
+        PosEstatus[poscomb]:=estatus;
+        if (estatus in [5,7]) and (SwDisponible) then begin
+          posactual2:=poscomb;
+          AgregaLog('>>Se asigno posicion activa '+IntToStr(posactual2)+' a manguera '+inttostr(MangCmnd)+' de posicion '+IntToStr(PosCarga));
+        end;
+        posactual:=1;
+        for xp:=2 to 3 do
+          if posestatus[xp]>posestatus[posactual] then
+            posactual:=xp;
+      end;
     end;
+  except
+   on e:Exception do
+     AgregaLog('Error ProcesoComandoA: '+e.Message);
   end;
 end;
 
@@ -1311,13 +1334,18 @@ procedure Togcvdispensarios_hongyang.ProcesoComandoC(xResp: string);
 var ss:string;
     swerr:boolean;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    DameEstatus(ss,SwEnllavado,SwErr);
-    if not SwErr then begin
-      //ActualizarPrecio:=false;
-      //LeerPrecio:=true;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      DameEstatus(ss,SwEnllavado,SwErr);
+      if not SwErr then begin
+        //ActualizarPrecio:=false;
+        //LeerPrecio:=true;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ProcesoComandoC: '+e.Message);
   end;
 end;
 
@@ -1326,13 +1354,18 @@ procedure Togcvdispensarios_hongyang.ProcesoComandoD(xResp: string);
 var ss:string;
     swerr:boolean;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    DameEstatus(ss,SwEnllavado,SwErr);
-    if not SwErr then begin
-      //ActualizarPrecio:=false;
-      //LeerPrecio:=true;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      DameEstatus(ss,SwEnllavado,SwErr);
+      if not SwErr then begin
+        //ActualizarPrecio:=false;
+        //LeerPrecio:=true;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ProcesoComandoD: '+e.Message);
   end;
 end;
 
@@ -1364,9 +1397,8 @@ begin
             AgregaLog('Diferencia Volumen Manguera '+inttostr(MangCmnd)+'  litros: '+FormatoNumero(abs(diflitrostot-volumen),5,2));
           swdesp:=true;
           HoraFV:=Now;
-          if TMangueras[MangCmnd].SwPrepagoM then begin
+          if TMangueras[MangCmnd].SwPrepagoM then
             MeteACola('C'+inttoclavenum(MangCmnd,2));
-          end;
           if (finventa=1)and(swfinventa) then
             estatus:=7;
           AgregaLog('>>Fin de Venta Manguera '+inttostr(MangCmnd));
@@ -1388,13 +1420,18 @@ procedure Togcvdispensarios_hongyang.ProcesoComandoU(xResp: string);
 var ss:string;
     swerr:boolean;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    DameEstatus(ss,SwEnllavado,SwErr);
-    if not SwErr then begin
-      ActualizarPrecio:=false;
-      LeerPrecio:=true;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      DameEstatus(ss,SwEnllavado,SwErr);
+      if not SwErr then begin
+        ActualizarPrecio:=false;
+        LeerPrecio:=true;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ProcesoComandoS: '+e.Message);
   end;
 end;
 
@@ -1419,13 +1456,18 @@ procedure Togcvdispensarios_hongyang.ProcesoComandoS(xResp: string);
 var ss:string;
     swerr:boolean;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    DameEstatus(ss,SwEnllavado,SwErr);
-    if not SwErr then begin
-      SwPreset:=true;
-      SwPresetImp:=true;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      DameEstatus(ss,SwEnllavado,SwErr);
+      if not SwErr then begin
+        SwPreset:=true;
+        SwPresetImp:=true;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ProcesoComandoS: '+e.Message);
   end;
 end;
 
@@ -1434,13 +1476,18 @@ procedure Togcvdispensarios_hongyang.ProcesoComandoL(xResp: string);
 var ss:string;
     swerr:boolean;
 begin
-  with TMangueras[MangCmnd] do begin
-    ss:=StrToHexSep(xResp);
-    DameEstatus(ss,SwEnllavado,SwErr);
-    if not SwErr then begin
-      SwPreset:=true;
-      SwPresetImp:=false;
+  try
+    with TMangueras[MangCmnd] do begin
+      ss:=StrToHexSep(xResp);
+      DameEstatus(ss,SwEnllavado,SwErr);
+      if not SwErr then begin
+        SwPreset:=true;
+        SwPresetImp:=false;
+      end;
     end;
+  except
+    on e:Exception do
+      AgregaLog('Error ProcesoComandoL: '+e.Message);
   end;
 end;
 
@@ -1484,6 +1531,8 @@ begin
               ProcesoComandoL(LineaRsp);
       end;
     except
+      on e:Exception do
+        AgregaLog('Error ProcesaLineaRec: '+e.Message);
     end;
   finally
     SwEsperaCmnd:=false;
@@ -1496,28 +1545,34 @@ var I:Word;
     C:Char;
     xlong:integer;
 begin
-  ContadorAlarma:=0;
-  //Timer1.Enabled:=false;
   try
-    for I := 1 to Count do begin
-      C:=pSerial.GetChar;
-      LineaBuff:=LineaBuff+C;
+    ContadorAlarma:=0;
+    //Timer1.Enabled:=false;
+    try
+      for I := 1 to Count do begin
+        C:=pSerial.GetChar;
+        LineaBuff:=LineaBuff+C;
+      end;
+      while (not FinLinea)and(Length(LineaBuff)>0) do begin
+        c:=LineaBuff[1];
+        delete(LineaBuff,1,1);
+        LineaProc:=LineaProc+C;
+        xlong:=ord(LineaProc[1]);
+        if length(LineaProc)=xlong then
+          FinLinea:=true;
+      end;
+      if FinLinea then begin
+        ProcesaLineaRec(LineaProc);
+        SwEsperaCmnd:=false;
+      end;
+    finally
+      TimeResp:=Now;
+      Timer1.Enabled:=true;
+      Timer1Timer(nil);
     end;
-    while (not FinLinea)and(Length(LineaBuff)>0) do begin
-      c:=LineaBuff[1];
-      delete(LineaBuff,1,1);
-      LineaProc:=LineaProc+C;
-      xlong:=ord(LineaProc[1]);
-      if length(LineaProc)=xlong then
-        FinLinea:=true;
-    end;
-    if FinLinea then begin
-      ProcesaLineaRec(LineaProc);
-      SwEsperaCmnd:=false;
-    end;
-  finally
-    TimeResp:=Now;
-    Timer1.Enabled:=true;
+  except
+    on e:Exception do
+      AgregaLog('Error pSerialTriggerAvail: '+e.Message);
   end;
 end;
 
@@ -1533,7 +1588,7 @@ begin
       with TMangueras[xmang] do begin
         xmodo:=xmodo+ModoOpera[1];
         case estatus of
-          0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
+          0:xestado:=xestado+'0'; // Sin Comunicacion
           1:xestado:=xestado+'1'; // Inactivo (Idle)
           5:xestado:=xestado+'2'; // Cargando (In Use)
           7,8:xestado:=xestado+'3'; // Fin de Carga (Used)
@@ -1548,9 +1603,9 @@ begin
         ss:=ss+'/'+FormatFloat('####0.##',importe);
         lin:=lin+'#'+ss;
         if (SwDisponible) and (estatus<>1) then
-          AgregaLog('>>Se ocupó posición '+inttostr(xpos)+' con manguera '+IntToStr(xmang))
+          AgregaLog('>>Se ocupo posicion '+inttostr(xpos)+' con manguera '+IntToStr(xmang))
         else if (not SwDisponible) and (estatus=1) then
-          AgregaLog('>>Se liberó posición '+inttostr(xpos)+' de manguera '+IntToStr(xmang));
+          AgregaLog('>>Se libero posicion '+inttostr(xpos)+' de manguera '+IntToStr(xmang));
         SwDisponible:=estatus=1;
       end;
     end;
@@ -1561,19 +1616,26 @@ begin
     lin:=lin+'&'+xmodo;
     LinEstadoGen:=xestado;
   except
+    on e:Exception do
+      AgregaLog('Error PublicaEstatusDispensarios: '+e.Message);
   end;
 end;
 
 procedure Togcvdispensarios_hongyang.SacaDeCola(var xstr: string);
 var i:integer;
 begin
-  xstr:='';
-  if ApCola>0 then begin
-    xstr:=TColaCmnd[1];
-    dec(ApCola);
-    if ApCola>0 then
-      for i:=1 to ApCola do
-        TColaCmnd[i]:=TColaCmnd[i+1];
+  try
+    xstr:='';
+    if ApCola>0 then begin
+      xstr:=TColaCmnd[1];
+      dec(ApCola);
+      if ApCola>0 then
+        for i:=1 to ApCola do
+          TColaCmnd[i]:=TColaCmnd[i+1];
+    end;
+  except
+    on e:Exception do
+      AgregaLog('Error SacaDeCola: '+e.Message);
   end;
 end;
 
@@ -1597,7 +1659,7 @@ begin
                     if (Estatus=1) and (not modoPreset) then
                       ContBrinca:=4
                     else
-                      ContBrinca:=200;
+                      ContBrinca:=40;
                     ComandoConsola('A'+IntToClavenum(MangCiclo,2));
                     inc(MangCiclo);
                   end
@@ -1694,8 +1756,10 @@ begin
         end;
       end;
     end;
-   except
-   end;
+  except
+   on e:Exception do
+     AgregaLog('Error Timer1: '+e.Message);
+  end;
 end;
 
 procedure Togcvdispensarios_hongyang.ProcesaComandosExternos;
@@ -1802,7 +1866,7 @@ begin
                 ximp:=Trunc(xImporte*100+0.5);
 
                 if TMangueras[xmang].SwPrepagoM then begin
-                  //MeteACola('D'+inttoclavenum(xmang,2));
+                  MeteACola('D'+inttoclavenum(xmang,2));
                 end;
 
                 MeteACola('S'+inttoclavenum(xmang,2)+InttoClaveNum(ximp,6));
@@ -1850,7 +1914,7 @@ begin
                 ximp:=Trunc(xLitros*100+0.5);
 
                 if TMangueras[xmang].SwPrepagoM then begin
-                  //MeteACola('D'+inttoclavenum(xmang,2));
+                  MeteACola('D'+inttoclavenum(xmang,2));
                 end;
 
                 MeteACola('L'+inttoclavenum(xmang,2)+InttoClaveNum(ximp,6));
@@ -1906,6 +1970,8 @@ begin
       if SwSalir then exit;
     end;
   except
+    on e:Exception do
+      AgregaLog('Error Timer1: '+e.Message);
   end;
 end;
 
@@ -1914,26 +1980,31 @@ function Togcvdispensarios_hongyang.ValidaCifra(xvalor: real; xenteros,
 var xmax,xaux:real;
     i:integer;
 begin
-  if xvalor<-0.0001 then begin
-    result:='Valor negativo no permitido';
-    exit;
+  try
+    if xvalor<-0.0001 then begin
+      result:='Valor negativo no permitido';
+      exit;
+    end;
+    xmax:=1;
+    for i:=1 to xenteros do
+      xmax:=xmax*10;
+    if xvalor>(xmax-0.0000000001) then begin
+      result:='Valor excede maximo permitido';
+      exit;
+    end;
+    xaux:=AjustaFloat(xvalor,xdecimales);
+    if abs(xaux-xvalor)>0.000000001 then begin
+      if xdecimales=0 then
+        result:='Solo se permiten valores enteros'
+      else
+        result:='Numero de decimales excede maximo permitido';
+      exit;
+    end;
+    result:='OK';
+  except
+    on e:Exception do
+      AgregaLog('Error ValidaCifra: '+e.Message);
   end;
-  xmax:=1;
-  for i:=1 to xenteros do
-    xmax:=xmax*10;
-  if xvalor>(xmax-0.0000000001) then begin
-    result:='Valor excede maximo permitido';
-    exit;
-  end;
-  xaux:=AjustaFloat(xvalor,xdecimales);
-  if abs(xaux-xvalor)>0.000000001 then begin
-    if xdecimales=0 then
-      result:='Solo se permiten valores enteros'
-    else
-      result:='Numero de decimales excede maximo permitido';
-    exit;
-  end;
-  result:='OK';
 end;
 
 function Togcvdispensarios_hongyang.TransaccionPosCarga(
@@ -2028,7 +2099,8 @@ begin
     CmndProc:='A';
     Timer1.Enabled:=True;
     numPaso:=0;
-
+    if modoPreset then
+      EjecutaComando('AMP 00');
     Result:='True|';
   except
     on e:Exception do
@@ -2201,7 +2273,7 @@ begin
     PreciosInicio:=False;
   except
     on e:Exception do
-      AgregaLog('Excepcion: '+e.Message);
+      AgregaLog('Excepcion IniciarPrecios: '+e.Message);
   end;
 end;
 
@@ -2265,14 +2337,14 @@ begin
         for xpos:=1 to MaxPosiciones do begin
           TPosCarga[xpos].SwDesHabilitado:=False;
           if TPosCarga[xpos].ModoOpera='Normal' then
-           EjecutaComando('DMP '+IntToClaveNum(xpos,2));
+           EjecutaComando('AMP '+IntToClaveNum(xpos,2));
         end;
         Result:='True|';
       end
       else if (xpos in [1..MaxPosiciones]) then begin
         TPosCarga[xpos].SwDesHabilitado:=False;
         if TPosCarga[xpos].ModoOpera='Normal' then
-          EjecutaComando('DMP '+IntToClaveNum(xpos,2));
+          EjecutaComando('AMP '+IntToClaveNum(xpos,2));
         Result:='True|';
       end;
     end
