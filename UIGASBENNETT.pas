@@ -536,11 +536,11 @@ begin
             Continue;
           LPrecios[TComb[i]]:=precioComb;
           // precio contado
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[NoComb])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
           esperamiliseg(100);
           // precio credito
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[NoComb])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
+          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
           esperamiliseg(100);
         end;
