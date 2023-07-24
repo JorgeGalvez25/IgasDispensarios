@@ -596,7 +596,7 @@ function Togcvdispensarios_hongyang.AgregaPosCarga(
   posiciones: TlkJSONbase): string;
 var i,xpos,j,
     xcomb,xpcomb,
-    xaddr,xlado,xmang,xbrinca:integer;
+    xaddr,xlado,xmang:integer;
     cPos,cMang:string;
     mangueras:TlkJSONbase;
 begin
@@ -657,6 +657,7 @@ begin
       boucher:='';
       contbrinca:=0;
       contparo:=0;
+      HoraFV:=Now;
     end;
 
     for i:=0 to posiciones.Count-1 do begin
@@ -697,10 +698,7 @@ begin
           else
             ModoOpera:='Prepago';
           SwPrepagoM:= (ModoOpera='Prepago');
-          inc(xbrinca);
-          if xbrinca=6 then
-            xbrinca:=1;
-          ContBrinca:=xbrinca;
+          ContBrinca:=xmang;
         end;
       end;
     end;
@@ -1169,10 +1167,6 @@ begin
           volumen:=xvol;
           precio:=xpre;
         end;
-      end;
-      if (estatusant=0)and(estatus<>0) then begin
-        SwCargaTotales:=true;
-        ActualizarPrecio:=true;
       end;
       if (estatus=1)and(finventa=1)and(swfinventa) then begin
         if not SwVentaValidada then begin
@@ -1655,7 +1649,7 @@ begin
         'A':begin
               if MangCiclo<=MaxMangueras then with TMangueras[MangCiclo] do begin
                 if ContParo<=0 then begin
-                  if (ContBrinca<=0)or(Estatus<>1)or(SwPreset) then begin
+                  if (ContBrinca<=0)or(Estatus>1)or(SwPreset) then begin
                     if (Estatus=1) and (not modoPreset) then
                       ContBrinca:=4
                     else
