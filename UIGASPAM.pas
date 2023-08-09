@@ -5,10 +5,10 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
   ExtCtrls, OoMisc, AdPort, ScktComp, IniFiles, ULIBGRAL, DB, RxMemDS, uLkJSON,
-  Variants, CRCs, IdHashMessageDigest, IdHash, ActiveX, ComObj;
+  Variants, CRCs, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
 const
-      MCxP=4;  
+      MCxP=4;
 
 type
   Togcvdispensarios_pam = class(TService)
@@ -116,6 +116,8 @@ type
     function Logout: string;
     function MD5(const usuario: string): string;
     procedure GuardaLogComandos;
+    function Encrypt(data,key3DES:string):string;
+    function Decrypt(data,key3DES:string):string;
     { Public declarations }
   end;
 
@@ -266,6 +268,7 @@ begin
     else begin
       claveCre:=ExtraeElemStrSep(lic,2,'|');
       key3DES:=ExtraeElemStrSep(lic,3,'|');
+      key:=Unassigned;
     end;    
 
     while not Terminated do
@@ -289,11 +292,11 @@ procedure Togcvdispensarios_pam.ServerSocket1ClientRead(Sender: TObject;
     metodoEnum:TMetodos;
 begin
   try
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
+    mensaje:=Decrypt(mensaje,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje));
+        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
         Break;
       end;
     end;
@@ -384,9 +387,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -447,7 +450,7 @@ end;
 
 procedure Togcvdispensarios_pam.Responder(socket: TCustomWinSocket; resp: string);
 begin
-  socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,#1#2+resp+#3+CRC16(resp)+#23));
+  socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -2437,6 +2440,28 @@ begin
       Exception.Create('GuardaLogComandos: '+e.Message);
   end;
 
+end;
+
+function Togcvdispensarios_pam.Decrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataOut : string;
+begin
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(data,dataOut,key128,false);
+  dataOut := UTF8Decode(dataOut);
+  Result := dataOut;
+end;
+
+function Togcvdispensarios_pam.Encrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataIn,dataOut : string;
+begin
+  dataIn := UTF8Encode(data);
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(dataIn,dataOut,key128,true);
+  Result := dataOut;
 end;
 
 end.

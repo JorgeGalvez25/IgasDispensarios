@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
   ExtCtrls, OoMisc, AdPort, ScktComp, IniFiles, ULIBGRAL, uLkJSON, CRCs,
-  Variants, IdHashMessageDigest, IdHash, ActiveX, ComObj;
+  Variants, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
 type
   Togcvdispensarios_hongyang = class(TService)
@@ -103,6 +103,8 @@ type
    function Bloquear(msj:string): string;
    function Desbloquear(msj:string): string;
    procedure GuardaLogComandos;
+   function Encrypt(data,key3DES:string):string;
+   function Decrypt(data,key3DES:string):string;
   end;
 
 type
@@ -278,6 +280,7 @@ begin
     else begin
       claveCre:=ExtraeElemStrSep(lic,2,'|');
       key3DES:=ExtraeElemStrSep(lic,3,'|');
+      key:=Unassigned;
     end;
 
     while not Terminated do
@@ -301,11 +304,11 @@ procedure Togcvdispensarios_hongyang.ServerSocket1ClientRead(
     metodoEnum:TMetodos;
 begin
   try
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
+    mensaje:=Decrypt(Socket.ReceiveText,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje));
+        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
         Break;
       end;
     end;
@@ -390,9 +393,9 @@ begin
         UNBLOCK_e:
           Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -448,7 +451,7 @@ end;
 procedure Togcvdispensarios_hongyang.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
-  socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,#1#2+resp+#3+CRC16(resp)+#23));
+  socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -2367,6 +2370,28 @@ begin
       Exception.Create('GuardaLogComandos: '+e.Message);
   end;
 
+end;
+
+function Togcvdispensarios_hongyang.Encrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataIn,dataOut : string;
+begin
+  dataIn := UTF8Encode(data);
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(dataIn,dataOut,key128,true);
+  Result := dataOut;
+end;
+
+function Togcvdispensarios_hongyang.Decrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataOut : string;
+begin
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(data,dataOut,key128,false);
+  dataOut := UTF8Decode(dataOut);
+  Result := dataOut;
 end;
 
 end.
