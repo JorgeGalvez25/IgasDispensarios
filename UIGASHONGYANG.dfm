@@ -23,9 +23,9 @@ object ogcvdispensarios_hongyang: Togcvdispensarios_hongyang
   end
   object Timer1: TTimer
     Enabled = False
-    Interval = 100
+    Interval = 40
     OnTimer = Timer1Timer
-    Left = 47
+    Left = 48
     Top = 96
   end
 end
