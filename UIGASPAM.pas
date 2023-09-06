@@ -2180,10 +2180,17 @@ end;
 function Togcvdispensarios_pam.ResultadoComando(xFolio:integer):string;
 var i:integer;
 begin
-  Result:='*';
-  for i:=1 to 40 do
-    if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then
-      result:=TabCmnd[i].Respuesta;
+  try
+    Result:='*';
+    for i:=1 to 200 do
+      if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then begin
+        result:=TabCmnd[i].Respuesta;
+        Break;
+      end;
+  except
+    on e:Exception do
+      AgregaLog('Excepcion ResultadoComando: '+e.Message);
+  end;
 end;
 
 function Togcvdispensarios_pam.Bloquear(msj: string): string;
