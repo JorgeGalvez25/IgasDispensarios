@@ -296,10 +296,10 @@ begin
     ServerSocket1.Active := False;
     CoUninitialize;
   except
-    on e:exception do begin
-      raise Exception.Create('Error al iniciar servicio: '+e.Message);
+    on e:exception do begin                
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      raise Exception.Create('Error al iniciar servicio: '+e.Message);
     end;
   end;
 end;
@@ -413,13 +413,13 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-      raise Exception.Create('ServerSocket1ClientRead: '+e.Message);
       if (claveCre<>'') and (key3DES<>'') then
         AgregaLogPetRes('Error: '+e.Message+'//Clave CRE: '+claveCre+'//Terminacion de Key 3DES: '+copy(key3DES,Length(key3DES)-3,4))
       else
         AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
+      raise Exception.Create('ServerSocket1ClientRead: '+e.Message);
     end;
   end;
 end;
@@ -466,8 +466,8 @@ begin
     AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
   except
     on e:Exception do begin
-      raise Exception.Create('Error Responder: '+e.Message);
       AgregaLog('Error Responder: '+e.Message);
+      raise Exception.Create('Error Responder: '+e.Message);   
     end;
   end;
 end;
@@ -781,8 +781,8 @@ begin
     idmd5.Destroy;
   except
     on e:Exception do begin
-      raise Exception.Create('MD5: '+e.Message);
       AgregaLog('MD5: '+e.Message);
+      raise Exception.Create('MD5: '+e.Message);      
     end;
   end;
 end;
@@ -806,8 +806,8 @@ begin
     result:=xres;
   except
     on e:Exception do begin
-      raise Exception.Create('ConvierteBCD: '+e.Message);
       AgregaLog('ConvierteBCD: '+e.Message);
+      raise Exception.Create('ConvierteBCD: '+e.Message);     
     end;
   end;
 end;
@@ -823,8 +823,8 @@ begin
     result:=char(256-m);
   except
     on e:Exception do begin
-      raise Exception.Create('CalculaBCC: '+e.Message);
       AgregaLog('CalculaBCC: '+e.Message);
+      raise Exception.Create('CalculaBCC: '+e.Message);    
     end;
   end;
 end;
@@ -840,8 +840,8 @@ begin
     result:=xaux;
   except
     on e:Exception do begin
-      raise Exception.Create('StrToHexSep: '+e.Message);
       AgregaLog('StrToHexSep: '+e.Message);
+      raise Exception.Create('StrToHexSep: '+e.Message);
     end;
   end;
 end;
@@ -1038,9 +1038,9 @@ begin
           pSerial.Parity:=pSpace;
         except
           on e:Exception do begin
-            raise Exception.Create('Error pSerial.Output: '+e.Message);
             AgregaLog('Error pSerial.Output: '+e.Message);
             GuardarLog;
+            raise Exception.Create('Error pSerial.Output: '+e.Message);
           end;
         end;
       finally
@@ -1049,8 +1049,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ComandoConsola: '+e.Message);
       AgregaLog('Error ComandoConsola: '+e.Message);
+      raise Exception.Create('Error ComandoConsola: '+e.Message);
     end;
   end;
 end;
@@ -1090,8 +1090,8 @@ begin
     Result:=FolioCmnd;
   except
     on e:Exception do begin
-      raise Exception.Create('Error EjecutaComando: '+e.Message);
       AgregaLog('Error EjecutaComando: '+e.Message);
+      raise Exception.Create('Error EjecutaComando: '+e.Message);    
     end;
   end;
 end;
@@ -1282,8 +1282,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoA:'+e.Message);
       AgregaLog('Error ProcesoComandoA: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoA:'+e.Message); 
     end;
   end;
 end;
@@ -1329,8 +1329,8 @@ begin
     result:=ee;
   except
     on e:Exception do begin
-      raise Exception.Create('Error DameEstatus: '+e.Message);
       AgregaLog('Error DameEstatus: '+e.Message);
+      raise Exception.Create('Error DameEstatus: '+e.Message);  
     end;
   end;
 end;
@@ -1350,8 +1350,8 @@ begin
     result:=strtoint(ss)/100;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ExtraeBCD: '+e.Message);
       AgregaLog('Error ExtraeBCD: '+e.Message);
+      raise Exception.Create('Error ExtraeBCD: '+e.Message);
     end;
   end;
 end;
@@ -1365,8 +1365,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error MeteACola: '+e.Message);
       AgregaLog('Error MeteACola: '+e.Message);
+      raise Exception.Create('Error MeteACola: '+e.Message);
     end;
   end;
 end;
@@ -1398,8 +1398,8 @@ begin
     result:=ConvierteBin(ss[1])+ConvierteBin(ss[2]);
   except
     on e:Exception do begin
-      raise Exception.Create('Error HexToBinario: '+e.Message);
       AgregaLog('Error HexToBinario: '+e.Message);
+      raise Exception.Create('Error HexToBinario: '+e.Message);   
     end;
   end;
 end;
@@ -1420,8 +1420,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoC: '+e.Message);
       AgregaLog('Error ProcesoComandoC: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoC: '+e.Message);   
     end;
   end;
 end;
@@ -1442,8 +1442,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoD: '+e.Message);
       AgregaLog('Error ProcesoComandoD: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoD: '+e.Message); 
     end;
   end;
 end;
@@ -1489,8 +1489,8 @@ begin
       end;
     except
       on e:Exception do begin
-        raise Exception.Create('Error ProcesoComandoN: '+e.Message);
         AgregaLog('Error ProcesoComandoN: '+e.Message);
+        raise Exception.Create('Error ProcesoComandoN: '+e.Message);
       end;
     end;
   end;
@@ -1512,8 +1512,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoU: '+e.Message);
       AgregaLog('Error ProcesoComandoU: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoU: '+e.Message); 
     end;
   end;
 end;
@@ -1550,8 +1550,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoS: '+e.Message);
       AgregaLog('Error ProcesoComandoS: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoS: '+e.Message);   
     end;
   end;
 end;
@@ -1572,8 +1572,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesoComandoL: '+e.Message);
       AgregaLog('Error ProcesoComandoL: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoL: '+e.Message); 
     end;
   end;
 end;
@@ -1636,8 +1636,8 @@ begin
       end;
     except
       on e:Exception do begin
-        raise Exception.Create('Error ProcesaLineaRec: '+e.Message);
         AgregaLog('Error ProcesaLineaRec: '+e.Message);
+        raise Exception.Create('Error ProcesaLineaRec: '+e.Message);  
       end;
     end;
   finally
@@ -1679,8 +1679,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error pSerialTriggerAvail: '+e.Message);
       AgregaLog('Error pSerialTriggerAvail: '+e.Message);
+      raise Exception.Create('Error pSerialTriggerAvail: '+e.Message);  
     end;
   end;
 end;
@@ -1729,8 +1729,8 @@ begin
     LinEstadoGen:=xestado;
   except
     on e:Exception do begin
-      raise Exception.Create('Error PublicaEstatusDispensarios: '+e.Message);
       AgregaLog('Error PublicaEstatusDispensarios: '+e.Message);
+      raise Exception.Create('Error PublicaEstatusDispensarios: '+e.Message);   
     end;
   end;
 end;
@@ -1749,8 +1749,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error SacaDeCola: '+e.Message);
       AgregaLog('Error SacaDeCola: '+e.Message);
+      raise Exception.Create('Error SacaDeCola: '+e.Message); 
     end;
   end;
 end;
@@ -1878,8 +1878,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error Timer1: '+e.Message);
       AgregaLog('Error Timer1: '+e.Message);
+      raise Exception.Create('Error Timer1: '+e.Message); 
     end;
   end;
 end;
@@ -2093,8 +2093,8 @@ begin
     end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ProcesaComandosExternos: '+e.Message);
       AgregaLog('Error ProcesaComandosExternos: '+e.Message);
+      raise Exception.Create('Error ProcesaComandosExternos: '+e.Message); 
     end;
   end;
 end;
@@ -2127,8 +2127,8 @@ begin
     result:='OK';
   except
     on e:Exception do begin
-      raise Exception.Create('Error ValidaCifra: '+e.Message);
       AgregaLog('Error ValidaCifra: '+e.Message);
+      raise Exception.Create('Error ValidaCifra: '+e.Message);   
     end;
   end;
 end;
@@ -2368,8 +2368,8 @@ begin
       end;
   except
     on e:Exception do begin
-      raise Exception.Create('Error ResultadoComando: '+e.Message);
       AgregaLog('Error ResultadoComando: '+e.Message);
+      raise Exception.Create('Error ResultadoComando: '+e.Message); 
     end;
   end;
 end;
@@ -2412,8 +2412,8 @@ begin
     PreciosInicio:=False;
   except
     on e:Exception do begin
-      raise Exception.Create('Error IniciarPrecios: '+e.Message);
       AgregaLog('Error IniciarPrecios: '+e.Message);
+      raise Exception.Create('Error IniciarPrecios: '+e.Message); 
     end;
   end;
 end;
@@ -2511,8 +2511,8 @@ begin
     ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
   except
     on e:Exception do begin
-      raise Exception.Create('Error GuardaLogComandos: '+e.Message);
       AgregaLog('Error GuardaLogComandos: '+e.Message);
+      raise Exception.Create('Error GuardaLogComandos: '+e.Message); 
     end;
   end;
 end;
@@ -2529,8 +2529,8 @@ begin
     Result := dataOut;
   except
     on e:Exception do begin
-      raise Exception.Create('Error Encrypt: '+e.Message);
       AgregaLog('Error Encrypt: '+e.Message);
+      raise Exception.Create('Error Encrypt: '+e.Message);   
     end;
   end;
 end;
@@ -2547,8 +2547,8 @@ begin
     Result := dataOut;
   except
     on e:Exception do begin
-      raise Exception.Create('Error Decrypt: '+e.Message);
       AgregaLog('Error Decrypt: '+e.Message);
+      raise Exception.Create('Error Decrypt: '+e.Message);
     end;
   end;
 end;
