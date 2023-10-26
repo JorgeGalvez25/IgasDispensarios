@@ -489,34 +489,16 @@ begin
     json:=ExtraeElemStrSep(msj,1,'|');
     variables:=ExtraeElemStrSep(msj,2,'|');
 
-    js := TlkJSON.ParseText(json);
-    consolas := js.Field['Consoles'];
-
-    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
-
-    Result:=IniciaPSerial(datosPuerto);
-
-    if Result<>'' then
-      Exit;
-
-    dispensarios := js.Field['Dispensers'];
-
-    Result:=AgregaPosCarga(dispensarios);
-
-    if Result<>'' then
-      Exit;
-
-    productos := js.Field['Products'];
-
     WayneFusion:='No';
     MapeoFusion:='No';
     AjusteWayne:='No';
     WayneValidaImporteDespacho:='No';
-    InicializaWayne:='No';
+    InicializaWayne:='Si';
     TierLavelWayne:='0';
-    ModoPrecioWayne:='2';
+    ModoPrecioWayne:='1';
     DecimalesPresetWayne:=-1;
     DecimalesPresetWayneLitros:=3;
+    Con_DigitoAjuste:=1;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSION' then
@@ -536,8 +518,29 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRESETWAYNE' then
         DecimalesPresetWayne:=StrToInt(ExtraeElemStrSep(variable,2,'='))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRESETWAYNELITROS' then
-        DecimalesPresetWayneLitros:=StrToInt(ExtraeElemStrSep(variable,2,'='));
+        DecimalesPresetWayneLitros:=StrToInt(ExtraeElemStrSep(variable,2,'='))
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='CONDIGITOAJUSTE' then
+        Con_DigitoAjuste:=StrToInt(ExtraeElemStrSep(variable,2,'='));
     end;
+
+    js := TlkJSON.ParseText(json);
+    consolas := js.Field['Consoles'];
+
+    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
+
+    Result:=IniciaPSerial(datosPuerto);
+
+    if Result<>'' then
+      Exit;
+
+    dispensarios := js.Field['Dispensers'];
+
+    Result:=AgregaPosCarga(dispensarios);
+
+    if Result<>'' then
+      Exit;
+
+    productos := js.Field['Products'];
 
     PreciosInicio:=False;
     estado:=0;
@@ -699,7 +702,7 @@ begin
               TPos[NoComb]:=1;
             TMang[NoComb]:=conPosicion;
             TPrec[TPos[NoComb]]:=Con_Precio;
-            TDiga[TPos[NoComb]]:=Con_DigitoAjuste;
+            TDiga[1]:=Con_DigitoAjuste;
             TDigvol[TPos[NoComb]]:=DigitoAjusteVol;
             TDigPreset[TPos[NoComb]]:=DigitoAjustePreset;
           end;
@@ -1249,6 +1252,14 @@ begin
       end
       else if detenido then
         pSerial.Open:=True;
+    end;
+
+    Sleep(100);
+    if (WayneFusion='No')or(MapeoFusion='Si') then begin
+      ComandoConsola('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
+      esperamiliseg(100);
+      ComandoConsola('l1');
+      esperamiliseg(100);
     end;
 
     detenido:=False;
@@ -1881,10 +1892,8 @@ begin
       ss:=ss+mapa;
     end
     else begin
-      for xpr:=1 to nocomb do begin
-        xcomb:=CombustibleEnPosicion(xpos,xpr);
-        ss:=ss+IntToStr(TPosCarga[xpos].TPos[xcomb]);
-      end;
+      for xpr:=1 to nocomb do
+        ss:=ss+IntToStr(CombustibleEnPosicion(xpos,xpr)); 
     end;
     while length(ss)<10 do
       ss:=ss+'0';
@@ -1998,7 +2007,7 @@ begin
                     SnLitros:=0;
                     TPosCarga[SnPosCarga].swarosmag:=false;
                     if rsp='OK' then
-                      EnviaPreset(0,rsp);
+                      EnviaPreset(xcomb,rsp);
                   end
                   else rsp:='Combustible no existe en esta posicion';
                 end;
@@ -2067,7 +2076,7 @@ begin
                     TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
                     TPosCarga[SnPosCarga].swarosmag:=false;
                     if rsp='OK' then
-                      EnviaPreset(0,rsp);
+                      EnviaPreset(xcomb,rsp);
                   end
                   else rsp:='Combustible no existe en esta posicion';
                 end;
@@ -2264,7 +2273,7 @@ begin
     if xcomb>0 then begin
       for i:=1 to NoComb do begin
         if TComb[i]=xcomb then
-          result:=TComb[i];
+          result:=TPos[i];
       end;
     end
     else result:=1;
@@ -2296,56 +2305,57 @@ begin
     ComandoConsola('E'+IntToClaveNum(xpos,2));
     esperamiliseg(500);
   end;
-  ss:='P'+IntToClaveNum(SnPosCarga,2);
-  if not swlitros then begin // pesos
-    TPosCarga[xpos].importe_aros:=SnImporte;
-    ss:=ss+'0';
-    ss:=ss+IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-    if DecimalesPresetWayne=0 then
-      sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
-    else if DecimalesPresetWayne=1 then
-      sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
-    else if DecimalesPresetWayne=2 then
-      sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
-    else if DecimalesPresetWayne=3 then
-      sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
-    else begin
-      sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
-      if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
-        ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
-      else
-        ndig:=TPosCarga[SnPosCarga].tdiga[1];
-      if ndig>0 then begin
-        sval:=IntToClaveNum(0,ndig)+sval;
-        sval:=copy(sval,1,8);
+  if SnImporte>=9999 then
+    ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
+  else begin
+    ss:='P'+IntToClaveNum(SnPosCarga,2);
+    if not swlitros then begin // pesos
+      TPosCarga[xpos].importe_aros:=SnImporte;
+      ss:=ss+'0';
+      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+      if DecimalesPresetWayne=0 then
+        sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
+      else if DecimalesPresetWayne=1 then
+        sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
+      else if DecimalesPresetWayne=2 then
+        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
+      else if DecimalesPresetWayne=3 then
+        sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
+      else begin
+        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
+        if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
+          ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
+        else
+          ndig:=TPosCarga[SnPosCarga].tdiga[1];
+        if ndig>0 then begin
+          sval:=IntToClaveNum(0,ndig)+sval;
+          sval:=copy(sval,1,8);
+        end;
       end;
+      ss:=ss+sval;
+    end
+    else begin // litros
+      ss:=ss+'1';
+      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+      case DecimalesPresetWayneLitros of
+        1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
+        2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
+        3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
+        4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
+      end;
+      ss:=ss+sval;
     end;
-    ss:=ss+sval;
-  end
-  else begin // litros
-    ss:=ss+'1';
-    ss:=ss+IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-    case DecimalesPresetWayneLitros of
-      1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
-      2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
-      3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
-      4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
-    end;
-    ss:=ss+sval;
-  end;
-  if xcomb>0 then begin
-    nc:=TPosCarga[SnPosCarga].NoComb;
-    i:=0;
-    repeat
-      inc(i);
-    until (CombustibleEnPosicion(xpos,i)=xcomb)or(i>nc);
-    if i>nc then
-      ss:=ss+'0'
+    if xcomb>0 then begin
+      i:=PosiciondeCombustible(xpos,xcomb);
+      if i=0 then
+        ss:=ss+'0'
+      else
+        ss:=ss+inttostr(i);
+    end
     else
-      ss:=ss+inttostr(i);
-  end
-  else
-    ss:=ss+'0';
+      ss:=ss+'0';
+  end;
+
   TPosCarga[xpos].HoraOcc:=now;
   ComandoConsola(ss);
   esperamiliseg(100);
