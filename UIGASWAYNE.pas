@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
   IniFiles, ScktComp, ULIBGRAL, uLkJSON, CRCs, Variants, ExtCtrls, OoMisc,
-  AdPort, IdHashMessageDigest, IdHash, ActiveX, ComObj;
+  AdPort, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
 type
   Togcvdispensarios_wayne = class(TService)
@@ -127,7 +127,9 @@ type
     function MangueraEnPosicion(xpos,xposcarga:integer):integer;
     procedure GuardaLogComandos;
     function NoElemStrEnter(xstr:string):word;
-    function ExtraeElemStrEnter(xstr:string;ind:word):string;    
+    function ExtraeElemStrEnter(xstr:string;ind:word):string;
+    function Encrypt(data,key3DES:string):string;
+    function Decrypt(data,key3DES:string):string;    
   end;
 
 type
@@ -284,6 +286,7 @@ begin
     else begin
       claveCre:=ExtraeElemStrSep(lic,2,'|');
       key3DES:=ExtraeElemStrSep(lic,3,'|');
+      key:=Unassigned;
     end;    
 
     while not Terminated do
@@ -313,11 +316,11 @@ begin
       Socket.SendText('1');
       Exit;
     end;
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,mensaje);
+    mensaje:=Decrypt(mensaje,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje));
+        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
         Break;
       end;
     end;
@@ -408,9 +411,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -466,7 +469,7 @@ end;
 procedure Togcvdispensarios_wayne.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
-  socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,#1#2+resp+#3+CRC16(resp)+#23));
+  socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -486,34 +489,16 @@ begin
     json:=ExtraeElemStrSep(msj,1,'|');
     variables:=ExtraeElemStrSep(msj,2,'|');
 
-    js := TlkJSON.ParseText(json);
-    consolas := js.Field['Consoles'];
-
-    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
-
-    Result:=IniciaPSerial(datosPuerto);
-
-    if Result<>'' then
-      Exit;
-
-    dispensarios := js.Field['Dispensers'];
-
-    Result:=AgregaPosCarga(dispensarios);
-
-    if Result<>'' then
-      Exit;
-
-    productos := js.Field['Products'];
-
     WayneFusion:='No';
     MapeoFusion:='No';
     AjusteWayne:='No';
     WayneValidaImporteDespacho:='No';
-    InicializaWayne:='No';
+    InicializaWayne:='Si';
     TierLavelWayne:='0';
-    ModoPrecioWayne:='2';
+    ModoPrecioWayne:='1';
     DecimalesPresetWayne:=-1;
     DecimalesPresetWayneLitros:=3;
+    Con_DigitoAjuste:=1;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSION' then
@@ -533,8 +518,29 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRESETWAYNE' then
         DecimalesPresetWayne:=StrToInt(ExtraeElemStrSep(variable,2,'='))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRESETWAYNELITROS' then
-        DecimalesPresetWayneLitros:=StrToInt(ExtraeElemStrSep(variable,2,'='));
+        DecimalesPresetWayneLitros:=StrToInt(ExtraeElemStrSep(variable,2,'='))
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='CONDIGITOAJUSTE' then
+        Con_DigitoAjuste:=StrToInt(ExtraeElemStrSep(variable,2,'='));
     end;
+
+    js := TlkJSON.ParseText(json);
+    consolas := js.Field['Consoles'];
+
+    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
+
+    Result:=IniciaPSerial(datosPuerto);
+
+    if Result<>'' then
+      Exit;
+
+    dispensarios := js.Field['Dispensers'];
+
+    Result:=AgregaPosCarga(dispensarios);
+
+    if Result<>'' then
+      Exit;
+
+    productos := js.Field['Products'];
 
     PreciosInicio:=False;
     estado:=0;
@@ -696,7 +702,7 @@ begin
               TPos[NoComb]:=1;
             TMang[NoComb]:=conPosicion;
             TPrec[TPos[NoComb]]:=Con_Precio;
-            TDiga[TPos[NoComb]]:=Con_DigitoAjuste;
+            TDiga[1]:=Con_DigitoAjuste;
             TDigvol[TPos[NoComb]]:=DigitoAjusteVol;
             TDigPreset[TPos[NoComb]]:=DigitoAjustePreset;
           end;
@@ -1248,6 +1254,14 @@ begin
         pSerial.Open:=True;
     end;
 
+    Sleep(100);
+    if (WayneFusion='No')or(MapeoFusion='Si') then begin
+      ComandoConsola('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
+      esperamiliseg(100);
+      ComandoConsola('l1');
+      esperamiliseg(100);
+    end;
+
     detenido:=False;
     estado:=1;
     Timer1.Enabled:=True;
@@ -1390,10 +1404,17 @@ end;
 function Togcvdispensarios_wayne.ResultadoComando(xFolio: integer): string;
 var i:integer;
 begin
-  Result:='*';
-  for i:=1 to 40 do
-    if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then
-      result:=TabCmnd[i].Respuesta;
+  try
+    Result:='*';
+    for i:=1 to 200 do
+      if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then begin
+        result:=TabCmnd[i].Respuesta;
+        Break;
+      end;
+  except
+    on e:Exception do
+      AgregaLog('Excepcion ResultadoComando: '+e.Message);
+  end;
 end;
 
 procedure Togcvdispensarios_wayne.ProcesaLinea;
@@ -1871,10 +1892,8 @@ begin
       ss:=ss+mapa;
     end
     else begin
-      for xpr:=1 to nocomb do begin
-        xcomb:=CombustibleEnPosicion(xpos,xpr);
-        ss:=ss+IntToStr(TPosCarga[xpos].TPos[xcomb]);
-      end;
+      for xpr:=1 to nocomb do
+        ss:=ss+IntToStr(CombustibleEnPosicion(xpos,xpr)); 
     end;
     while length(ss)<10 do
       ss:=ss+'0';
@@ -1988,7 +2007,7 @@ begin
                     SnLitros:=0;
                     TPosCarga[SnPosCarga].swarosmag:=false;
                     if rsp='OK' then
-                      EnviaPreset(0,rsp);
+                      EnviaPreset(xcomb,rsp);
                   end
                   else rsp:='Combustible no existe en esta posicion';
                 end;
@@ -2057,7 +2076,7 @@ begin
                     TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
                     TPosCarga[SnPosCarga].swarosmag:=false;
                     if rsp='OK' then
-                      EnviaPreset(0,rsp);
+                      EnviaPreset(xcomb,rsp);
                   end
                   else rsp:='Combustible no existe en esta posicion';
                 end;
@@ -2254,7 +2273,7 @@ begin
     if xcomb>0 then begin
       for i:=1 to NoComb do begin
         if TComb[i]=xcomb then
-          result:=TComb[i];
+          result:=TPos[i];
       end;
     end
     else result:=1;
@@ -2286,56 +2305,57 @@ begin
     ComandoConsola('E'+IntToClaveNum(xpos,2));
     esperamiliseg(500);
   end;
-  ss:='P'+IntToClaveNum(SnPosCarga,2);
-  if not swlitros then begin // pesos
-    TPosCarga[xpos].importe_aros:=SnImporte;
-    ss:=ss+'0';
-    ss:=ss+IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-    if DecimalesPresetWayne=0 then
-      sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
-    else if DecimalesPresetWayne=1 then
-      sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
-    else if DecimalesPresetWayne=2 then
-      sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
-    else if DecimalesPresetWayne=3 then
-      sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
-    else begin
-      sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
-      if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
-        ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
-      else
-        ndig:=TPosCarga[SnPosCarga].tdiga[1];
-      if ndig>0 then begin
-        sval:=IntToClaveNum(0,ndig)+sval;
-        sval:=copy(sval,1,8);
+  if SnImporte>=9999 then
+    ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
+  else begin
+    ss:='P'+IntToClaveNum(SnPosCarga,2);
+    if not swlitros then begin // pesos
+      TPosCarga[xpos].importe_aros:=SnImporte;
+      ss:=ss+'0';
+      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+      if DecimalesPresetWayne=0 then
+        sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
+      else if DecimalesPresetWayne=1 then
+        sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
+      else if DecimalesPresetWayne=2 then
+        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
+      else if DecimalesPresetWayne=3 then
+        sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
+      else begin
+        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
+        if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
+          ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
+        else
+          ndig:=TPosCarga[SnPosCarga].tdiga[1];
+        if ndig>0 then begin
+          sval:=IntToClaveNum(0,ndig)+sval;
+          sval:=copy(sval,1,8);
+        end;
       end;
+      ss:=ss+sval;
+    end
+    else begin // litros
+      ss:=ss+'1';
+      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+      case DecimalesPresetWayneLitros of
+        1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
+        2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
+        3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
+        4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
+      end;
+      ss:=ss+sval;
     end;
-    ss:=ss+sval;
-  end
-  else begin // litros
-    ss:=ss+'1';
-    ss:=ss+IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-    case DecimalesPresetWayneLitros of
-      1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
-      2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
-      3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
-      4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
-    end;
-    ss:=ss+sval;
-  end;
-  if xcomb>0 then begin
-    nc:=TPosCarga[SnPosCarga].NoComb;
-    i:=0;
-    repeat
-      inc(i);
-    until (CombustibleEnPosicion(xpos,i)=xcomb)or(i>nc);
-    if i>nc then
-      ss:=ss+'0'
+    if xcomb>0 then begin
+      i:=PosiciondeCombustible(xpos,xcomb);
+      if i=0 then
+        ss:=ss+'0'
+      else
+        ss:=ss+inttostr(i);
+    end
     else
-      ss:=ss+inttostr(i);
-  end
-  else
-    ss:=ss+'0';
+      ss:=ss+'0';
+  end;
+
   TPosCarga[xpos].HoraOcc:=now;
   ComandoConsola(ss);
   esperamiliseg(100);
@@ -2436,6 +2456,28 @@ begin
     inc(i);
   end;
   result:=cont;
+end;
+
+function Togcvdispensarios_wayne.Decrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataOut : string;
+begin
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(data,dataOut,key128,false);
+  dataOut := UTF8Decode(dataOut);
+  Result := dataOut;
+end;
+
+function Togcvdispensarios_wayne.Encrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataIn,dataOut : string;
+begin
+  dataIn := UTF8Encode(data);
+  GenerateMD5Key(key128, Key3DES);
+  TripleDESEncryptString(dataIn,dataOut,key128,true);
+  Result := dataOut;
 end;
 
 end.

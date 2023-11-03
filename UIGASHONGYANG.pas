@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
   ExtCtrls, OoMisc, AdPort, ScktComp, IniFiles, ULIBGRAL, uLkJSON, CRCs,
-  Variants, IdHashMessageDigest, IdHash, ActiveX, ComObj;
+  Variants, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
 type
   Togcvdispensarios_hongyang = class(TService)
@@ -26,6 +26,7 @@ type
     LineaProc:string;
     SwAplicaCmnd:Boolean;
     NumPaso:Integer;
+    PosicionesLibres:Boolean;
   public
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
@@ -38,6 +39,8 @@ type
     modoPreset:Boolean;
     FolioCmnd   :integer;
     ListaComandos:TStringList;
+    fechaInicio:TDateTime;
+    horaReinicio:TDateTime;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
@@ -48,7 +51,7 @@ type
     function AgregaPosCarga(posiciones: TlkJSONbase):string;
     function Login(mensaje:string): string;
     function Logout: string;
-    function GuardarLogPetRes: string;
+    function GuardarLogPetRes(fecha:TDateTime=0): string;
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     function MD5(const usuario: string): string;
     function ConvierteBCD(xvalor:real;xlong:integer):string;
@@ -93,7 +96,7 @@ type
    function Shutdown:string;
    function Terminar:string;
    function ObtenerEstado: string;
-   function GuardarLog: string;
+   function GuardarLog(fecha:TDateTime=0): string;
    function RespuestaComando(msj:string): string;
    function ObtenerLog(r:Integer): string;
    function ObtenerLogPetRes(r:Integer): string;
@@ -103,6 +106,9 @@ type
    function Bloquear(msj:string): string;
    function Desbloquear(msj:string): string;
    procedure GuardaLogComandos;
+   function Encrypt(data,key3DES:string):string;
+   function Decrypt(data,key3DES:string):string;
+   function ReiniciarPuerto(forzado:Boolean=True):Boolean;
   end;
 
 type
@@ -212,6 +218,7 @@ var
   SwReintentoCmnd,
   swcierrabd,
   SwEsperaCmnd    :boolean;
+  SwProcesando    :boolean;
   TimeCmnd,
   TimeResp        :TDateTime;  // Momento de envio de comando, es para medir la espera
   LinCmndHJ,
@@ -229,7 +236,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo, DateUtils;
+uses StrUtils, TypInfo, DateUtils, ConvUtils;
 
 {$R *.DFM}
 
@@ -264,30 +271,35 @@ begin
     SegundosFinv:=30;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
+    ListaComandos:=TStringList.Create;
+    fechaInicio:=now;
+    horaReinicio:=Now;
 
-    CoInitialize(nil);
-    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
-
-    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
-      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
-      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      ServiceThread.Terminate;
-      Exit;
-    end
-    else begin
-      claveCre:=ExtraeElemStrSep(lic,2,'|');
-      key3DES:=ExtraeElemStrSep(lic,3,'|');
-    end;
+//    CoInitialize(nil);
+//    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+//    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
+//
+//    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
+//      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
+//      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+//      ServiceThread.Terminate;
+//      Exit;
+//    end
+//    else begin
+      claveCre:={ExtraeElemStrSep(lic,2,'|')}' ';
+      key3DES:={ExtraeElemStrSep(lic,3,'|')}'13D19ED6B615EEAA5B8EEB3A0BED29D1';
+//      key:=Unassigned;
+//    end;
 
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
     CoUninitialize;
   except
-    on e:exception do begin
+    on e:exception do begin                
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      raise Exception.Create('Error al iniciar servicio: '+e.Message);
     end;
   end;
 end;
@@ -301,11 +313,11 @@ procedure Togcvdispensarios_hongyang.ServerSocket1ClientRead(
     metodoEnum:TMetodos;
 begin
   try
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
+    mensaje:=Decrypt(Socket.ReceiveText,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje));
+        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
         Break;
       end;
     end;
@@ -390,9 +402,9 @@ begin
         UNBLOCK_e:
           Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -407,6 +419,7 @@ begin
         AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
+      raise Exception.Create('ServerSocket1ClientRead: '+e.Message);
     end;
   end;
 end;
@@ -448,8 +461,15 @@ end;
 procedure Togcvdispensarios_hongyang.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
-  socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,#1#2+resp+#3+CRC16(resp)+#23));
-  AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
+  try
+    socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
+    AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
+  except
+    on e:Exception do begin
+      AgregaLog('Error Responder: '+e.Message);
+      raise Exception.Create('Error Responder: '+e.Message);   
+    end;
+  end;
 end;
 
 procedure Togcvdispensarios_hongyang.AgregaLog(lin: string);
@@ -728,10 +748,13 @@ begin
   Result:='True|';
 end;
 
-function Togcvdispensarios_hongyang.GuardarLogPetRes: string;
+function Togcvdispensarios_hongyang.GuardarLogPetRes(fecha:TDateTime=0): string;
 begin
   try
-    ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    if fecha=0 then
+      ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt')
+    else
+      ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetResInicio'+FiltraStrNum(FechaHoraToStr(fecha))+'.txt');
     Result:='True|';
   except
     on e:Exception do
@@ -750,11 +773,18 @@ var
   idmd5:TIdHashMessageDigest5;
   hash:T4x4LongWordRecord;
 begin
-  idmd5 := TIdHashMessageDigest5.Create;
-  hash := idmd5.HashValue(usuario);
-  Result := idmd5.AsHex(hash);
-  Result := AnsiLowerCase(Result);
-  idmd5.Destroy;
+  try
+    idmd5 := TIdHashMessageDigest5.Create;
+    hash := idmd5.HashValue(usuario);
+    Result := idmd5.AsHex(hash);
+    Result := AnsiLowerCase(Result);
+    idmd5.Destroy;
+  except
+    on e:Exception do begin
+      AgregaLog('MD5: '+e.Message);
+      raise Exception.Create('MD5: '+e.Message);      
+    end;
+  end;
 end;
 
 function Togcvdispensarios_hongyang.ConvierteBCD(xvalor: real;
@@ -762,37 +792,58 @@ function Togcvdispensarios_hongyang.ConvierteBCD(xvalor: real;
 var xstr,xres,ss,xaux:string;
     i,nc,nn,num:integer;
 begin
-  num:=trunc(xvalor*100+0.5);
-  xstr:=inttoclavenum(num,xlong);
-  nc:=xlong div 2;
-  xres:='';
-  for i:=1 to nc do begin
-    ss:=copy(xstr,xlong-2*i+1,2);
-    nn:=StrToIntDef(ss[1],0)*16+StrToIntDef(ss[2],0);
-    xres:=xres+char(nn);
+  try
+    num:=trunc(xvalor*100+0.5);
+    xstr:=inttoclavenum(num,xlong);
+    nc:=xlong div 2;
+    xres:='';
+    for i:=1 to nc do begin
+      ss:=copy(xstr,xlong-2*i+1,2);
+      nn:=StrToIntDef(ss[1],0)*16+StrToIntDef(ss[2],0);
+      xres:=xres+char(nn);
+    end;
+    xaux:=StrToHexSep(xres);
+    result:=xres;
+  except
+    on e:Exception do begin
+      AgregaLog('ConvierteBCD: '+e.Message);
+      raise Exception.Create('ConvierteBCD: '+e.Message);     
+    end;
   end;
-  xaux:=StrToHexSep(xres);
-  result:=xres;
 end;
 
 function Togcvdispensarios_hongyang.CalculaBCC(ss: string): char;
 var i,n,m:integer;
 begin
-  n:=0;
-  for i:=1 to length(ss) do
-    n:=n+ord(ss[i]);
-  m:=(n)mod(256);
-  result:=char(256-m);
+  try
+    n:=0;
+    for i:=1 to length(ss) do
+      n:=n+ord(ss[i]);
+    m:=(n)mod(256);
+    result:=char(256-m);
+  except
+    on e:Exception do begin
+      AgregaLog('CalculaBCC: '+e.Message);
+      raise Exception.Create('CalculaBCC: '+e.Message);    
+    end;
+  end;
 end;
 
 function Togcvdispensarios_hongyang.StrToHexSep(ss: string): string;
 var i:integer;
     xaux:string;
 begin
-  xaux:=inttohex(ord(ss[1]),2);
-  for i:=2 to length(ss) do
-    xaux:=xaux+' '+inttohex(ord(ss[i]),2);
-  result:=xaux;
+  try
+    xaux:=inttohex(ord(ss[1]),2);
+    for i:=2 to length(ss) do
+      xaux:=xaux+' '+inttohex(ord(ss[i]),2);
+    result:=xaux;
+  except
+    on e:Exception do begin
+      AgregaLog('StrToHexSep: '+e.Message);
+      raise Exception.Create('StrToHexSep: '+e.Message);
+    end;
+  end;
 end;
 
 function Togcvdispensarios_hongyang.IniciaPrecios(msj: string): string;
@@ -969,40 +1020,38 @@ begin
       inc(ContadorAlarma);
       if ContadorAlarma>10 then
         LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
-      //Timer1.Enabled:=false;
+      Timer1.Enabled:=false;
       try
         try
           s1:=copy(LinCmndHJ,1,1);
           s2:=copy(LinCmndHJ,2,length(LinCmndHJ)-1);
-          try
-            pSerial.Parity:=pNone;
-            pSerial.Parity:=pMark;
-          except
-          end;
+          pSerial.Parity:=pNone;
+          pSerial.Parity:=pMark;
           pSerial.RTS:=false;
           if pSerial.Open then
             pSerial.Output:=s1;
-          try
-            pSerial.Parity:=pNone;
-            pSerial.Parity:=pSpace;
-          except
-          end;
+          pSerial.Parity:=pNone;
+          pSerial.Parity:=pSpace;
+          AgregaLog('E '+StrToHexSep(LinCmndHJ)+'  >>'+ss);
           if pSerial.Open then
             pSerial.OutPut:=s2;
-          try
-            pSerial.Parity:=pSpace;
-          except
-          end;
-          AgregaLog('E '+StrToHexSep(LinCmndHJ)+'  >>'+ss);
+          pSerial.Parity:=pSpace;
         except
+          on e:Exception do begin
+            AgregaLog('Error pSerial.Output: '+e.Message);
+            GuardarLog;
+            raise Exception.Create('Error pSerial.Output: '+e.Message);
+          end;
         end;
       finally
         Timer1.Enabled:=true;
       end;
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ComandoConsola: '+e.Message);
+      raise Exception.Create('Error ComandoConsola: '+e.Message);
+    end;
   end;
 end;
 
@@ -1040,8 +1089,10 @@ begin
     end;
     Result:=FolioCmnd;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error EjecutaComando: '+e.Message);
+      raise Exception.Create('Error EjecutaComando: '+e.Message);    
+    end;
   end;
 end;
 
@@ -1230,8 +1281,10 @@ begin
       end;
     end;
   except
-   on e:Exception do
-     AgregaLog('Error ProcesoComandoA: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error ProcesoComandoA: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoA:'+e.Message); 
+    end;
   end;
 end;
 
@@ -1240,39 +1293,46 @@ var xst,ss:string;
     ee:integer;
 
 begin
-  sw47:=false;
-  ee:=0;
-  ss:=ExtraeElemStrSep(xstr,2,' ');
-  xst:=HexToBinario(ss);
-  if (xst[5]='0')and(xst[2]='0') then       // Inactivo
-    ee:=1
-  else if (xst[5]='1')and(xst[7]='1') then  // Despachando
-    ee:=5
-  else if (xst[5]='1')and(xst[2]='1') then  // Despachando
-    ee:=5
-  else if (xst[5]='0')and(xst[2]='1') then  // Pistola levantada
-    ee:=1
-  else if (xst[5]='1')and(xst[2]='0') then  // Autorizado
-    ee:=2
-  else if (xst[4]='1') then                 // Enllavado
-    ee:=9;
-  swerror:=(xst[3]='1');
+  try
+    sw47:=false;
+    ee:=0;
+    ss:=ExtraeElemStrSep(xstr,2,' ');
+    xst:=HexToBinario(ss);
+    if (xst[5]='0')and(xst[2]='0') then       // Inactivo
+      ee:=1
+    else if (xst[5]='1')and(xst[7]='1') then  // Despachando
+      ee:=5
+    else if (xst[5]='1')and(xst[2]='1') then  // Despachando
+      ee:=5
+    else if (xst[5]='0')and(xst[2]='1') then  // Pistola levantada
+      ee:=1
+    else if (xst[5]='1')and(xst[2]='0') then  // Autorizado
+      ee:=2
+    else if (xst[4]='1') then                 // Enllavado
+      ee:=9;
+    swerror:=(xst[3]='1');
 
-  if (ss='06')or(ss='03')or(ss='16')or(ss='46')or(ss[2]='7') then begin     // fin venta                47
-    ee:=1;
-    if (ss[2]='7') then
-      sw47:=true;
-  end
-  else if (ss='12')or(ss='02') then            // inativo
-    ee:=1
-  else if (ss='4A')or(ss='4B')or(ss='0A')or(ss='0E')or(ss='1A') then  // despachando            4B
-    ee:=5;
+    if (ss='06')or(ss='03')or(ss='16')or(ss='46')or(ss[2]='7') then begin     // fin venta                47
+      ee:=1;
+      if (ss[2]='7') then
+        sw47:=true;
+    end
+    else if (ss='12')or(ss='02') then            // inativo
+      ee:=1
+    else if (ss='4A')or(ss='4B')or(ss='0A')or(ss='0E')or(ss='1A') then  // despachando            4B
+      ee:=5;
 
-  SwLocked:=false;
-  if (ss='12')or(ss='16')or(ss='1A')or(ss='52') then  // enllavado
-    swlocked:=true;
+    SwLocked:=false;
+    if (ss='12')or(ss='16')or(ss='1A')or(ss='52') then  // enllavado
+      swlocked:=true;
 
-  result:=ee;
+    result:=ee;
+  except
+    on e:Exception do begin
+      AgregaLog('Error DameEstatus: '+e.Message);
+      raise Exception.Create('Error DameEstatus: '+e.Message);  
+    end;
+  end;
 end;
 
 function Togcvdispensarios_hongyang.ExtraeBCD(xstr: string; xini,
@@ -1280,20 +1340,34 @@ function Togcvdispensarios_hongyang.ExtraeBCD(xstr: string; xini,
 var i:integer;
     ss:string;
 begin
-  i:=xfin;
-  ss:='';
-  while i>=xini do begin
-    ss:=ss+ExtraeElemStrSep(xstr,i,' ');
-    dec(i);
+  try
+    i:=xfin;
+    ss:='';
+    while i>=xini do begin
+      ss:=ss+ExtraeElemStrSep(xstr,i,' ');
+      dec(i);
+    end;
+    result:=strtoint(ss)/100;
+  except
+    on e:Exception do begin
+      AgregaLog('Error ExtraeBCD: '+e.Message);
+      raise Exception.Create('Error ExtraeBCD: '+e.Message);
+    end;
   end;
-  result:=strtoint(ss)/100;
 end;
 
 procedure Togcvdispensarios_hongyang.MeteACola(xstr: string);
 begin
-  if ApCola<50 then begin
-    inc(ApCola);
-    TColaCmnd[ApCola]:=xstr;
+  try
+    if ApCola<50 then begin
+      inc(ApCola);
+      TColaCmnd[ApCola]:=xstr;
+    end;
+  except
+    on e:Exception do begin
+      AgregaLog('Error MeteACola: '+e.Message);
+      raise Exception.Create('Error MeteACola: '+e.Message);
+    end;
   end;
 end;
 
@@ -1320,7 +1394,14 @@ function Togcvdispensarios_hongyang.HexToBinario(ss: string): string;
     end;
   end;
 begin
-  result:=ConvierteBin(ss[1])+ConvierteBin(ss[2]);
+  try
+    result:=ConvierteBin(ss[1])+ConvierteBin(ss[2]);
+  except
+    on e:Exception do begin
+      AgregaLog('Error HexToBinario: '+e.Message);
+      raise Exception.Create('Error HexToBinario: '+e.Message);   
+    end;
+  end;
 end;
 
 procedure Togcvdispensarios_hongyang.ProcesoComandoC(xResp: string);
@@ -1338,8 +1419,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ProcesoComandoC: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoC: '+e.Message);   
+    end;
   end;
 end;
 
@@ -1358,8 +1441,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ProcesoComandoD: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoD: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1397,14 +1482,16 @@ begin
             estatus:=7;
           AgregaLog('>>Fin de Venta Manguera '+inttostr(MangCmnd));
           SwVentaValidada:=true;
-          ProcesaComandosExternos;
         end
         else 
           SwFinVenta:=false;
         swdesptot:=false;
       end;
     except
-      AgregaLog('Error BCD: '+xresp);
+      on e:Exception do begin
+        AgregaLog('Error ProcesoComandoN: '+e.Message);
+        raise Exception.Create('Error ProcesoComandoN: '+e.Message);
+      end;
     end;
   end;
 end;
@@ -1424,8 +1511,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
-      AgregaLog('Error ProcesoComandoS: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error ProcesoComandoU: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoU: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1440,7 +1529,7 @@ begin
       preciofisico:=ExtraeBCD(ss,5,6);
       LeerPrecio:=false;
     except
-      AgregaLog('Error BCD: '+xresp);
+      AgregaLog('Error ProcesoComandoV: '+xresp);
     end;
   end;
 end;
@@ -1460,8 +1549,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ProcesoComandoS: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoS: '+e.Message);   
+    end;
   end;
 end;
 
@@ -1480,8 +1571,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ProcesoComandoL: '+e.Message);
+      raise Exception.Create('Error ProcesoComandoL: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1490,6 +1583,7 @@ var xstr,xstr2,xdv,xdv2:string;
 begin
   try
     try
+      SwProcesando:=True;
       FinLinea:=false;  LineaProc:='';
       xstr:=StrToHexSep(LineaRsp);
       AgregaLog('R '+xstr);
@@ -1508,28 +1602,47 @@ begin
       end;
       case CharCmnd of
         'A':if length(LineaRsp)=12 then
-              ProcesoComandoA(LineaRsp);
+              ProcesoComandoA(LineaRsp)
+            else
+              ReiniciarPuerto;
         'C':if length(LineaRsp)=3 then
-              ProcesoComandoC(LineaRsp);
+              ProcesoComandoC(LineaRsp)
+            else
+              ReiniciarPuerto;
         'D':if length(LineaRsp)=3 then
-              ProcesoComandoD(LineaRsp);
+              ProcesoComandoD(LineaRsp)
+            else
+              ReiniciarPuerto;
         'N':if length(LineaRsp)=21 then
-              ProcesoComandoN(LineaRsp);
+              ProcesoComandoN(LineaRsp)
+            else
+              ReiniciarPuerto;
         'U':if length(LineaRsp)=3 then
-              ProcesoComandoU(LineaRsp);
+              ProcesoComandoU(LineaRsp)
+            else
+              ReiniciarPuerto;
         'V':if length(LineaRsp)=7 then
-              ProcesoComandoV(LineaRsp);
+              ProcesoComandoV(LineaRsp)
+            else
+              ReiniciarPuerto;
         'S':if length(LineaRsp)=3 then
-              ProcesoComandoS(LineaRsp);
+              ProcesoComandoS(LineaRsp)
+            else
+              ReiniciarPuerto;
         'L':if length(LineaRsp)=3 then
-              ProcesoComandoL(LineaRsp);
+              ProcesoComandoL(LineaRsp)
+            else
+              ReiniciarPuerto;
       end;
     except
-      on e:Exception do
+      on e:Exception do begin
         AgregaLog('Error ProcesaLineaRec: '+e.Message);
+        raise Exception.Create('Error ProcesaLineaRec: '+e.Message);  
+      end;
     end;
   finally
     SwEsperaCmnd:=false;
+    SwProcesando:=False;
   end;
 end;
 
@@ -1540,8 +1653,9 @@ var I:Word;
     xlong:integer;
 begin
   try
+    if SwProcesando then Exit;
     ContadorAlarma:=0;
-    //Timer1.Enabled:=false;
+    Timer1.Enabled:=false;
     try
       for I := 1 to Count do begin
         C:=pSerial.GetChar;
@@ -1562,11 +1676,12 @@ begin
     finally
       TimeResp:=Now;
       Timer1.Enabled:=true;
-      Timer1Timer(nil);
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error pSerialTriggerAvail: '+e.Message);
+      raise Exception.Create('Error pSerialTriggerAvail: '+e.Message);  
+    end;
   end;
 end;
 
@@ -1577,6 +1692,7 @@ var xpos,xmang:integer;
 begin
   try
     lin:='';xestado:='';xmodo:='';
+    PosicionesLibres:=True;
     for xpos:=1 to MaxPosiciones do with TPosCarga[xpos] do begin
       xmang:=PosManguera[PosActual2];
       with TMangueras[xmang] do begin
@@ -1601,6 +1717,8 @@ begin
         else if (not SwDisponible) and (estatus=1) then
           AgregaLog('>>Se libero posicion '+inttostr(xpos)+' de manguera '+IntToStr(xmang));
         SwDisponible:=estatus=1;
+        if estatus>1 then
+          PosicionesLibres:=False;
       end;
     end;
     if lin='' then
@@ -1610,8 +1728,10 @@ begin
     lin:=lin+'&'+xmodo;
     LinEstadoGen:=xestado;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error PublicaEstatusDispensarios: '+e.Message);
+      raise Exception.Create('Error PublicaEstatusDispensarios: '+e.Message);   
+    end;
   end;
 end;
 
@@ -1628,8 +1748,10 @@ begin
           TColaCmnd[i]:=TColaCmnd[i+1];
     end;
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error SacaDeCola: '+e.Message);
+      raise Exception.Create('Error SacaDeCola: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1643,6 +1765,10 @@ begin
     // ENVIO DE COMANDOS
     if not SwEsperaCmnd then begin
       SwReintentoCmnd:=false;
+      if HoursBetween(Now, horaReinicio)>=6 then begin
+        if ReiniciarPuerto(False) then
+          Exit;
+      end;
       uno:
       Case CmndProc of
         // LEE DISPLAY Y STATUS
@@ -1653,7 +1779,7 @@ begin
                     if (Estatus=1) and (not modoPreset) then
                       ContBrinca:=4
                     else
-                      ContBrinca:=40;
+                      ContBrinca:=30;
                     ComandoConsola('A'+IntToClavenum(MangCiclo,2));
                     inc(MangCiclo);
                   end
@@ -1751,8 +1877,10 @@ begin
       end;
     end;
   except
-   on e:Exception do
-     AgregaLog('Error Timer1: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error Timer1: '+e.Message);
+      raise Exception.Create('Error Timer1: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1859,9 +1987,9 @@ begin
                 TMangueras[xmang].impopreset:=ximporte;
                 ximp:=Trunc(xImporte*100+0.5);
 
-                if TMangueras[xmang].SwPrepagoM then begin
-                  MeteACola('D'+inttoclavenum(xmang,2));
-                end;
+//                if TMangueras[xmang].SwPrepagoM then begin
+//                  MeteACola('D'+inttoclavenum(xmang,2));
+//                end;
 
                 MeteACola('S'+inttoclavenum(xmang,2)+InttoClaveNum(ximp,6));
                 SwSalir:=true;
@@ -1907,9 +2035,9 @@ begin
                 TMangueras[xmang].litrospreset:=xlitros;
                 ximp:=Trunc(xLitros*100+0.5);
 
-                if TMangueras[xmang].SwPrepagoM then begin
-                  MeteACola('D'+inttoclavenum(xmang,2));
-                end;
+//                if TMangueras[xmang].SwPrepagoM then begin
+//                  MeteACola('D'+inttoclavenum(xmang,2));
+//                end;
 
                 MeteACola('L'+inttoclavenum(xmang,2)+InttoClaveNum(ximp,6));
                 SwSalir:=true;
@@ -1964,8 +2092,10 @@ begin
       if SwSalir then exit;
     end;
   except
-    on e:Exception do
-      AgregaLog('Error Timer1: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error ProcesaComandosExternos: '+e.Message);
+      raise Exception.Create('Error ProcesaComandosExternos: '+e.Message); 
+    end;
   end;
 end;
 
@@ -1996,8 +2126,10 @@ begin
     end;
     result:='OK';
   except
-    on e:Exception do
+    on e:Exception do begin
       AgregaLog('Error ValidaCifra: '+e.Message);
+      raise Exception.Create('Error ValidaCifra: '+e.Message);   
+    end;
   end;
 end;
 
@@ -2133,12 +2265,16 @@ begin
   Result:='True|'+IntToStr(estado)+'|';
 end;
 
-function Togcvdispensarios_hongyang.GuardarLog: string;
+function Togcvdispensarios_hongyang.GuardarLog(fecha:TDateTime=0): string;
 begin
   try
-    ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-    GuardarLogPetRes;
-    GuardaLogComandos;    
+    if fecha=0 then begin
+      ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      GuardarLogPetRes;
+      GuardaLogComandos;
+    end
+    else
+      ListaLog.SaveToFile(rutaLog+'\LogDispInicio'+FiltraStrNum(FechaHoraToStr(fecha))+'.txt');
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt';
   except
     on e:Exception do
@@ -2223,10 +2359,19 @@ function Togcvdispensarios_hongyang.ResultadoComando(
   xFolio: integer): string;
 var i:integer;
 begin
-  Result:='*';
-  for i:=1 to 40 do
-    if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then
-      result:=TabCmnd[i].Respuesta;
+  try
+    Result:='*';
+    for i:=1 to 200 do
+      if (TabCmnd[i].folio=xfolio)and(TabCmnd[i].SwResp) then begin
+        result:=TabCmnd[i].Respuesta;
+        Break;
+      end;
+  except
+    on e:Exception do begin
+      AgregaLog('Error ResultadoComando: '+e.Message);
+      raise Exception.Create('Error ResultadoComando: '+e.Message); 
+    end;
+  end;
 end;
 
 function Togcvdispensarios_hongyang.TotalesBomba(msj: string): string;
@@ -2266,8 +2411,10 @@ begin
     end;
     PreciosInicio:=False;
   except
-    on e:Exception do
-      AgregaLog('Excepcion IniciarPrecios: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error IniciarPrecios: '+e.Message);
+      raise Exception.Create('Error IniciarPrecios: '+e.Message); 
+    end;
   end;
 end;
 
@@ -2363,10 +2510,75 @@ begin
     end;
     ListaComandos.SaveToFile(rutaLog+'\LogDispComandos'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
   except
-    on e:Exception do
-      Exception.Create('GuardaLogComandos: '+e.Message);
+    on e:Exception do begin
+      AgregaLog('Error GuardaLogComandos: '+e.Message);
+      raise Exception.Create('Error GuardaLogComandos: '+e.Message); 
+    end;
   end;
+end;
 
+function Togcvdispensarios_hongyang.Encrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataIn,dataOut : string;
+begin
+  try
+    dataIn := UTF8Encode(data);
+    GenerateMD5Key(key128, Key3DES);
+    TripleDESEncryptString(dataIn,dataOut,key128,true);
+    Result := dataOut;
+  except
+    on e:Exception do begin
+      AgregaLog('Error Encrypt: '+e.Message);
+      raise Exception.Create('Error Encrypt: '+e.Message);   
+    end;
+  end;
+end;
+
+function Togcvdispensarios_hongyang.Decrypt(data, key3DES: string): string;
+var
+  key128 : TKey128;
+  dataOut : string;
+begin
+  try
+    GenerateMD5Key(key128, Key3DES);
+    TripleDESEncryptString(data,dataOut,key128,false);
+    dataOut := UTF8Decode(dataOut);
+    Result := dataOut;
+  except
+    on e:Exception do begin
+      AgregaLog('Error Decrypt: '+e.Message);
+      raise Exception.Create('Error Decrypt: '+e.Message);
+    end;
+  end;
+end;
+
+function Togcvdispensarios_hongyang.ReiniciarPuerto(forzado:Boolean):Boolean;
+begin
+  Result:=False;
+  if (PosicionesLibres) or (forzado) then begin
+    Timer1.Enabled:=False;
+    horaReinicio:=Now;
+    Detener;
+    Sleep(200);
+    if modoPreset then begin
+      modoPreset:=False;
+      Iniciar;
+      modoPreset:=True;
+    end
+    else
+      Iniciar;
+    AgregaLog('SE REINICIO PUERTO');
+    if forzado then begin
+      GuardarLog;
+      GuardarLogPetRes;
+      GuardaLogComandos;
+    end;
+    Result:=True;
+    Timer1.Enabled:=True;
+  end
+  else
+    IncMinute(horaReinicio,1);
 end;
 
 end.
