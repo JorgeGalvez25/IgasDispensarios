@@ -292,6 +292,12 @@ procedure Togcvdispensarios_pam.ServerSocket1ClientRead(Sender: TObject;
     metodoEnum:TMetodos;
 begin
   try
+    mensaje:=Socket.ReceiveText;
+    if StrToIntDef(mensaje,-99) in [0,1] then begin
+      pSerial.Open:=mensaje='1';
+      Socket.SendText('1');
+      Exit;
+    end;
     mensaje:=Decrypt(mensaje,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
@@ -2037,8 +2043,11 @@ begin
     else
       Result:='False|El proceso ya habia sido detenido|'
   except
-    on e:Exception do
+    on e:Exception do begin
+      AgregaLog('Error Detener: '+e.Message);
+      GuardarLog;
       Result:='False|'+e.Message+'|';
+    end;
   end;
 end;
 
@@ -2060,8 +2069,10 @@ begin
     numPaso:=0;
     Result:='True|';
   except
-    on e:Exception do
+    on e:Exception do begin
+      AgregaLog('Error Iniciar: '+e.Message);
       Result:='False|'+e.Message+'|';
+    end;
   end;
 end;
 
@@ -2307,8 +2318,11 @@ begin
     estado:=0;
     Result:='True|';
   except
-    on e:Exception do
+    on e:Exception do begin
+      AgregaLog('Error Inicializar: '+e.Message);
+      GuardarLog;
       Result:='False|Excepcion: '+e.Message+'|';
+    end;
   end;
 end;
 
@@ -2454,10 +2468,17 @@ var
   key128 : TKey128;
   dataOut : string;
 begin
-  GenerateMD5Key(key128, Key3DES);
-  TripleDESEncryptString(data,dataOut,key128,false);
-  dataOut := UTF8Decode(dataOut);
-  Result := dataOut;
+  try
+    GenerateMD5Key(key128, Key3DES);
+    TripleDESEncryptString(data,dataOut,key128,false);
+    dataOut := UTF8Decode(dataOut);
+    Result := dataOut;
+  except
+    on e:Exception do begin
+      AgregaLog('Decrypt: '+e.Message+' Data: '+data+'3DES: '+key3DES);
+      AgregaLogPetRes('Decrypt: '+e.Message+' Data: '+data+'3DES: '+key3DES);
+    end;
+  end;
 end;
 
 function Togcvdispensarios_pam.Encrypt(data, key3DES: string): string;
@@ -2465,10 +2486,17 @@ var
   key128 : TKey128;
   dataIn,dataOut : string;
 begin
-  dataIn := UTF8Encode(data);
-  GenerateMD5Key(key128, Key3DES);
-  TripleDESEncryptString(dataIn,dataOut,key128,true);
-  Result := dataOut;
+  try
+    dataIn := UTF8Encode(data);
+    GenerateMD5Key(key128, Key3DES);
+    TripleDESEncryptString(dataIn,dataOut,key128,true);
+    Result := dataOut;
+  except
+    on e:Exception do begin
+      AgregaLog('Encrypt: '+e.Message);
+      AgregaLogPetRes('Encrypt: '+e.Message);
+    end;
+  end;
 end;
 
 end.
