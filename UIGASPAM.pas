@@ -33,7 +33,7 @@ type
     UltimoStatus:string;
     SnPosCarga:integer;
     SnImporte,SnLitros:real;
-    SwError         :boolean;
+    SwError,SwMapOff  :boolean;
     ContEspera1,
     ContEsperaPaso2,
     ContEsperaPaso3,
@@ -245,6 +245,7 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',1001);
     licencia:=config.ReadString('CONF','Licencia','');
+    SwMapOff:=Mayusculas(config.ReadString('CONF','MapOff',''))='SI';
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -769,17 +770,19 @@ begin
 
            if not SwComandoB then begin
              SwComandoB:=true;
-             if VersionPam1000='3' then begin
-               if SetUpPAM1000='' then
-                 ComandoConsola('D06222'); // D05233
-               Esperamiliseg(500);
-               if SetUpPAM1000<>'.' then
+             if not SwMapOff then begin
+               if VersionPam1000='3' then begin
+                 if SetUpPAM1000='' then
+                   ComandoConsola('D06222'); // D05233
+                 Esperamiliseg(500);
+                 if SetUpPAM1000<>'.' then
+                   ComandoConsola('D0'+SetUpPAM1000);
+               end
+               else if SetUpPAM1000<>'' then
                  ComandoConsola('D0'+SetUpPAM1000);
-             end
-             else if SetUpPAM1000<>'' then
-               ComandoConsola('D0'+SetUpPAM1000);
-             EsperaMiliSeg(500);
-             exit;
+               EsperaMiliSeg(500);
+               exit;
+             end;
            end;
            if (swcomandob) then begin
              // MAPEA LOS PRODUCTOS
@@ -1626,7 +1629,7 @@ begin
       precio:=0;
       tipopago:=0;
       finventa:=0;
-      Swnivelprec:=false;
+      Swnivelprec:=SwMapOff;
       SwCargando:=false;
       SwAutorizada:=false;
       SwAutorizando:=false;
@@ -1674,7 +1677,7 @@ begin
             else
               TPosx[NoComb]:=1;
             TMapa[NoComb]:='X'+IntToClaveNum(xpos,2)+IntToStr(xcomb)+IntToStr(conPosicion);
-            SwMapea[NoComb]:=True;
+            SwMapea[NoComb]:=not SwMapOff;
           end;
         end;
       end;
@@ -2313,6 +2316,17 @@ begin
         SetUpPAM1000:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='VERSIONPAM1000' then
         VersionPam1000:=ExtraeElemStrSep(variable,2,'=');
+    end;
+
+    productos := js.Field['Products'];
+
+    for i:=0 to productos.Count-1 do begin
+      productID:=productos.Child[i].Field['ProductId'].Value;
+      if productos.Child[i].Field['Price'].Value<0 then begin
+        Result:='False|El precio '+IntToStr(productID)+' es incorrecto|';
+        Exit;
+      end;
+      LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
     end;
     PreciosInicio:=False;
     estado:=0;
