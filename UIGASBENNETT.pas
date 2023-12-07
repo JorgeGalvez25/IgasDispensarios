@@ -170,7 +170,7 @@ const idSTX = #2;
       MaximoDePosiciones = 32;
       NivelPrecioContado='1';
       NivelPrecioCredito='2';
-      MaxEsperaRsp=5;
+      MaxEsperaRsp=10;
 
 type
   TMetodos = (
@@ -1149,7 +1149,6 @@ begin
                     xp:=PosicionDeCombustible(xpos,xcomb);
                   end;
                   if xp>0 then begin
-//                    TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
                     TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
                     if rsp='OK' then
                       EnviaPreset(rsp,xcomb);
@@ -2079,7 +2078,8 @@ var
 begin
   try
     js := TlkJSON.ParseText(json);
-    SegundosFinv := js.Field['CounterToPaySale'].Value;
+    if js.Field['CounterToPaySale'].Value>0 then
+      SegundosFinv := js.Field['CounterToPaySale'].Value;
     Result:='True|';
   except
     on e:Exception do begin
