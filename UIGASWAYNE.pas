@@ -35,6 +35,7 @@ type
     FinLinea:Boolean;
     LineaTimer,
     UltimaLineaTimer,
+    SoportaSeleccionProducto,
     Linea:string;
     ContEspera,
     ContEsperaN,
@@ -498,7 +499,7 @@ begin
     ModoPrecioWayne:='1';
     DecimalesPresetWayne:=-1;
     DecimalesPresetWayneLitros:=3;
-    Con_DigitoAjuste:=1;
+    Con_DigitoAjuste:=0;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSION' then
@@ -520,7 +521,9 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESPRESETWAYNELITROS' then
         DecimalesPresetWayneLitros:=StrToInt(ExtraeElemStrSep(variable,2,'='))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='CONDIGITOAJUSTE' then
-        Con_DigitoAjuste:=StrToInt(ExtraeElemStrSep(variable,2,'='));
+        Con_DigitoAjuste:=StrToInt(ExtraeElemStrSep(variable,2,'='))
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='SOPORTASELECCIONPRODUCTO' then
+        SoportaSeleccionProducto:=ExtraeElemStrSep(variable,2,'=');
     end;
 
     js := TlkJSON.ParseText(json);
@@ -1994,7 +1997,7 @@ begin
                   rsp:=ValidaCifra(SnImporte,5,2);
                   if rsp='OK' then
                     if (SnImporte<0.01) then
-                      SnImporte:=9999;
+                      SnImporte:=99999;
                 except
                   rsp:='Error en Importe';
                 end;
@@ -2286,6 +2289,8 @@ var ss,sval:string;
     i,ndig,xpos,nc:integer;
     swlitros:boolean;
 begin
+  if SoportaSeleccionProducto<>'Si' then
+    xcomb:=0;
   swlitros:=SnLitros>0.01;
   if not (SnPosCarga in [1..MaxPosCarga]) then begin
     rsp:='Posicion de Carga no Existe';
@@ -2305,7 +2310,7 @@ begin
     ComandoConsola('E'+IntToClaveNum(xpos,2));
     esperamiliseg(500);
   end;
-  if SnImporte>=9999 then
+  if SnImporte>=99999 then
     ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
   else begin
     ss:='P'+IntToClaveNum(SnPosCarga,2);
@@ -2347,10 +2352,7 @@ begin
     end;
     if xcomb>0 then begin
       i:=PosiciondeCombustible(xpos,xcomb);
-      if i=0 then
-        ss:=ss+'0'
-      else
-        ss:=ss+inttostr(i);
+      ss:=ss+inttostr(i);
     end
     else
       ss:=ss+'0';
