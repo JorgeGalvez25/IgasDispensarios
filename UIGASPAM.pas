@@ -31,6 +31,8 @@ type
     swcierrabd,
     FinLinea:boolean;
     UltimoStatus:string;
+    MapCombs:string;
+    LigaCombs:string;
     SnPosCarga:integer;
     SnImporte,SnLitros:real;
     SwError,SwMapOff  :boolean;
@@ -73,7 +75,6 @@ type
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     function IniciaPSerial(datosPuerto:string): string;
     procedure ComandoConsola(ss:string);
-    procedure IniciarPrecios;
     function CalculaBCC(ss:string):char;
     function CRC16(Data: string): string;
     function XorChar(c1,c2:char):char;
@@ -133,6 +134,7 @@ type
        estatusant:integer;
        NoComb   :integer; // Cuantos combustibles hay en la posicion
        TComb    :array[1..MCxP] of integer; // Claves de los combustibles
+       TCombx    :array[1..MCxP] of integer;
        TPosx      :array[1..MCxP] of integer;
        TDiga    :array[1..MCxP] of integer;
        TDigvol    :array[1..MCxP] of integer;
@@ -246,6 +248,8 @@ begin
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',1001);
     licencia:=config.ReadString('CONF','Licencia','');
     SwMapOff:=Mayusculas(config.ReadString('CONF','MapOff',''))='SI';
+    MapCombs:=config.ReadString('CONF','MapeoCombustibles','');
+    LigaCombs:=config.ReadString('CONF','LigueCombustibles','');
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -648,12 +652,13 @@ end;
 procedure Togcvdispensarios_pam.ProcesaLinea;
 label uno;
 var lin,ss,rsp,
-    xestado,xmodo:string;
+    xestado,xmodo,precios:string;
     simp,sval,spre:string[20];
-    i,xpos,xcmnd,
+    i,xpos,xcmnd,combx,
     XMANG,XCTE,XVEHI,
     xcomb,xp,xc,xfolio:integer;
     xgrade:char;
+    precioComb,
     importeant,
     ximporte:real;
     xvol,ximp:real;
@@ -919,6 +924,10 @@ begin
                        swdesp:=true;
                      end;
                      CombActual:=CombustibleEnPosicion(xpos,PosActual);
+                     if LigaCombs<>'' then begin
+                       if ExtraeElemStrSep(LigaCombs,1,':')=IntToStr(CombActual) then
+                         CombActual:=StrToInt(ExtraeElemStrSep(LigaCombs,2,':'));
+                     end;
                      if (TPosCarga[xpos].finventa=0) then begin
                        if Estatus=3 then begin // EOTS
                          TPosCarga[xpos].finventa:=0;
@@ -1387,10 +1396,36 @@ begin
               end;
 
               if swAllTotals then begin
-                rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
-                                FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
-                                FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
+                rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TCombx[1]])+'|'+
+                                FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TCombx[2]])+'|'+
+                                FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TCombx[3]])+'|';
                 SwAplicaCmnd:=True;
+              end;
+            end;
+          end;
+        end
+        else if (ss='CPREC') then begin
+          precios:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' ');
+          for i:=1 to NoElemStrSep(precios,'|') do begin
+            precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,i,'|'),-1);
+            if precioComb<=0 then
+              Continue;
+            LPrecios[i]:=precioComb;
+            if ValidaCifra(precioComb,2,2)='OK' then begin
+              if precioComb>=0.01 then begin
+                ComandoConsola('X'+'00'+IntToStr(i)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+                EsperaMiliSeg(300);
+                ComandoConsola('X'+'00'+IntToStr(i)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
+                EsperaMiliSeg(200);
+                if LigaCombs<>'' then begin
+                  if i=StrToIntDef(ExtraeElemStrSep(LigaCombs,2,':'),0) then begin
+                    combx:=StrToInt(ExtraeElemStrSep(LigaCombs,1,':'));
+                    ComandoConsola('X'+'00'+IntToStr(combx)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+                    EsperaMiliSeg(300);
+                    ComandoConsola('X'+'00'+IntToStr(combx)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
+                    EsperaMiliSeg(200);
+                  end;
+                end;
               end;
             end;
           end;
@@ -1660,8 +1695,12 @@ begin
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
-          xcomb:=mangueras.Child[j].Field['ProductId'].Value;
           conPosicion:=mangueras.Child[j].Field['HoseId'].Value;
+          if MapCombs<>'' then
+            xcomb:=StrToInt(ExtraeElemStrSep(ExtraeElemStrSep(MapCombs,xpos,';'),conPosicion,','))
+          else
+            xcomb:=mangueras.Child[j].Field['ProductId'].Value;
+
           for k:=1 to NoComb do
             if TComb[k]=xcomb then
               existe:=true;
@@ -1669,6 +1708,7 @@ begin
           if not existe then begin
             inc(NoComb);
             TComb[NoComb]:=xcomb;
+            TCombx[NoComb]:=mangueras.Child[j].Field['ProductId'].Value;;
             TMang[NoComb]:=conPosicion;
             if conPosicion>0 then
               TPosx[NoComb]:=conPosicion
@@ -1689,32 +1729,12 @@ begin
 end;
 
 function Togcvdispensarios_pam.IniciaPrecios(msj: string): string;
-var
-  ss:string;
-  precioComb:Double;
-  xpos,i:Integer;
-  entro:Boolean;
 begin
   try
-    for i:=1 to NoElemStrSep(msj,'|') do begin
-      precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,i,'|'),-1);
-      if precioComb<=0 then
-        Continue;
-      LPrecios[i]:=precioComb;
-      if ValidaCifra(precioComb,2,2)='OK' then begin
-        if precioComb>=0.01 then begin
-          ComandoConsola('X'+'00'+IntToStr(i)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-          EsperaMiliSeg(300);
-          ComandoConsola('X'+'00'+IntToStr(i)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
-          EsperaMiliSeg(200);
-          entro:=True;
-        end;
-      end;
-    end;
-    if entro then
+    if EjecutaComando('CPREC '+msj)>0 then
       Result:='True|'
     else
-      Result:='False|No se encontraron precios validos|';
+      Result:='False|No fue posible aplicar comando de cambio de precios|';
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -2439,22 +2459,6 @@ function Togcvdispensarios_pam.Logout: string;
 begin
   Token:='';
   Result:='True|';
-end;
-
-procedure Togcvdispensarios_pam.IniciarPrecios;
-var
-  xpos,i:Integer;
-  ss:String;
-begin
-  for i:=1 to 4  do begin
-    if ValidaCifra(LPrecios[i],2,2)='OK' then begin
-      ComandoConsola('X'+'00'+IntToStr(i)+'1'+'00'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
-      EsperaMiliSeg(300);
-      ComandoConsola('X'+'00'+IntToStr(i)+'2'+'00'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
-      EsperaMiliSeg(200);
-    end;
-  end;
-  PreciosInicio:=False;
 end;
 
 procedure Togcvdispensarios_pam.GuardaLogComandos;
