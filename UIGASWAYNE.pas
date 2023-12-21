@@ -1474,7 +1474,8 @@ begin
            contact:=0;
            if PreciosInicio then
              IniciarPrecios;
-           for xpos:=1 to length(ss) do if xpos in [1..maxposcarga] then  begin
+           lin:='';xestado:='';xmodo:='';
+           for xpos:=1 to length(ss) do if xpos in [1..maxposcarga] then begin
              with TPosCarga[xpos] do begin
                SwCmndB:=true;
                if estatusant<>estatus then begin
@@ -1571,8 +1572,26 @@ begin
                  inc(contact)
                else if estatus=8 then
                  inc(contstop);
+
+               if not SwDesHabilitado then begin
+                 case estatus of
+                   0:xestado:=xestado+'0'; // Sin Comunicacion
+                   1:xestado:=xestado+'1'; // Inactivo (Idle)
+                   2:xestado:=xestado+'2'; // Cargando (In Use)
+                   3:if not swcargando then
+                       xestado:=xestado+'3' // Fin de Carga (Used)
+                     else
+                       xestado:=xestado+'2';
+                   5:xestado:=xestado+'5'; // Llamando (Calling)
+                   9:xestado:=xestado+'9'; // Autorizado (Calling)
+                   8:xestado:=xestado+'8'; // Detenido (Stoped)
+                   else xestado:=xestado+'0';
+                 end;
+               end
+               else xestado:=xestado+'7'; // Deshabilitado
              end;
            end;
+           LinEstadoGen:=xestado;
            if (contstop>0)and(contact=0) then begin
              if (WayneFusion='No')or(MapeoFusion='Si') then begin
                ComandoConsola('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
@@ -1675,6 +1694,8 @@ begin
                        end;
                      end;
                    end;
+                   CombActual:=CombustibleEnPosicion(xpos,PosDispActual);
+                   MangActual:=MangueraEnPosicion(xpos,PosDispActual);
                  end;
                except
                  if estatus<>2 then
@@ -1736,56 +1757,12 @@ begin
         NumPaso:=3;StEsperaPaso3:=0; ContPaso3:=0;
       end;
     end;
-
     if (NumPaso=3) then begin
-      inc(ContPaso3);
-      if ContPaso3>12 then begin
-        ContPaso3:=0;
-      end
-      else begin
-        lin:='';xestado:='';xmodo:='';
-        for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
-          xmodo:=xmodo+ModoOpera[1];
-          if not SwDesHabilitado then begin
-            case estatus of
-              0:xestado:=xestado+'0'; // Sin Comunicacion
-              1:xestado:=xestado+'1'; // Inactivo (Idle)
-              2:xestado:=xestado+'2'; // Cargando (In Use)
-              3:if not swcargando then
-                  xestado:=xestado+'3' // Fin de Carga (Used)
-                else
-                  xestado:=xestado+'2';
-              5:xestado:=xestado+'5'; // Llamando (Calling)
-              9:xestado:=xestado+'9'; // Autorizado (Calling)
-              8:xestado:=xestado+'8'; // Detenido (Stoped)
-              else xestado:=xestado+'0';
-            end;
-          end
-          else xestado:=xestado+'7'; // Deshabilitado
-          xcomb:=CombustibleEnPosicion(xpos,PosDispActual);
-          CombActual:=xcomb;
-          MangActual:=MangueraEnPosicion(xpos,PosDispActual);
-          ss:=inttoclavenum(xpos,2)+'/'+inttostr(TComb[TPos[PosDispActual]]);
-          ss:=ss+'/'+FormatFloat('###0.##',volumen);
-          ss:=ss+'/'+FormatFloat('#0.##',precio);
-          ss:=ss+'/'+FormatFloat('####0.##',importe);
-          lin:=lin+'#'+ss;
-        end;
-        if lin='' then
-          lin:=xestado+'#'
-        else
-          lin:=xestado+lin;
-        lin:=lin+'&'+xmodo;
-        LinEstadoGen:=xestado;
-      end;
       NumPaso:=4;
-    end;
-    if (NumPaso=4) then begin
-      NumPaso:=5;
       if PosicionCargaActual2>=MaxPosCarga then
         PosicionCargaActual2:=0;
     end;
-    if NumPaso=5 then begin // TOTALES
+    if NumPaso=4 then begin // TOTALES
       if PosicionCargaActual2<=MaxPosCarga then begin
         repeat
           if PosicionCargaActual2=0 then begin
@@ -1811,7 +1788,7 @@ begin
             end;
           end
           else begin
-            NumPaso:=6;
+            NumPaso:=5;
             PrecioCombActual:=0;
           end;
         until (PosicionCargaActual2>MaxPosCarga);
@@ -2199,7 +2176,7 @@ begin
           exit;
         end;
       end;
-      if NumPaso=5 then begin // si esta en espera de respuesta ACK
+      if NumPaso=4 then begin // si esta en espera de respuesta ACK
         inc(ContEsperaPaso5);     // espera hasta 5 ciclos
         if ContEsperaPaso5>5 then begin
           ContEsperaPaso5:=0;
@@ -2208,7 +2185,7 @@ begin
           exit;
         end;
       end;
-      if NumPaso=6 then begin // si esta en espera de respuesta ACK
+      if NumPaso=5 then begin // si esta en espera de respuesta ACK
         inc(ContEsperaPaso6);     // espera hasta 5 ciclos
         if ContEsperaPaso6>3 then begin
           ContEsperaPaso6:=0;
