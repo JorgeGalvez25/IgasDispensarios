@@ -275,21 +275,21 @@ begin
     fechaInicio:=now;
     horaReinicio:=Now;
 
-//    CoInitialize(nil);
-//    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-//    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
-//
-//    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
-//      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
-//      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-//      ServiceThread.Terminate;
-//      Exit;
-//    end
-//    else begin
-      claveCre:={ExtraeElemStrSep(lic,2,'|')}' ';
-      key3DES:={ExtraeElemStrSep(lic,3,'|')}'13D19ED6B615EEAA5B8EEB3A0BED29D1';
-//      key:=Unassigned;
-//    end;
+    CoInitialize(nil);
+    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
+
+    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
+      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
+      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      ServiceThread.Terminate;
+      Exit;
+    end
+    else begin
+      claveCre:=ExtraeElemStrSep(lic,2,'|');
+      key3DES:=ExtraeElemStrSep(lic,3,'|');
+      key:=Unassigned;
+    end;   
 
     while not Terminated do
       ServiceThread.ProcessRequests(True);
@@ -670,7 +670,7 @@ begin
       SwVentaValidada:=false;
       SwErrorCmnd:=false;
       SwCargaPreset:=false;
-      SwCargaTotales:=false;
+      SwCargaTotales:=True;
       SwActivo:=false;
       tipopago:=0;
       finventa:=0;
@@ -697,6 +697,7 @@ begin
         cMang:=ExtraeElemStrSep(cPos,xpcomb,',');
         xaddr:=StrToInt(ExtraeElemStrSep(cMang,1,':'));
         xlado:=StrToInt(ExtraeElemStrSep(cMang,2,':'));
+        AgregaLog('Manguera '+IntToStr(xmang)+': Address: '+IntToStr(xaddr)+': Lado: '+IntToStr(xlado));
         if xpcomb in [1..3] then begin
           TPosCarga[xpos].posmanguera[xpcomb]:=xmang;
           TPosCarga[xpos].PosMangueraDisp[xpcomb]:=mangueras.Child[j].Field['HoseId'].Value;
@@ -1893,7 +1894,7 @@ begin
   try
     // PROCESA COMANDOS EXTERNOS
     SwSalir:=false;
-    for xcmnd:=1 to 40 do if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
+    for xcmnd:=1 to 200 do if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
       SwAplicaCmnd:=true;
       ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
       AgregaLog(TabCmnd[xcmnd].Comando);
