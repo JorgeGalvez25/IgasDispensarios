@@ -12,7 +12,8 @@ uses
   IdHash in 'IdHash.pas',
   OG_Hasp in 'OG_Hasp.pas',
   UIGASWAYNE in 'UIGASWAYNE.pas' {ogcvdispensarios_wayne: TService},
-  UIGASHONGYANG in 'UIGASHONGYANG.pas' {ogcvdispensarios_hongyang: TService};
+  UIGASHONGYANG in 'UIGASHONGYANG.pas' {ogcvdispensarios_hongyang: TService},
+  UIGASGILBARCO in 'UIGASGILBARCO.pas' {ogcvdispensarios_gilbarco2W: TService};
 
 {$R *.RES}
 var
@@ -31,5 +32,7 @@ begin
     Application.CreateForm(Togcvdispensarios_pam, ogcvdispensarios_pam);
   if marca='5' then
     Application.CreateForm(Togcvdispensarios_hongyang, ogcvdispensarios_hongyang);
+  if marca='6' then
+    Application.CreateForm(Togcvdispensarios_gilbarco2W, ogcvdispensarios_gilbarco2W);
   Application.Run;
 end.
