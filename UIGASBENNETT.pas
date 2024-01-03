@@ -35,6 +35,7 @@ type
     ContEsperaPaso3,
     NumPaso,
     PosicionActual:integer;
+    SoportaSeleccionProducto:string; 
     UltimoStatus:string;
     SnPosCarga:integer;
     SnImporte,SnLitros:real;
@@ -77,7 +78,7 @@ type
     function ResultadoComando(xFolio:integer):string;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
-    function Inicializar(json:string): string;
+    function Inicializar(msj:string): string;
     function Parametros(json:string): string;
     function Login(mensaje:string): string;
     function Logout: string;
@@ -106,6 +107,8 @@ type
     procedure GuardaLogComandos;
     function Encrypt(data,key3DES:string):string;
     function Decrypt(data,key3DES:string):string;
+    function NoElemStrEnter(xstr:string):word;
+    function ExtraeElemStrEnter(xstr:string;ind:word):string;    
     { Public declarations }
   end;
 
@@ -284,7 +287,7 @@ procedure Togcvdispensarios_bennett.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
-    if StrToIntDef(mensaje,-99) in [0,1] then begin
+    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
       Socket.SendText('1');
       Exit;
@@ -1086,7 +1089,7 @@ begin
       Esperamiliseg(300);
       swcierrabd:=false;
     end;
-    for k:=1 to 40 do begin
+    for k:=1 to 200 do begin
       claveCmnd:=k;
       if (TabCmnd[claveCmnd].SwActivo)and(not TabCmnd[claveCmnd].SwResp) then begin
         SwAplicaCmnd:=true;
@@ -1368,8 +1371,8 @@ begin
   end;
 
   ss:='S'+IntToClaveNum(xpos,2); // Autorizar
-  
-  if (xcomb>0) and (SnImporte<>9999) then with TPosCarga[xpos] do begin
+
+  if (SoportaSeleccionProducto='Si') and (xcomb>0) and (SnImporte<>9999) then with TPosCarga[xpos] do begin
     xp:=0;
     for xc:=1 to NoComb do
       if TComb[xc]=xcomb then
@@ -1967,12 +1970,12 @@ begin
   end;
 end;
 
-function Togcvdispensarios_bennett.Inicializar(json: string): string;
+function Togcvdispensarios_bennett.Inicializar(msj: string): string;
 var
   js: TlkJSONBase;
   consolas,dispensarios,productos: TlkJSONbase;
   i,productID: Integer;
-  datosPuerto:string;
+  datosPuerto, variables, variable:string;
 begin
   try
     if estado>-1 then begin
@@ -1980,7 +1983,16 @@ begin
       Exit;
     end;
 
-    js := TlkJSON.ParseText(ExtraeElemStrSep(json,1,'|'));
+    js := TlkJSON.ParseText(ExtraeElemStrSep(msj,1,'|'));
+    variables:=ExtraeElemStrSep(msj,2,'|');
+
+    SoportaSeleccionProducto:='Si';
+    for i:=1 to NoElemStrEnter(variables) do begin
+      variable:=ExtraeElemStrEnter(variables,i);
+      if UpperCase(ExtraeElemStrSep(variable,1,'='))='SOPORTASELECCIONPRODUCTO' then
+        SoportaSeleccionProducto:=ExtraeElemStrSep(variable,2,'=')
+    end;                              
+
     consolas := js.Field['Consoles'];
 
     datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
@@ -2159,6 +2171,46 @@ begin
   GenerateMD5Key(key128, Key3DES);
   TripleDESEncryptString(dataIn,dataOut,key128,true);
   Result := dataOut;
+end;
+
+function Togcvdispensarios_bennett.ExtraeElemStrEnter(xstr: string;
+  ind: word): string;
+var i,cont,nc:word;
+    ss:string;
+begin
+  xstr:=xstr+' ';
+  cont:=1;ss:='';
+  i:=1;nc:=length(xstr);
+  while (cont<ind)and(i<nc) do begin
+    if (xstr[i]=#13)and(xstr[i+1]=#10) then begin
+      inc(i);
+      inc(cont);
+    end;
+    inc(i);
+  end;
+  while (i<nc) do begin
+    if (xstr[i]=#13)and(xstr[i+1]=#10) then
+      i:=nc
+    else ss:=ss+xstr[i];
+    inc(i);
+  end;
+  result:=limpiastr(ss);
+end;
+
+function Togcvdispensarios_bennett.NoElemStrEnter(xstr: string): word;
+var i,cont,nc:word;
+begin
+  xstr:=xstr+' ';
+  cont:=1;
+  i:=1;nc:=length(xstr);
+  while (i<nc) do begin
+    if (xstr[i]=#13)and(xstr[i+1]=#10) then begin
+      inc(i);
+      inc(cont);
+    end;
+    inc(i);
+  end;
+  result:=cont;
 end;
 
 end.
