@@ -1868,7 +1868,7 @@ var ss,rsp,ss2,precios       :string;
 begin
   try
     // Checa Comandos
-    for xcmnd:=1 to 40 do begin
+    for xcmnd:=1 to 200 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
         SwAplicaCmnd:=true;
         ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
