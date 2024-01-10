@@ -75,6 +75,7 @@ type
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     function IniciaPSerial(datosPuerto:string): string;
     procedure ComandoConsola(ss:string);
+    procedure ComandoConsolaBuff(ss:string);
     function CalculaBCC(ss:string):char;
     function CRC16(Data: string): string;
     function XorChar(c1,c2:char):char;
@@ -160,6 +161,7 @@ type
        swcargando:boolean;
        SwActivo,
        SwOCC,SwCmndB,
+       SwPidiendoTotales,
        SwDesHabilitado:boolean;
        ModoOpera:string[8];
        TipoPago:integer;
@@ -223,7 +225,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo;
+uses StrUtils, TypInfo, DateUtils;
 
 {$R *.DFM}
 
@@ -298,7 +300,7 @@ procedure Togcvdispensarios_pam.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
-    if StrToIntDef(mensaje,-99) in [0,1] then begin
+    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
       Socket.SendText('1');
       Exit;
@@ -641,6 +643,8 @@ begin
       SwBcc:=false;
       FinLinea:=false;
       SwError:=(lineaTimer=idNak);
+      if SwError then
+        Inc(NumPaso);
       ProcesaLinea;
       LineaTimer:='';
     end;
@@ -865,6 +869,8 @@ begin
                  volumen:=0;
                  precio:=0;
                  CombActual:=0;
+                 PosActual:=0;
+                 MangActual:=0;
                end
                else if lin[4]='\' then begin // POSICION NO MAPEADA
                  for i:=1 to nocomb do
@@ -922,6 +928,8 @@ begin
                      if (Estatus=3)and(SwCargando) then begin// EOT
                        SwCargando:=false;
                        swdesp:=true;
+                       SwPidiendoTotales:=True;
+                       SwTotales[PosActual]:=True;
                      end;
                      CombActual:=CombustibleEnPosicion(xpos,PosActual);
                      if LigaCombs<>'' then begin
@@ -931,9 +939,9 @@ begin
                      if (TPosCarga[xpos].finventa=0) then begin
                        if Estatus=3 then begin // EOTS
                          TPosCarga[xpos].finventa:=0;
-                         ss:='R'+IntToClaveNum(xpos,2); // VENTA COMPLETA
-                         ComandoConsola(ss);
-                         EsperaMiliSeg(100);
+//                         ss:='R'+IntToClaveNum(xpos,2); // VENTA COMPLETA
+//                         ComandoConsola(ss);
+//                         EsperaMiliSeg(100);
                        end;
                      end;
                    except
@@ -1015,6 +1023,13 @@ begin
          ContEsperaPaso5:=0;
   end;
 
+  if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
+    ss:=ListaCmnd[0];
+    ListaCmnd.Delete(0);
+    ComandoConsola(ss);
+    exit;
+  end;  
+
   // checa lecturas de dispensarios
   if NumPaso=2 then begin
     try
@@ -1083,6 +1098,7 @@ begin
       LinEstadoGen:=xestado;
       // FIN
       if PosicionCargaActual<=MaxPosCarga then begin
+        PosicionDispenActual:=0;
         repeat
           if PosicionDispenActual=0 then begin
             PosicionCargaActual:=1;
@@ -1095,8 +1111,10 @@ begin
             PosicionDispenActual:=1;
           end;
           if PosicionCargaActual<=MaxPosCarga then begin
+            if PosicionCargaActual<1 then
+              PosicionCargaActual:=1;
             with TPosCarga[PosicionCargaActual] do begin
-              if (estatus=1) and (swtotales[PosicionDispenActual]) then begin
+              if (estatus in [1,3]) and (swtotales[PosicionDispenActual]) then begin
                 if VersionPam1000='3' then
                   ComandoConsola('@10'+'0'+IntToClaveNum(PosicionCargaActual,2))
                 else
@@ -1130,7 +1148,7 @@ begin
   if (NumPaso=4) then begin
     try
       // Checa Comandos
-      for xcmnd:=1 to 40 do if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
+      for xcmnd:=1 to 200 do if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
         SwAplicaCmnd:=true;
         ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
         AgregaLog(TabCmnd[xcmnd].Comando);
@@ -1379,8 +1397,8 @@ begin
           xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
           SwAplicaCmnd:=False;
           with TPosCarga[xpos] do begin
-            if TabCmnd[xcmnd].SwNuevo then begin
-              swAllTotals:=False;
+            if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) then begin
+              AgregaLog('TOTALES EN TODAS LAS MANGUERAS');
               SwTotales[1]:=true;
               SwTotales[2]:=true;
               SwTotales[3]:=true;
@@ -1395,10 +1413,16 @@ begin
                 end;
               end;
 
+              if (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+                ToTalLitros[PosActual]:=ToTalLitros[PosActual]+volumen;
+                swAllTotals:=True;
+              end;
+
               if swAllTotals then begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TCombx[1]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TCombx[2]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TCombx[3]])+'|';
+                SwPidiendoTotales:=False;
                 SwAplicaCmnd:=True;
               end;
             end;
@@ -1413,17 +1437,13 @@ begin
             LPrecios[i]:=precioComb;
             if ValidaCifra(precioComb,2,2)='OK' then begin
               if precioComb>=0.01 then begin
-                ComandoConsola('X'+'00'+IntToStr(i)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-                EsperaMiliSeg(300);
-                ComandoConsola('X'+'00'+IntToStr(i)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
-                EsperaMiliSeg(200);
+                ComandoConsolaBuff('X'+'00'+IntToStr(i)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+                ComandoConsolaBuff('X'+'00'+IntToStr(i)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
                 if LigaCombs<>'' then begin
                   if i=StrToIntDef(ExtraeElemStrSep(LigaCombs,2,':'),0) then begin
                     combx:=StrToInt(ExtraeElemStrSep(LigaCombs,1,':'));
-                    ComandoConsola('X'+'00'+IntToStr(combx)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-                    EsperaMiliSeg(300);
-                    ComandoConsola('X'+'00'+IntToStr(combx)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
-                    EsperaMiliSeg(200);
+                    ComandoConsolaBuff('X'+'00'+IntToStr(combx)+'1'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+                    ComandoConsolaBuff('X'+'00'+IntToStr(combx)+'2'+'00'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
                   end;
                 end;
               end;
@@ -1587,7 +1607,7 @@ function Togcvdispensarios_pam.MangueraEnPosicion(xpos,xposcarga:integer):intege
 var i:integer;
 begin
   with TPosCarga[xpos] do begin
-    result:=TComb[1];
+    result:=0;
     for i:=1 to NoComb do begin
       if TPosx[i]=xposcarga then
         result:=TMang[i];
@@ -1668,6 +1688,7 @@ begin
       SwCargando:=false;
       SwAutorizada:=false;
       SwAutorizando:=false;
+      SwPidiendoTotales:=False;
       for j:=1 to MCxP do begin
         SwTotales[j]:=true;
         TotalLitros[j]:=0;
@@ -1905,6 +1926,8 @@ var ss:string;
 //    i:integer;
 begin
   try
+    if NumPaso>4 then
+      NumPaso:=0;  
     if NumPaso>1 then begin
       if NumPaso=2 then begin // si esta en espera de respuesta ACK
         inc(ContEsperaPaso2);     // espera hasta 5 ciclos
@@ -2515,6 +2538,14 @@ begin
       AgregaLogPetRes('Encrypt: '+e.Message);
     end;
   end;
+end;
+
+procedure Togcvdispensarios_pam.ComandoConsolaBuff(ss: string);
+begin
+  if (ListaCmnd.Count=0)and(not SwEsperaRsp) then
+    ComandoConsola(ss)
+  else
+    ListaCmnd.Add(ss);
 end;
 
 end.
