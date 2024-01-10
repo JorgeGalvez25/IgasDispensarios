@@ -166,6 +166,7 @@ type
        SwParado,
        SwDesHabilitado,
        SwOCC,SwCmndB,
+       SwPidiendoTotales,
        SwFINV             :boolean;
        Mensaje :string[12];
        ValorMapeo :string[10];
@@ -312,7 +313,7 @@ procedure Togcvdispensarios_wayne.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
-    if StrToIntDef(mensaje,-99) in [0,1] then begin
+    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
       Socket.SendText('1');
       Exit;
@@ -500,6 +501,7 @@ begin
     DecimalesPresetWayne:=-1;
     DecimalesPresetWayneLitros:=3;
     Con_DigitoAjuste:=0;
+    SoportaSeleccionProducto:='Si';
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSION' then
@@ -1680,12 +1682,14 @@ begin
                      if (swcargando) then begin // FIN DE CARGA
                        swcargando:=false;
                        swdesp:=true;
+                       SwPidiendoTotales:=True;
+                       SwCargaTotales[PosDispActual]:=True;
                      end;
                    end;
                    if (TPosCarga[xpos].finventa=0) then begin
                      if (Estatus=3) then begin // FIN DE CARGA
-                       ComandoConsola('R'+inttoclavenum(xpos,2)+'0');
-                       esperamiliseg(100);
+//                       ComandoConsola('R'+inttoclavenum(xpos,2)+'0');
+//                       esperamiliseg(100);
                        if sw3virtual then begin
                          sw3virtual:=false;
                          finventa:=0;
@@ -1764,6 +1768,7 @@ begin
     end;
     if NumPaso=4 then begin // TOTALES
       if PosicionCargaActual2<=MaxPosCarga then begin
+        PosicionCargaActual2:=0;
         repeat
           if PosicionCargaActual2=0 then begin
             PosicionCargaActual2:=1;
@@ -1922,7 +1927,7 @@ begin
     // Checa comandos
     if SwComandoB then begin
       SwComandoB:=false;
-      for xcmnd:=1 to 40 do if (TabCmnd[xcmnd].SwActivo and not TabCmnd[xcmnd].SwResp) then begin
+      for xcmnd:=1 to 200 do if (TabCmnd[xcmnd].SwActivo and not TabCmnd[xcmnd].SwResp) then begin
         SwAplicaCmnd:=true;
         rsp:='';
         ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
@@ -2130,8 +2135,8 @@ begin
           xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
           SwAplicaCmnd:=False;
           with TPosCarga[xpos] do begin
-            if TabCmnd[xcmnd].SwNuevo then begin
-              swAllTotals:=False;
+            if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) then begin
+              AgregaLog('TOTALES EN TODAS LAS MANGUERAS');
               SwCargaTotales[1]:=true;
               SwCargaTotales[2]:=true;
               SwCargaTotales[3]:=true;
@@ -2150,6 +2155,7 @@ begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
+                SwPidiendoTotales:=False;
                 SwAplicaCmnd:=True;
               end;
             end;
