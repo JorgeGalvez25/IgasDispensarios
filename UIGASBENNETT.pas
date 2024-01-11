@@ -545,11 +545,9 @@ begin
           // precio contado
           ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
-          esperamiliseg(100);
           // precio credito
           ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(precioComb,5,2));
           ComandoConsolaBuff(ss,false);
-          esperamiliseg(100);
         end;
       end;
     end;
@@ -927,14 +925,13 @@ begin
                if (Estatus in [7,8])and(swcargando) then begin
                  swcargando:=false;
                  swdesp:=true;
-                 AgregaLog('GUARDA VENTA Pos:'+inttostr(xpos)+' Estatus:'+inttostr(estatus)+' - ant:'+inttostr(estatusant));
                end;
-               if (TPosCarga[xpos].finventa=0) then begin
-                 if Estatus in [7,8] then begin
-                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
-                   ComandoConsola(ss);
-                 end;
-               end;
+//               if (TPosCarga[xpos].finventa=0) then begin
+//                 if Estatus in [7,8] then begin
+//                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
+//                   ComandoConsola(ss);
+//                 end;
+//               end;
              except
              end;
            end;
