@@ -35,7 +35,8 @@ type
     ContEsperaPaso3,
     NumPaso,
     PosicionActual:integer;
-    SoportaSeleccionProducto:string; 
+    SoportaSeleccionProducto,
+    Bennett8Digitos:string;
     UltimoStatus:string;
     SnPosCarga:integer;
     SnImporte,SnLitros:real;
@@ -974,7 +975,10 @@ begin
         with TPosCarga[PosicionActual] do if NoComb>0 then begin
           if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
             SwA:=false;
-            ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2),false);
+            if Bennett8Digitos<>'Si' then
+              ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2),false)
+            else
+              ComandoConsolaBuff('1'+IntToClaveNum(PosicionActual,2),false);
           end;
         end;
       until (PosicionActual>=MaxPosCargaActiva);
@@ -1984,11 +1988,14 @@ begin
     variables:=ExtraeElemStrSep(msj,2,'|');
 
     SoportaSeleccionProducto:='Si';
+    Bennett8Digitos:='No';
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='SOPORTASELECCIONPRODUCTO' then
         SoportaSeleccionProducto:=ExtraeElemStrSep(variable,2,'=')
-    end;                              
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='BENNETT8DIGITOS' then
+        Bennett8Digitos:=ExtraeElemStrSep(variable,2,'=');
+    end;
 
     consolas := js.Field['Consoles'];
 
