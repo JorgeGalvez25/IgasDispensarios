@@ -747,12 +747,23 @@ begin
                      descestat:='Despachando';
                      //IniciaCarga:=true;
                      SwCargando:=true;
+                     SwPidiendoTotales:=False;
                    end;
                  3:begin
                      descestat:='Fin de Venta';       // EOT
                      TPosCarga[xpos].HoraOcc:=now-1000*tmsegundo;
                    end;
-                 5:descestat:='Pistola Levantada';  // CALL
+                 5:begin
+                     descestat:='Pistola Levantada';  // CALL
+                     if (estatusant<>estatus) then begin
+                       swautorizada:=false;
+                       FinVenta:=0;
+                       TipoPago:=0;
+                       //SwArosMag:=false;
+                       SwOcc:=false;
+                       ContOcc:=0;
+                     end;
+                   end;
                  6:begin
                      descestat:='Cerrada';            // CLOSED
                      ComandoConsola('L'+inttoclavenum(xpos,2));
@@ -841,6 +852,39 @@ begin
                end;
              end;
            end;
+
+           // GUARDA VALORES DE DISPENSARIOS CARGANDO
+           lin:='';xestado:='';xmodo:='';
+           for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
+             xmodo:=xmodo+ModoOpera[1];
+             if not SwDesHabilitado then begin
+               case estatus of
+                 0:xestado:=xestado+'0'; // Sin Comunicacion
+                 1:xestado:=xestado+'1'; // Inactivo (Idle)
+                 2:xestado:=xestado+'2'; // Cargando (In Use)
+                 3:xestado:=xestado+'3'; // Fin de Carga (Used)
+                 5:xestado:=xestado+'5'; // Llamando (Calling) Pistola Levantada
+                 9:xestado:=xestado+'9'; // Autorizado
+                 8:xestado:=xestado+'8'; // Detenido (Stoped)
+                 else xestado:=xestado+'0';
+               end;
+             end
+             else xestado:=xestado+'7'; // Deshabilitado
+             ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
+             ss:=ss+'/'+FormatFloat('###0.##',volumen);
+             ss:=ss+'/'+FormatFloat('#0.##',precio);
+             ss:=ss+'/'+FormatFloat('####0.##',importe);
+             lin:=lin+'#'+ss;
+             //end;
+           end;
+           if lin='' then
+             lin:=xestado+'#'
+           else
+             lin:=xestado+lin;
+           lin:=lin+'&'+xmodo;
+           LinEstadoGen:=xestado;
+           // FIN
+
            NumPaso:=2;
            PosicionCargaActual:=0;
          except
@@ -900,6 +944,7 @@ begin
                      spre:=copy(lin,22,5);
 
                      xcomb:=CombustibleEnPosicion(xpos,PosActual);
+                     MangActual:=MangueraEnPosicion(xpos,PosActual);
                      if digiPrec=1 then
                        precio:=StrToFloat(spre)/100
                      else if digiPrec=2 then
@@ -1063,39 +1108,6 @@ begin
   // Lee Totales
   if NumPaso=3 then begin // TOTALES
     try
-      // GUARDA VALORES DE DISPENSARIOS CARGANDO
-      lin:='';xestado:='';xmodo:='';
-      for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
-        xmodo:=xmodo+ModoOpera[1];
-        if not SwDesHabilitado then begin
-          case estatus of
-            0:xestado:=xestado+'0'; // Sin Comunicacion
-            1:xestado:=xestado+'1'; // Inactivo (Idle)
-            2:xestado:=xestado+'2'; // Cargando (In Use)
-            3:xestado:=xestado+'3'; // Fin de Carga (Used)
-            5:xestado:=xestado+'5'; // Llamando (Calling) Pistola Levantada
-            9:xestado:=xestado+'9'; // Autorizado
-            8:xestado:=xestado+'8'; // Detenido (Stoped)
-            else xestado:=xestado+'0';
-          end;
-        end
-        else xestado:=xestado+'7'; // Deshabilitado
-        xcomb:=CombustibleEnPosicion(xpos,PosActual);
-        MangActual:=MangueraEnPosicion(xpos,PosActual);
-        ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
-        ss:=ss+'/'+FormatFloat('###0.##',volumen);
-        ss:=ss+'/'+FormatFloat('#0.##',precio);
-        ss:=ss+'/'+FormatFloat('####0.##',importe);
-        lin:=lin+'#'+ss;
-        //end;
-      end;
-      if lin='' then
-        lin:=xestado+'#'
-      else
-        lin:=xestado+lin;
-      lin:=lin+'&'+xmodo;
-      LinEstadoGen:=xestado;
-      // FIN
       if PosicionCargaActual<=MaxPosCarga then begin
         PosicionDispenActual:=0;
         repeat
@@ -1412,16 +1424,16 @@ begin
                 end;
               end;
 
-              if (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+              if (SwPidiendoTotales) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
                 ToTalLitros[PosActual]:=ToTalLitros[PosActual]+volumen;
                 swAllTotals:=True;
+                SwPidiendoTotales:=False;
               end;
 
               if swAllTotals then begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TCombx[1]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TCombx[2]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TCombx[3]])+'|';
-                SwPidiendoTotales:=False;
                 SwAplicaCmnd:=True;
               end;
             end;

@@ -241,7 +241,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo;
+uses StrUtils, TypInfo, DateUtils;
 
 {$R *.DFM}
 
@@ -1548,6 +1548,7 @@ begin
                          AgregaLog('Reconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
                      end;
                    end;
+                 2:SwPidiendoTotales:=False;
                  8:begin
                      if estatusant<>8 then
                        ContDetenido:=0;
@@ -2150,11 +2151,16 @@ begin
                 end;
               end;
 
+              if (SwPidiendoTotales) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+                ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen;
+                swAllTotals:=True;
+                SwPidiendoTotales:=False;
+              end;
+
               if swAllTotals then begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
-                SwPidiendoTotales:=False;
                 SwAplicaCmnd:=True;
               end;
             end;
