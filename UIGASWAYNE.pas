@@ -79,6 +79,8 @@ type
     SwEsperaRsp  :boolean;
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
+    horaLog:TDateTime;
+    minutosLog:Integer;
     ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
@@ -265,6 +267,7 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -272,6 +275,7 @@ begin
     SwReinicio:=False;
     estado:=-1;
     SwComandoB:=false;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
 
@@ -1666,7 +1670,7 @@ begin
                        volumen:=xvolumen;
                        precio:=xprecio;
                      end
-                     else if (ximporte>=importeant-0.05) then begin
+                     else if (ximporte>=importeant-0.1) then begin
                        importe:=ximporte;
                        volumen:=xvolumen;
                        precio:=xprecio;
@@ -1908,6 +1912,10 @@ var ss,rsp,str1:string;
     swok,swerr,swAllTotals:boolean;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;  
     if PrecioFisicoProc>0 then begin
       inc(ContPrecioFisico);
       if ContPrecioFisico>20 then

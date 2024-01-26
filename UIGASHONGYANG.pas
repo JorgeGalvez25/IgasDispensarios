@@ -41,6 +41,8 @@ type
     ListaComandos:TStringList;
     fechaInicio:TDateTime;
     horaReinicio:TDateTime;
+    horaLog:TDateTime;
+    minutosLog:Integer;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
@@ -263,12 +265,14 @@ begin
     confPos:=config.ReadString('CONF','ConfPos','');
     modoPreset:=config.ReadString('CONF','ModoPreset','Si')='Si';
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
     estado:=-1;
     SegundosFinv:=30;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
@@ -1763,6 +1767,10 @@ var xmang:integer;
     xcmnd:string;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;
     // ENVIO DE COMANDOS
     if not SwEsperaCmnd then begin
       SwReintentoCmnd:=false;
