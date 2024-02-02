@@ -671,6 +671,10 @@ var lin,ss,rsp,
     xvol,ximp:real;
     swerr,SwAplicaMapa,swAllTotals:boolean;
 begin
+  if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+    horaLog:=Now;
+    GuardarLog;
+  end;
   if LineaTimer='' then
     exit;
   SwEsperaRsp:=false;
@@ -1941,10 +1945,6 @@ var ss:string;
 //    i:integer;
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog;
-    end;
     if NumPaso>4 then
       NumPaso:=0;  
     if NumPaso>1 then begin

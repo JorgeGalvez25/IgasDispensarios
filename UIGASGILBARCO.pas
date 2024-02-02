@@ -1872,6 +1872,10 @@ var ss,rsp,ss2,precios       :string;
     precioComb:Double;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;
     // Checa Comandos
     for xcmnd:=1 to 200 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
@@ -2222,11 +2226,6 @@ var xvolumen,n1,n2,n3:real;
     xcomb,xpos,xp,xgrade,i,xsuma:integer;
     xtotallitros:array[1..4] of real;
 begin
-  if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-    horaLog:=Now;
-    GuardarLog;
-  end;
-
   if ContadorAlarma>=10 then begin
     if ContadorAlarma=10 then
       AgregaLog('Error Comunicacion Dispensarios');

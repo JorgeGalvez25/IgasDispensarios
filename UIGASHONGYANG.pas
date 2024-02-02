@@ -1588,6 +1588,10 @@ var xstr,xstr2,xdv,xdv2:string;
 begin
   try
     try
+      if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+        horaLog:=Now;
+        GuardarLog;
+      end;
       SwProcesando:=True;
       FinLinea:=false;  LineaProc:='';
       xstr:=StrToHexSep(LineaRsp);
@@ -1767,10 +1771,6 @@ var xmang:integer;
     xcmnd:string;
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog;
-    end;
     // ENVIO DE COMANDOS
     if not SwEsperaCmnd then begin
       SwReintentoCmnd:=false;

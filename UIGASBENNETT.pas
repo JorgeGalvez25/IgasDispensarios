@@ -754,6 +754,10 @@ var lin,ss,ss2,rsp,rsp2,
     swerr           :boolean;
     totlts:array[1..4] of real;
 begin
+  if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+    horaLog:=Now;
+    GuardarLog;
+  end;
   if (LineaTimer='') then
     exit;
   SwEsperaRsp:=false;
@@ -1680,10 +1684,6 @@ end;
 procedure Togcvdispensarios_bennett.Timer1Timer(Sender: TObject);
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog;
-    end;  
     if not SwEsperaRsp then begin // NO HAY COMANDOS EN PROCESO
       ComandoConsola('B00');
     end

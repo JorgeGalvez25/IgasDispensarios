@@ -1440,6 +1440,10 @@ var lin,ss,rsp,descrsp,saux,
     xvalor,ximpo,xvol           :real;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;    
     saux:=LineaTimer;
     if LineaTimer='' then
       exit;
@@ -1912,10 +1916,6 @@ var ss,rsp,str1:string;
     swok,swerr,swAllTotals:boolean;
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog;
-    end;  
     if PrecioFisicoProc>0 then begin
       inc(ContPrecioFisico);
       if ContPrecioFisico>20 then
