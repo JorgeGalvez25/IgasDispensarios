@@ -77,6 +77,9 @@ type
     GtwTimeOut,             // Timeout miliseg
     GtwTiempoCmnd :integer; // Tiempo entre comandos miliseg
 
+    horaLog:TDateTime;
+    minutosLog:Integer;
+
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -243,7 +246,7 @@ var
 
 implementation
 
-uses TypInfo, StrUtils, Variants;
+uses TypInfo, StrUtils, Variants, DateUtils;
 
 {$R *.DFM}
 
@@ -330,10 +333,12 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',1001);
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
     estado:=-1;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     Buffer:=TList.Create;
@@ -375,7 +380,7 @@ procedure Togcvdispensarios_gilbarco2W.ServerSocket1ClientRead(
     objBuffer:TBuffer;
 begin
   try
-    mensaje:=Key.Decrypt(ExtractFilePath(ParamStr(0)),key3DES,Socket.ReceiveText);
+    mensaje:=ExtractFilePath(ParamStr(0));
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -475,9 +480,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -539,7 +544,7 @@ end;
 procedure Togcvdispensarios_gilbarco2W.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
-  socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)),key3DES,#1#2+resp+#3+CRC16(resp)+#23));
+  socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -1867,6 +1872,10 @@ var ss,rsp,ss2,precios       :string;
     precioComb:Double;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;
     // Checa Comandos
     for xcmnd:=1 to 200 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin

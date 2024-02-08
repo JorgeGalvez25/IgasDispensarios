@@ -58,6 +58,8 @@ type
     SwEsperaRsp  :boolean;
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
+    horaLog:TDateTime;
+    minutosLog:Integer;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -215,7 +217,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo;
+uses StrUtils, TypInfo, DateUtils;
 
 {$R *.DFM}
 
@@ -239,6 +241,7 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     SwEsperaRsp:=false;
@@ -246,6 +249,7 @@ begin
     detenido:=True;
     estado:=-1;
     SegundosFinv:=30;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
@@ -293,7 +297,6 @@ begin
       Socket.SendText('1');
       Exit;
     end;
-    mensaje:=Decrypt(mensaje,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -388,9 +391,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
         LOGREQ_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -411,7 +414,7 @@ end;
 
 procedure Togcvdispensarios_bennett.Responder(socket:TCustomWinSocket;resp:string);
 begin
-  socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
+  socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -750,6 +753,10 @@ var lin,ss,ss2,rsp,rsp2,
     swerr           :boolean;
     totlts:array[1..4] of real;
 begin
+  if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+    horaLog:=Now;
+    GuardarLog;
+  end;
   if (LineaTimer='') then
     exit;
   SwEsperaRsp:=false;

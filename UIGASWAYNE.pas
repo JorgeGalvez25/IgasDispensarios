@@ -79,6 +79,8 @@ type
     SwEsperaRsp  :boolean;
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
+    horaLog:TDateTime;
+    minutosLog:Integer;
     ListaComandos:TStringList;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
@@ -241,7 +243,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo;
+uses StrUtils, TypInfo, DateUtils;
 
 {$R *.DFM}
 
@@ -265,6 +267,7 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -272,6 +275,7 @@ begin
     SwReinicio:=False;
     estado:=-1;
     SwComandoB:=false;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
 
@@ -318,7 +322,6 @@ begin
       Socket.SendText('1');
       Exit;
     end;
-    mensaje:=Decrypt(mensaje,key3DES);
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -413,9 +416,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
         LOGREQ_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -471,7 +474,7 @@ end;
 procedure Togcvdispensarios_wayne.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
-  socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
+  socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
   AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
 end;
 
@@ -1437,6 +1440,10 @@ var lin,ss,rsp,descrsp,saux,
     xvalor,ximpo,xvol           :real;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog;
+    end;    
     saux:=LineaTimer;
     if LineaTimer='' then
       exit;
@@ -1549,6 +1556,7 @@ begin
                          AgregaLog('Reconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
                      end;
                    end;
+                 2:SwPidiendoTotales:=False;
                  8:begin
                      if estatusant<>8 then
                        ContDetenido:=0;
@@ -1666,7 +1674,7 @@ begin
                        volumen:=xvolumen;
                        precio:=xprecio;
                      end
-                     else if (ximporte>=importeant-0.05) then begin
+                     else if (ximporte>=importeant-0.1) then begin
                        importe:=ximporte;
                        volumen:=xvolumen;
                        precio:=xprecio;
@@ -2151,11 +2159,16 @@ begin
                 end;
               end;
 
+              if (SwPidiendoTotales) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+                ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen;
+                swAllTotals:=True;
+                SwPidiendoTotales:=False;
+              end;
+
               if swAllTotals then begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
-                SwPidiendoTotales:=False;
                 SwAplicaCmnd:=True;
               end;
             end;

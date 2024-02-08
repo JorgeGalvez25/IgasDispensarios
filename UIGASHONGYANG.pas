@@ -41,6 +41,8 @@ type
     ListaComandos:TStringList;
     fechaInicio:TDateTime;
     horaReinicio:TDateTime;
+    horaLog:TDateTime;
+    minutosLog:Integer;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
@@ -263,12 +265,14 @@ begin
     confPos:=config.ReadString('CONF','ConfPos','');
     modoPreset:=config.ReadString('CONF','ModoPreset','Si')='Si';
     licencia:=config.ReadString('CONF','Licencia','');
+    minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
     estado:=-1;
     SegundosFinv:=30;
+    horaLog:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
@@ -313,7 +317,7 @@ procedure Togcvdispensarios_hongyang.ServerSocket1ClientRead(
     metodoEnum:TMetodos;
 begin
   try
-    mensaje:=Decrypt(Socket.ReceiveText,key3DES);
+    mensaje:=Socket.ReceiveText;
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -402,9 +406,9 @@ begin
         UNBLOCK_e:
           Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
         LOG_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
         LOGREQ_e:
-          Socket.SendText(Encrypt('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)),key3DES));
+          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -462,7 +466,7 @@ procedure Togcvdispensarios_hongyang.Responder(socket: TCustomWinSocket;
   resp: string);
 begin
   try
-    socket.SendText(Encrypt(#1#2+resp+#3+CRC16(resp)+#23,key3DES));
+    socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
     AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
   except
     on e:Exception do begin
@@ -1584,6 +1588,10 @@ var xstr,xstr2,xdv,xdv2:string;
 begin
   try
     try
+      if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+        horaLog:=Now;
+        GuardarLog;
+      end;
       SwProcesando:=True;
       FinLinea:=false;  LineaProc:='';
       xstr:=StrToHexSep(LineaRsp);
