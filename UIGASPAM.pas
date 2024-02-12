@@ -3,7 +3,7 @@ unit UIGASPAM;
 interface
 
 uses
-  Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
+  Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs, Math,
   ExtCtrls, OoMisc, AdPort, ScktComp, IniFiles, ULIBGRAL, DB, RxMemDS, uLkJSON,
   Variants, CRCs, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
@@ -161,6 +161,7 @@ type
        swautorizada,
        swautorizando,
        swcargando:boolean;
+       swAvanzoVenta:boolean;
        SwActivo,
        SwOCC,SwCmndB,
        SwPidiendoTotales,
@@ -755,6 +756,7 @@ begin
                      descestat:='Despachando';
                      //IniciaCarga:=true;
                      SwCargando:=true;
+                     SwDesp:=False;
                      SwPidiendoTotales:=False;
                    end;
                  3:begin
@@ -922,6 +924,8 @@ begin
                  CombActual:=0;
                  PosActual:=0;
                  MangActual:=0;
+                 if not swAvanzoVenta then
+                   swAvanzoVenta:=importe>0;
                end
                else if lin[4]='\' then begin // POSICION NO MAPEADA
                  for i:=1 to nocomb do
@@ -970,14 +974,13 @@ begin
                        importe:=importe/10;
                      if (2*importe<volumen*precio) then
                        importe:=importe*10;
-                     (*
-                     if DMCONS.AjustePAM='Si' then begin
-                       ximporte:=AjustaFloat(volumen*precio,2);
-                       if abs(importe-ximporte)>=0.015 then
-                         importe:=ximporte;
+
+                     if not swAvanzoVenta then begin
+                       swAvanzoVenta:=(importe<>importeant) and (Estatus=2) and (importe>0) and ((importeant>0) or (importe-importeant<IfThen(xcomb=3,80,40)));
+                       AgregaLog(ifthen(swAvanzoVenta,'swAvanzoVenta','NOT')+' Estatus='+IntToStr(Estatus)+' ImporteAnt: '+FloatToStr(importeant)+' Importe: '+FloatToStr(importe));
                      end;
-                       *)
-                     if (Estatus=3)and(SwCargando) then begin// EOT
+
+                     if (swAvanzoVenta) and (Estatus in [1,3,5,9]) and (SwCargando) then begin// EOT
                        SwCargando:=false;
                        swdesp:=true;
                        SwPidiendoTotales:=True;
@@ -1432,10 +1435,11 @@ begin
                 end;
               end;
 
-              if (SwPidiendoTotales) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+              if (SwPidiendoTotales) and (SwTotales[PosActual]) and (SwDesp) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
                 ToTalLitros[PosActual]:=ToTalLitros[PosActual]+volumen;
+                SwTotales[PosActual]:=False;
                 swAllTotals:=True;
-                SwPidiendoTotales:=False;
+                SwDesp:=False;
               end;
 
               if swAllTotals then begin
@@ -1748,7 +1752,7 @@ begin
           if not existe then begin
             inc(NoComb);
             TComb[NoComb]:=xcomb;
-            TCombx[NoComb]:=mangueras.Child[j].Field['ProductId'].Value;;
+            TCombx[NoComb]:=mangueras.Child[j].Field['ProductId'].Value;
             TMang[NoComb]:=conPosicion;
             if conPosicion>0 then
               TPosx[NoComb]:=conPosicion
@@ -2161,7 +2165,6 @@ begin
   try
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
-    GuardaLogComandos;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
   except
     on e:Exception do
