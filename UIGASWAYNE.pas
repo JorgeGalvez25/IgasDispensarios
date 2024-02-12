@@ -164,6 +164,7 @@ type
        SwMapea,
        Sw3virtual,
        SwCargando,
+       swAvanzoVenta,
        SwActivo,
        SwParado,
        SwDesHabilitado,
@@ -243,7 +244,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo, DateUtils;
+uses StrUtils, TypInfo, DateUtils, Math;
 
 {$R *.DFM}
 
@@ -1500,6 +1501,7 @@ begin
                  if not swcargando then
                    importeant:=0;
                  swcargando:=true;
+                 SwPidiendoTotales:=False;
                end;
                if (estatus=0)and(SwActivo) then begin
                  if (estatusant in [1..10]) then
@@ -1686,13 +1688,18 @@ begin
                      precio:=xprecio;
                    end;
                    importeant:=importe;
-                   if (Estatus=3)or(Estatus=1) then begin
-                     if (swcargando) then begin // FIN DE CARGA
-                       swcargando:=false;
-                       swdesp:=true;
-                       SwPidiendoTotales:=True;
-                       SwCargaTotales[PosDispActual]:=True;
-                     end;
+                   
+                   if not swAvanzoVenta then begin
+                     swAvanzoVenta:=(importe<>importeant) and (SwCargando) and (importe>0) and ((importeant>0) or (importe-importeant<IfThen(xcomb=3,80,40)));
+                     AgregaLog(ifthen(swAvanzoVenta,'swAvanzoVenta','NOT')+' Estatus='+IntToStr(Estatus)+' ImporteAnt: '+FloatToStr(importeant)+' Importe: '+FloatToStr(importe));
+                   end;
+
+                   if (swAvanzoVenta) and (Estatus in [1,3,5,9]) and (SwCargando) then begin// EOT
+                     SwCargando:=false;
+                     swAvanzoVenta:=False;
+                     swdesp:=true;
+                     SwPidiendoTotales:=True;
+                     SwCargaTotales[PosDispActual]:=True;
                    end;
                    if (TPosCarga[xpos].finventa=0) then begin
                      if (Estatus=3) then begin // FIN DE CARGA
@@ -2159,10 +2166,11 @@ begin
                 end;
               end;
 
-              if (SwPidiendoTotales) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+              if (SwPidiendoTotales) and (SwCargaTotales[PosDispActual]) and (SwDesp) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
                 ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen;
+                SwCargaTotales[PosDispActual]:=False;
                 swAllTotals:=True;
-                SwPidiendoTotales:=False;
+                SwDesp:=False;
               end;
 
               if swAllTotals then begin
