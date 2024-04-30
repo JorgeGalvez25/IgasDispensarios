@@ -79,6 +79,7 @@ type
 
     horaLog:TDateTime;
     minutosLog:Integer;
+    version:String;
 
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
@@ -380,7 +381,7 @@ procedure Togcvdispensarios_gilbarco2W.ServerSocket1ClientRead(
     objBuffer:TBuffer;
 begin
   try
-    mensaje:=ExtractFilePath(ParamStr(0));
+    mensaje:=Socket.ReceiveText;
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
@@ -571,6 +572,7 @@ end;
 function Togcvdispensarios_gilbarco2W.GuardarLog: string;
 begin
   try
+    AgregaLog('Version: '+version);
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
@@ -583,6 +585,7 @@ end;
 function Togcvdispensarios_gilbarco2W.GuardarLogPetRes: string;
 begin
   try
+    AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     Result:='True|';
   except
@@ -1369,18 +1372,31 @@ begin
     delete(sRespuesta,1,1);
     while ( length(sRespuesta)>30 ) do begin
       xNMang:= ( LoNibbleChar(sRespuesta[2]) ) + 1;
+      AgregaLog('MangTot: '+IntToStr(xNMang));
       case ( xNMang ) of
         1 : begin
                rTotalizadorLitros1:= DataControlWordValue(#$F9,8)/GtwDivTotLts;
+               if rTotalizadorLitros1=0 then
+                 rTotalizadorLitros1:=0.01;
                rTotalizadorPesos1:= DataControlWordValue(#$FA,8)/GtwDivTotImporte;
+               AgregaLog('TotLts1: '+FloatToStr(rTotalizadorLitros1));
+               AgregaLog('TotImp1: '+FloatToStr(rTotalizadorPesos1));
             end;
         2 : begin
                rTotalizadorLitros2:= DataControlWordValue(#$F9,8)/GtwDivTotLts;
+               if rTotalizadorLitros2=0 then
+                 rTotalizadorLitros2:=0.01;
                rTotalizadorPesos2:= DataControlWordValue(#$FA,8)/GtwDivTotImporte;
+               AgregaLog('TotLts2: '+FloatToStr(rTotalizadorLitros2));
+               AgregaLog('TotImp2: '+FloatToStr(rTotalizadorPesos2));
             end;
         3 : begin
                rTotalizadorLitros3:= DataControlWordValue(#$F9,8)/GtwDivTotLts;
+               if rTotalizadorLitros3=0 then
+                 rTotalizadorLitros3:=0.01;
                rTotalizadorPesos3:= DataControlWordValue(#$FA,8)/GtwDivTotImporte;
+               AgregaLog('TotLts3: '+FloatToStr(rTotalizadorLitros3));
+               AgregaLog('TotImp3: '+FloatToStr(rTotalizadorPesos3));
             end;
       end;
       delete(sRespuesta,1,30);
@@ -2067,7 +2083,7 @@ begin
             if not swtotales then begin
               rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
                               FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
-                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
+                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]])+'|';
               SwAplicaCmnd:=True;
             end
             else
@@ -2326,7 +2342,7 @@ begin
                       xcomb:=Tcomb[i];
                       xp:=PosicionDeCombustible(PosCiclo,xcomb);
                       if xp>0 then begin
-                        TotalLitros[xp]:=xTotalLitros[i];
+                        TotalLitros[xp]:=xTotalLitros[xp];
                       end;
                     end;
                     AgregaLog('R> '+FormatFloat('###,###,##0.00',TotalLitros[1])+' / '+FormatFloat('###,###,##0.00',TotalLitros[2])+' / '+FormatFloat('###,###,##0.00',TotalLitros[3]));
@@ -2344,7 +2360,7 @@ begin
                       xcomb:=Tcomb[i];
                       xp:=PosicionDeCombustible(PosCiclo,xcomb);
                       if xp>0 then begin
-                        TotalLitros[xp]:=xTotalLitros[i];
+                        TotalLitros[xp]:=xTotalLitros[xp];
                       end;
                     end;
                     AgregaLog('R> '+FormatFloat('###,###,##0.00',TotalLitros[1])+' / '+FormatFloat('###,###,##0.00',TotalLitros[2])+' / '+FormatFloat('###,###,##0.00',TotalLitros[3]));
@@ -2547,7 +2563,6 @@ var i : integer;
 begin
    for i:=1 to Count do sRespuesta:= sRespuesta + pSerial.GetChar;
    i:= length(sRespuesta);
-   AgregaLog('R '+sRespuesta);
    if ( ( i>=iBytesEsperados ) or ( bEndOfText )  or ( bLineFeed ) ) then
       bListo:= true
    else

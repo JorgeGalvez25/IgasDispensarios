@@ -82,6 +82,7 @@ type
     horaLog:TDateTime;
     minutosLog:Integer;
     ListaComandos:TStringList;
+    version:string;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     procedure Responder(socket:TCustomWinSocket;resp:string);
@@ -1316,6 +1317,7 @@ end;
 function Togcvdispensarios_wayne.GuardarLog: string;
 begin
   try
+    AgregaLog('Version: '+version);
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
     GuardaLogComandos;
@@ -1329,6 +1331,7 @@ end;
 function Togcvdispensarios_wayne.GuardarLogPetRes: string;
 begin
   try
+    AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     Result:='True|';
   except

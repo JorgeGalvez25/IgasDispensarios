@@ -60,6 +60,7 @@ type
     FolioCmnd   :integer;
     horaLog:TDateTime;
     minutosLog:Integer;
+    version:String;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -1570,6 +1571,7 @@ end;
 function Togcvdispensarios_bennett.GuardarLog:string;
 begin
   try
+    AgregaLog('Version: '+version);
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
     GuardaLogComandos;
@@ -1583,6 +1585,7 @@ end;
 function Togcvdispensarios_bennett.GuardarLogPetRes:string;
 begin
   try
+    AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     Result:='True|';
   except

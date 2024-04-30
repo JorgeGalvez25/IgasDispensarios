@@ -71,6 +71,7 @@ type
     ListaComandos:TStringList;
     horaLog:TDateTime;
     minutosLog:Integer;
+    version:string;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -2188,6 +2189,7 @@ end;
 function Togcvdispensarios_pam.GuardarLog:string;
 begin
   try
+    AgregaLog('Version: '+version);
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
@@ -2200,6 +2202,7 @@ end;
 function Togcvdispensarios_pam.GuardarLogPetRes:string;
 begin
   try
+    AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     Result:='True|';
   except
