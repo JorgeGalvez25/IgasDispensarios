@@ -49,6 +49,7 @@ type
     xPosT:Integer;
     ReautorizaPam,
     VersionPam1000,SetUpPAM1000:string;
+    AjustePAM:Boolean;
     ValidaMang:Boolean;
   public
     ListaLog:TStringList;
@@ -976,6 +977,12 @@ begin
                        importe:=importe/10;
                      if (2*importe<volumen*precio) then
                        importe:=importe*10;
+
+                     if AjustePAM then begin
+                       ximporte:=AjustaFloat(volumen*precio,2);
+                       if abs(importe-ximporte)>=0.015 then
+                         importe:=ximporte;
+                     end;
 
                      if ValidaMang then begin
                        if (MangAnterior>0) and (MangAnterior=MangueraEnPosicion(xpos,PosActual)) then begin
@@ -2398,6 +2405,7 @@ begin
     digiImp:=2;
     VersionPam1000:='3';
     ValidaMang:=False;
+    AjustePAM:=False;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESLITROS' then
@@ -2411,7 +2419,9 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='VERSIONPAM1000' then
         VersionPam1000:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='VALIDARMANGUERA' then
-        ValidaMang:=UpperCase(ExtraeElemStrSep(variable,2,'='))='SI';
+        ValidaMang:=UpperCase(ExtraeElemStrSep(variable,2,'='))='SI'
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEPAM' then
+        AjustePAM:=Trim(UpperCase(ExtraeElemStrSep(variable,2,'=')))='SI';
     end;
 
     productos := js.Field['Products'];
