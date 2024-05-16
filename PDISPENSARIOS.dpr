@@ -14,7 +14,8 @@ uses
   UIGASWAYNE in 'UIGASWAYNE.pas' {ogcvdispensarios_wayne: TService},
   UIGASHONGYANG in 'UIGASHONGYANG.pas' {ogcvdispensarios_hongyang: TService},
   UIGASGILBARCO in 'UIGASGILBARCO.pas' {ogcvdispensarios_gilbarco2W: TService},
-  UIGASKAIROS in 'UIGASKAIROS.pas' {ogcvdispensarios_kairos: TService};
+  UIGASKAIROS in 'UIGASKAIROS.pas' {ogcvdispensarios_kairos: TService},
+  UIGASTEAM in 'UIGASTEAM.pas' {ogcvdispensarios_team: TService};
 
 {$R *.RES}
 var
@@ -25,7 +26,7 @@ var
 begin
   Application.Initialize;
 
-  version:='e439fb48f08c1ff77bc35750601112303cd81744';
+  version:='898f1badaf01c03b921be926fbd6036c59704531';
   config:=TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'PDISPENSARIOS.ini');
   marca:=StrToInt(config.ReadString('CONF','Marca','0'));
 
@@ -39,6 +40,11 @@ begin
       begin
         Application.CreateForm(Togcvdispensarios_bennett, ogcvdispensarios_bennett);
         ogcvdispensarios_bennett.version:=version;
+      end;
+    3:
+      begin
+        Application.CreateForm(Togcvdispensarios_team, ogcvdispensarios_team);
+        ogcvdispensarios_team.version:=version;
       end;
     4:
       begin
