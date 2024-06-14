@@ -304,6 +304,9 @@ begin
     on e:exception do begin                
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      GuardarLog;
+      if ListaLogPetRes.Count>0 then
+        GuardarLogPetRes;      
       raise Exception.Create('Error al iniciar servicio: '+e.Message);
     end;
   end;
@@ -319,6 +322,11 @@ procedure Togcvdispensarios_hongyang.ServerSocket1ClientRead(
 begin
   try
     mensaje:=Socket.ReceiveText;
+    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
+      pSerial.Open:=mensaje='1';
+      Socket.SendText('1');
+      Exit;
+    end;
     AgregaLogPetRes('R '+mensaje);
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin

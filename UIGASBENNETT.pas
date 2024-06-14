@@ -282,6 +282,9 @@ begin
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      GuardarLog;
+      if ListaLogPetRes.Count>0 then
+        GuardarLogPetRes;      
     end;
   end;
 end;
