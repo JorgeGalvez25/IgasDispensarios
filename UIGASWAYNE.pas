@@ -80,9 +80,12 @@ type
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
     horaLog:TDateTime;
+    horaInicio:TDateTime;
+    horaDespacho:TDateTime;
     minutosLog:Integer;
     ListaComandos:TStringList;
     version:string;
+    reinicioDiario:Boolean;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     procedure Responder(socket:TCustomWinSocket;resp:string);
@@ -270,6 +273,7 @@ begin
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
+    reinicioDiario:=UpperCase(config.ReadString('CONF','ReinicioDiario','No'))='SI';
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -278,6 +282,7 @@ begin
     estado:=-1;
     SwComandoB:=false;
     horaLog:=Now;
+    horaInicio:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
 
@@ -305,6 +310,9 @@ begin
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      GuardarLog;
+      if ListaLogPetRes.Count>0 then
+        GuardarLogPetRes;
     end;
   end;
 end;
@@ -1604,6 +1612,8 @@ begin
                  end;
                end
                else xestado:=xestado+'7'; // Deshabilitado
+               if estatus=2 then
+                 horaDespacho:=Now;
              end;
            end;
            LinEstadoGen:=xestado;
@@ -1930,6 +1940,13 @@ var ss,rsp,str1:string;
     swok,swerr,swAllTotals:boolean;
 begin
   try
+    if (reinicioDiario) and (HoursBetween(Now,horaInicio)>=24) and (SecondsBetween(Now,horaDespacho)>=30) then begin
+      Detener;
+      Terminar;
+      Shutdown;
+      Exit;
+    end;
+
     if PrecioFisicoProc>0 then begin
       inc(ContPrecioFisico);
       if ContPrecioFisico>20 then
