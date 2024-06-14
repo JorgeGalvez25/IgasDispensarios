@@ -367,6 +367,9 @@ begin
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+      GuardarLog;
+      if ListaLogPetRes.Count>0 then
+        GuardarLogPetRes;      
     end;
   end;
 end;
@@ -1237,10 +1240,11 @@ begin
         pSerial.FlushInBuffer;
         pSerial.FlushOutBuffer;
         AgregaLog('E '+chComando+' - '+IntToHex(iComando,1)+'.'+IntToStr(xNPos));
+        newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
         pSerial.PutChar(chComando);
         repeat
            pSerial.ProcessCommunications;
-        until ( pSerial.OutBuffUsed=0 );
+        until ( ( pSerial.OutBuffUsed=0 ) or ( timerexpired(etTimeOut) ) );
         if ( not bOk ) then begin
           if sw2 then
             newtimer(etTimeOut,MSecs2Ticks(GtwTimeout))
@@ -1302,18 +1306,20 @@ begin
             pSerial.FlushOutBuffer;
             AgregaLog('sDataBlock: '+sDataBlock);
             for i:= 1 to length ( sDataBlock ) do begin
+               newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
                pSerial.PutChar(sDataBlock[i]);
                repeat
                   pSerial.ProcessCommunications;
-               until ( pSerial.OutBuffUsed=0 );
+               until (( pSerial.OutBuffUsed=0 ) or ( timerexpired(etTimeOut)));
             end;
             sleep(GtwTiempoCmnd);
             chComando:= char($00 + xNPos);
             AgregaLog('E '+chComando+' - '+IntToHex($00,1)+'.'+IntToStr(xNPos));
+            newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
             pSerial.PutChar(chComando);
             repeat
                pSerial.ProcessCommunications;
-            until ( pSerial.OutBuffUsed=0 );
+            until (( pSerial.OutBuffUsed=0 ) or ( timerexpired(etTimeOut)));
             newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
             repeat
                Sleep(5);
@@ -1331,6 +1337,9 @@ begin
     except
       on e:Exception do begin
         AgregaLog('Error TransmiteComando: '+e.Message);
+        pSerial.Open:=False;
+        Sleep(200);
+        pSerial.Open:=True;        
         raise Exception.Create('Error TransmiteComando');
       end;
     end;
@@ -2296,6 +2305,7 @@ begin
                 DespliegaMemo4('Error Estatus Pos: '+inttostr(PosCiclo));
                 AvanzaPosCiclo;
                 NumPaso:=1;
+                AgregaLog('NumPaso=1');
                 exit;
               end;
             end;
@@ -2472,6 +2482,7 @@ L01:
           if SwNivelPrecio then
             NumPaso:=0;
         end;
+        AgregaLog('NumPaso='+IntToStr(NumPaso));
       end;
     end
     else posciclo:=1;
