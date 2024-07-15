@@ -1575,8 +1575,11 @@ begin
                        ContDetenido:=0;
                      if (not SwParado) then begin
                        inc(ContDetenido);
-                       if ContDetenido<3 then begin
-                         ComandoConsola('G'+inttoclavenum(xpos,2));
+                       if ContDetenido<6 then begin
+                         if i<3 then
+                           ComandoConsola('G'+inttoclavenum(xpos,2))
+                         else
+                           ComandoConsola('R'+inttoclavenum(xpos,2));
                          esperamiliseg(300);
                        end;
                      end;
@@ -1689,7 +1692,7 @@ begin
                        volumen:=xvolumen;
                        precio:=xprecio;
                      end
-                     else if (ximporte>=importeant-0.1) then begin
+                     else if (ximporte>=importeant-0.5) then begin
                        importe:=ximporte;
                        volumen:=xvolumen;
                        precio:=xprecio;
