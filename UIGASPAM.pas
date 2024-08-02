@@ -1749,7 +1749,6 @@ begin
       SwAutorizando:=false;
       SwPidiendoTotales:=False;
       for j:=1 to MCxP do begin
-        SwTotales[j]:=true;
         TotalLitros[j]:=0;
         swmapea[j]:=false;
         TMapa[j]:='';
@@ -1798,6 +1797,7 @@ begin
               TPosx[NoComb]:=1;
             TMapa[NoComb]:='X'+IntToClaveNum(xpos,2)+IntToStr(xcomb)+IntToStr(conPosicion);
             SwMapea[NoComb]:=not SwMapOff;
+            SwTotales[NoComb]:=true;
           end;
         end;
       end;
