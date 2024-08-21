@@ -233,8 +233,6 @@ var
   TColaCmnd       :array[1..50] of string[50];
   ApCola          :integer;
   LinEstadoGen :string;
-  key:OleVariant;
-  claveCre,key3DES:string;
   Sw47:boolean;
 
 implementation
@@ -280,26 +278,9 @@ begin
     fechaInicio:=now;
     horaReinicio:=Now;
 
-    CoInitialize(nil);
-    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
-
-    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
-      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
-      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      ServiceThread.Terminate;
-      Exit;
-    end
-    else begin
-      claveCre:=ExtraeElemStrSep(lic,2,'|');
-      key3DES:=ExtraeElemStrSep(lic,3,'|');
-      key:=Unassigned;
-    end;   
-
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
-    CoUninitialize;
   except
     on e:exception do begin                
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -426,10 +407,7 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-      if (claveCre<>'') and (key3DES<>'') then
-        AgregaLogPetRes('Error: '+e.Message+'//Clave CRE: '+claveCre+'//Terminacion de Key 3DES: '+copy(key3DES,Length(key3DES)-3,4))
-      else
-        AgregaLogPetRes('Error: '+e.Message);
+      AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
       raise Exception.Create('ServerSocket1ClientRead: '+e.Message);

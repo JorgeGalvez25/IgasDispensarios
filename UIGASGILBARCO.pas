@@ -232,8 +232,6 @@ type TMetodos = (NOTHING_e, INITIALIZE_e, PARAMETERS_e, LOGIN_e, LOGOUT_e,
 
 var
   ogcvdispensarios_gilbarco2W: Togcvdispensarios_gilbarco2W;
-  key:OleVariant;
-  claveCre,key3DES:string;
   Token:string;
   PreciosInicio:Boolean;
   MaxPosCarga:integer;
@@ -344,25 +342,9 @@ begin
     ListaLogPetRes:=TStringList.Create;
     Buffer:=TList.Create;
 
-    CoInitialize(nil);
-    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
-
-    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
-      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
-      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      ServiceThread.Terminate;
-      Exit;
-    end
-    else begin
-      claveCre:=ExtraeElemStrSep(lic,2,'|');
-      key3DES:=ExtraeElemStrSep(lic,3,'|');
-    end;
-
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
-    CoUninitialize;        
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -495,9 +477,6 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-      if (claveCre<>'') and (key3DES<>'') then
-        AgregaLogPetRes('Error ServerSocket1ClientRead: '+e.Message+'//Clave CRE: '+claveCre+'//Terminacion de Key 3DES: '+copy(key3DES,Length(key3DES)-3,4))
-      else
         AgregaLogPetRes('Error ServerSocket1ClientRead: '+e.Message);
       GuardarLog;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
@@ -2593,7 +2572,7 @@ begin
   try
     if Buffer.Count=0 then
       Exit;
-    AgregaLog('Ejecutó buffer');
+    AgregaLog('Ejecutï¿½ buffer');
     objBuffer:=Buffer[0];
     with objBuffer do begin
       AgregaLog('Comando buffer:'+comando);
@@ -2651,9 +2630,9 @@ begin
         RESPCMND_e:
           Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
         LOG_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0))));
+          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
         LOGREQ_e:
-          Socket.SendText(Key.Encrypt(ExtractFilePath(ParamStr(0)), key3DES, 'DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0))));
+          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
       else
         Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
       end;
@@ -2662,9 +2641,6 @@ begin
     Buffer.Delete(0);
   except
     on e:Exception do begin
-      if (claveCre<>'') and (key3DES<>'') then
-        AgregaLogPetRes('Error EjecutaBuffer: '+e.Message+'//Clave CRE: '+claveCre+'//Terminacion de Key 3DES: '+copy(key3DES,Length(key3DES)-3,4))
-      else
         AgregaLogPetRes('Error EjecutaBuffer: '+e.Message);
       GuardarLogPetRes;
       Responder(objBuffer.Socket,'DISPENSERS|'+objBuffer.comando+'|False|'+e.Message+'|');
