@@ -390,7 +390,7 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-        AgregaLogPetRes('Error: '+e.Message);
+      AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
     end;
@@ -969,7 +969,7 @@ begin
       repeat
         Inc(PosicionActual);
         with TPosCarga[PosicionActual] do if NoComb>0 then begin
-          if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
+          if (estatus<>9)and(estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
             SwA:=false;
             if Bennett8Digitos<>'Si' then
               ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2),false)
@@ -1262,17 +1262,10 @@ begin
                 if (not TPosCarga[xpos].swcargando) then begin
                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
                   ComandoConsola(ss);
-                end
-                else
-                  rsp:='Posicion no esta despachando';
-              end
-              else begin // EOT
-                rsp:='Posicion aun no esta en fin de venta';
+                end;
               end;
-            end
-            else rsp:='Posicion de Carga no Existe';
-          end
-          else rsp:='Posicion no Existe';
+            end;
+          end;
         end
         // ORDENA ESPERA FIN DE VENTA
         else if ss='EFV' then begin
@@ -1403,7 +1396,7 @@ function Togcvdispensarios_bennett.MangueraEnPosicion(xpos,xposcarga:integer):in
 var i:integer;
 begin
   with TPosCarga[xpos] do begin
-    result:=TComb[1];
+    result:=TMang[1];
     for i:=1 to NoComb do begin
       if TPos[i]=xposcarga then
         result:=TMang[i];
