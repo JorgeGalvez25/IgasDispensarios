@@ -23,6 +23,8 @@ type
     WayneFusion,
     MapeoFusion,
     AjusteWayne,
+    AjusteWayne2,
+    WayneAjusteImporte,
     InicializaWayne,
     TierLavelWayne,
     ModoPrecioWayne,
@@ -63,6 +65,7 @@ type
     SwReinicio,SwBcc:Boolean;
     SnImporte,
     SnLitros                :real;    
+    MapCombs:string;
     function CRC16(Data: string): string;
   public
     { Public declarations }
@@ -151,6 +154,7 @@ type
        estatusant:integer;
        NoComb   :integer;
        TComb    :array[1..4] of integer;
+       TCombx    :array[1..4] of integer;
        TPos     :array[1..4] of integer;
        TPrec    :array[1..4] of integer;
        TDiga    :array[1..4] of integer;
@@ -264,12 +268,15 @@ var
   lic:string;
 begin
   try
+    ListaLog:=TStringList.Create;
+    ListaLogPetRes:=TStringList.Create;  
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     reinicioDiario:=UpperCase(config.ReadString('CONF','ReinicioDiario','No'))='SI';
+    MapCombs:=config.ReadString('CONF','MapeoCombustibles','');
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -414,7 +421,7 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-        AgregaLogPetRes('Error: '+e.Message);
+      AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
     end;
@@ -481,6 +488,8 @@ begin
     WayneFusion:='No';
     MapeoFusion:='No';
     AjusteWayne:='No';
+    AjusteWayne2:='No';
+    WayneAjusteImporte:='No';
     WayneValidaImporteDespacho:='No';
     InicializaWayne:='Si';
     TierLavelWayne:='0';
@@ -497,6 +506,10 @@ begin
         MapeoFusion:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEWAYNE' then
         AjusteWayne:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEWAYNE2' then
+        AjusteWayne2:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEAJUSTEIMPORTE' then
+        WayneAjusteImporte:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEVALIDAIMPORTEDESPACHO' then
         WayneValidaImporteDespacho:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='INICIALIZAWAYNE' then
@@ -637,7 +650,6 @@ begin
       for j:=1 to 4 do begin
         TotalLitros[j]:=0;
         TotalLtsAnt[j]:=0;
-        SwCargaTotales[j]:=true;
         TDiga[j]:=0;
         TDigPreset[j]:=-1;
       end;
@@ -677,7 +689,10 @@ begin
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
-          xcomb:=mangueras.Child[j].Field['ProductId'].Value;
+          if MapCombs<>'' then
+            xcomb:=StrToInt(ExtraeElemStrSep(ExtraeElemStrSep(MapCombs,xpos,';'),mangueras.Child[j].Field['HoseId'].Value,','))
+          else
+            xcomb:=mangueras.Child[j].Field['ProductId'].Value;
           conPosicion:=mangueras.Child[j].Field['HoseId'].Value;
 
           for k:=1 to NoComb do
@@ -685,7 +700,8 @@ begin
               existe:=true;
           if not existe then begin
             inc(NoComb);
-            TComb[NoComb]:=xcomb;
+            TComb[NoComb]:=mangueras.Child[j].Field['ProductId'].Value;;
+            TCombx[NoComb]:=xcomb;
             if conPosicion>0 then
               TPos[NoComb]:=conPosicion
             else if NoComb<=4 then
@@ -697,6 +713,7 @@ begin
             TDiga[1]:=Con_DigitoAjuste;
             TDigvol[TPos[NoComb]]:=DigitoAjusteVol;
             TDigPreset[TPos[NoComb]]:=DigitoAjustePreset;
+            SwCargaTotales[NoComb]:=true;
           end;
         end;
       end;
@@ -785,26 +802,33 @@ function Togcvdispensarios_wayne.ValidaCifra(xvalor: real; xenteros,
 var xmax,xaux:real;
     i:integer;
 begin
-  if xvalor<-0.0001 then begin
-    result:='Valor negativo no permitido';
-    exit;
+  try
+    if xvalor<-0.0001 then begin
+      result:='Valor negativo no permitido';
+      exit;
+    end;
+    xmax:=1;
+    for i:=1 to xenteros do
+      xmax:=xmax*10;
+    if xvalor>(xmax-0.0000000001) then begin
+      result:='Valor excede maximo permitido';
+      exit;
+    end;
+    xaux:=AjustaFloat(xvalor,xdecimales);
+    if abs(xaux-xvalor)>0.000000001 then begin
+      if xdecimales=0 then
+        result:='Solo se permiten valores enteros'
+      else
+        result:='Numero de decimales excede maximo permitido';
+      exit;
+    end;
+    result:='OK';
+  except
+    on e:Exception do begin
+      AgregaLog('Error ValidaCifra: '+e.Message);
+      GuardarLog;
+    end;
   end;
-  xmax:=1;
-  for i:=1 to xenteros do
-    xmax:=xmax*10;
-  if xvalor>(xmax-0.0000000001) then begin
-    result:='Valor excede maximo permitido';
-    exit;
-  end;
-  xaux:=AjustaFloat(xvalor,xdecimales);
-  if abs(xaux-xvalor)>0.000000001 then begin
-    if xdecimales=0 then
-      result:='Solo se permiten valores enteros'
-    else
-      result:='Numero de decimales excede maximo permitido';
-    exit;
-  end;
-  result:='OK';
 end;
 
 function Togcvdispensarios_wayne.FechaHoraExtToStr(
@@ -817,25 +841,32 @@ procedure Togcvdispensarios_wayne.ComandoConsola(ss: string);
 var s1:string;
     cc:char;
 begin
-  LinCmnd:=ss;
-  CharCmnd:=LinCmnd[1];
-  SwEsperaRsp:=true;
-  ContEsperaRsp:=0;
-  inc(ContadorAlarma);
-  if ContadorAlarma>10 then
-    LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
-  Timer1.Enabled:=false;
   try
-    LineaBuff:='';
-    cc:=CalculaBCC(ss+#3);
-    s1:=#2+ss+#3+CC;
-    if pSerial.OutBuffFree >= Length(S1) then begin
-      AgregaLog('E '+s1);
-      if pSerial.Open then
-        pSerial.PutString(S1);
+    LinCmnd:=ss;
+    CharCmnd:=LinCmnd[1];
+    SwEsperaRsp:=true;
+    ContEsperaRsp:=0;
+    inc(ContadorAlarma);
+    if ContadorAlarma>10 then
+      LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
+    Timer1.Enabled:=false;
+    try
+      LineaBuff:='';
+      cc:=CalculaBCC(ss+#3);
+      s1:=#2+ss+#3+CC;
+      if pSerial.OutBuffFree >= Length(S1) then begin
+        AgregaLog('E '+s1);
+        if pSerial.Open then
+          pSerial.PutString(S1);
+      end;
+    finally
+      Timer1.Enabled:=true;
     end;
-  finally
-    Timer1.Enabled:=true;
+  except
+    on e:Exception do begin
+      AgregaLog('Error ComandoConsola: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -843,98 +874,122 @@ function Togcvdispensarios_wayne.CalculaBCC(ss: string): char;
 var xc,cc:char;
     i:integer;
 begin
-  xc:=ss[1];
-  for i:=2 to length(ss) do begin
-    cc:=ss[i];
-    xc:=XorChar(xc,cc);
+  try
+    xc:=ss[1];
+    for i:=2 to length(ss) do begin
+      cc:=ss[i];
+      xc:=XorChar(xc,cc);
+    end;
+    result:=xc;
+  except
+    on e:Exception do begin
+      AgregaLog('Error CalculaBCC: '+e.Message);
+      GuardarLog;
+    end;
   end;
-  result:=xc;
 end;
 
 procedure Togcvdispensarios_wayne.AgregaLog(lin: string);
 var lin2:string;
     i:integer;
 begin
-  lin2:=FechaHoraExtToStr(now)+' ';
-  for i:=1 to length(lin) do
-    case lin[i] of
-      #1:lin2:=lin2+'<SOH>';
-      #2:lin2:=lin2+'<STX>';
-      #3:lin2:=lin2+'<ETX>';
-      #6:lin2:=lin2+'<ACK>';
-      #21:lin2:=lin2+'<NAK>';
-      #23:lin2:=lin2+'<ETB>';
-      else lin2:=lin2+lin[i];
-    end;
-  while ListaLog.Count>10000 do
-    ListaLog.Delete(0);
-  ListaLog.Add(lin2);
+  try
+    lin2:=FechaHoraExtToStr(now)+' ';
+    for i:=1 to length(lin) do
+      case lin[i] of
+        #1:lin2:=lin2+'<SOH>';
+        #2:lin2:=lin2+'<STX>';
+        #3:lin2:=lin2+'<ETX>';
+        #6:lin2:=lin2+'<ACK>';
+        #21:lin2:=lin2+'<NAK>';
+        #23:lin2:=lin2+'<ETB>';
+        else lin2:=lin2+lin[i];
+      end;
+    while ListaLog.Count>10000 do
+      ListaLog.Delete(0);
+    ListaLog.Add(lin2);
+  except
+  end;
 end;
 
 function Togcvdispensarios_wayne.XorChar(c1, c2: char): char;
 var bits1,bits2,bits3:array[0..7] of boolean;
     nn,n1,n2,i,nr:byte;
 begin
-  n1:=ord(c1);
-  n2:=ord(c2);
-  nr:=0;
-  for i:=0 to 7 do begin
-    nn:=n1 mod 2;
-    bits1[i]:=(nn=1);
-    n1:=n1 div 2;
+  try
+    n1:=ord(c1);
+    n2:=ord(c2);
+    nr:=0;
+    for i:=0 to 7 do begin
+      nn:=n1 mod 2;
+      bits1[i]:=(nn=1);
+      n1:=n1 div 2;
 
-    nn:=n2 mod 2;
-    bits2[i]:=(nn=1);
-    n2:=n2 div 2;
+      nn:=n2 mod 2;
+      bits2[i]:=(nn=1);
+      n2:=n2 div 2;
 
-    bits3[i]:=bits1[i] xor bits2[i];
-    if bits3[i] then
-      case i of
-        0:nr:=nr+1;
-        1:nr:=nr+2;
-        2:nr:=nr+4;
-        3:nr:=nr+8;
-        4:nr:=nr+16;
-        5:nr:=nr+32;
-        6:nr:=nr+64;
-        7:nr:=nr+128;
-      end;
+      bits3[i]:=bits1[i] xor bits2[i];
+      if bits3[i] then
+        case i of
+          0:nr:=nr+1;
+          1:nr:=nr+2;
+          2:nr:=nr+4;
+          3:nr:=nr+8;
+          4:nr:=nr+16;
+          5:nr:=nr+32;
+          6:nr:=nr+64;
+          7:nr:=nr+128;
+        end;
+    end;
+    result:=char(nr);
+  except
+    on e:Exception do begin
+      AgregaLog('Error XorChar: '+e.Message);
+      GuardarLog;
+    end;
   end;
-  result:=char(nr);
 end;
 
 function Togcvdispensarios_wayne.EjecutaComando(xCmnd: string): integer;
 var ind:integer;
 begin
-  // busca un registro disponible
-  ind:=0;
-  repeat
-    inc(ind);
-    if (TabCmnd[ind].SwActivo)and((now-TabCmnd[ind].hora)>tmMinuto) then begin
-      TabCmnd[ind].SwActivo:=false;
-      TabCmnd[ind].SwResp:=false;
+  try
+    // busca un registro disponible
+    ind:=0;
+    repeat
+      inc(ind);
+      if (TabCmnd[ind].SwActivo)and((now-TabCmnd[ind].hora)>tmMinuto) then begin
+        TabCmnd[ind].SwActivo:=false;
+        TabCmnd[ind].SwResp:=false;
+        TabCmnd[ind].SwNuevo:=true;
+      end;
+    until (not TabCmnd[ind].SwActivo)or(ind>200);
+    // Si no lo encuentra se sale
+    if ind>200 then begin
+      result:=0;
+      exit;
+    end;
+    // envia el comando
+    with TabCmnd[ind] do begin
+      inc(FolioCmnd);
+      if FolioCmnd<=0 then
+        FolioCmnd:=1;
+      Folio:=FolioCmnd;
+      hora:=Now;
+      SwActivo:=true;
+      Comando:=xCmnd;
+      SwResp:=false;
+      Respuesta:='';
       TabCmnd[ind].SwNuevo:=true;
     end;
-  until (not TabCmnd[ind].SwActivo)or(ind>200);
-  // Si no lo encuentra se sale
-  if ind>200 then begin
-    result:=0;
-    exit;
+    Result:=FolioCmnd;
+  except
+    on e:Exception do begin
+      AgregaLog('Error EjecutaComando: '+e.Message);
+      GuardarLog;
+    end;
   end;
-  // envia el comando
-  with TabCmnd[ind] do begin
-    inc(FolioCmnd);
-    if FolioCmnd<=0 then
-      FolioCmnd:=1;
-    Folio:=FolioCmnd;
-    hora:=Now;
-    SwActivo:=true;
-    Comando:=xCmnd;
-    SwResp:=false;
-    Respuesta:='';
-    TabCmnd[ind].SwNuevo:=true;
-  end;
-  Result:=FolioCmnd;
 end;
 
 function Togcvdispensarios_wayne.AutorizarVenta(msj: string): string;
@@ -1299,10 +1354,15 @@ end;
 function Togcvdispensarios_wayne.GuardarLog: string;
 begin
   try
-    AgregaLog('Version: '+version);
+    if SecondsBetween(now,horaLog)<10 then begin
+      Detener;
+      Terminar;
+      Shutdown;
+      Exit;
+    end;
+    horaLog:=Now;
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
-    GuardaLogComandos;
     Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|';
   except
     on e:Exception do
@@ -1313,7 +1373,6 @@ end;
 function Togcvdispensarios_wayne.GuardarLogPetRes: string;
 begin
   try
-    AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     Result:='True|';
   except
@@ -1353,46 +1412,56 @@ function Togcvdispensarios_wayne.ObtenerLog(r: Integer): string;
 var
   i:Integer;
 begin
-  if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
-    Exit;
+  try
+    if r=0 then begin
+      Result:='False|No se indico el numero de registros|';
+      Exit;
+    end;
+
+    if ListaLog.Count<1 then begin
+      Result:='False|No hay registros en el log|';
+      Exit;
+    end;
+
+    i:=ListaLog.Count-(r+1);
+    if i<1 then i:=0;
+
+    Result:='True|';
+
+    for i:=i to ListaLog.Count-1 do
+      Result:=Result+ListaLog[i]+'|';
+  except
+    on e:Exception do
+      Result:='False|'+e.Message;
   end;
-
-  if ListaLog.Count<1 then begin
-    Result:='False|No hay registros en el log|';
-    Exit;
-  end;
-
-  i:=ListaLog.Count-(r+1);
-  if i<1 then i:=0;
-
-  Result:='True|';
-
-  for i:=i to ListaLog.Count-1 do
-    Result:=Result+ListaLog[i]+'|';
 end;
 
 function Togcvdispensarios_wayne.ObtenerLogPetRes(r: Integer): string;
 var
   i:Integer;
 begin
-  if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
-    Exit;
+  try
+    if r=0 then begin
+      Result:='False|No se indico el numero de registros|';
+      Exit;
+    end;
+
+    if ListaLogPetRes.Count<1 then begin
+      Result:='False|No hay registros en el log de peticiones|';
+      Exit;
+    end;
+
+    i:=ListaLogPetRes.Count-(r+1);
+    if i<1 then i:=0;
+
+    Result:='True|';
+
+    for i:=i to ListaLogPetRes.Count-1 do
+      Result:=Result+ListaLogPetRes[i]+'|';
+  except
+    on e:Exception do
+      AgregaLog('Excepcion ResultadoComando: '+e.Message);
   end;
-
-  if ListaLogPetRes.Count<1 then begin
-    Result:='False|No hay registros en el log de peticiones|';
-    Exit;
-  end;
-
-  i:=ListaLogPetRes.Count-(r+1);
-  if i<1 then i:=0;
-
-  Result:='True|';
-
-  for i:=i to ListaLogPetRes.Count-1 do
-    Result:=Result+ListaLogPetRes[i]+'|';
 end;
 
 function Togcvdispensarios_wayne.ResultadoComando(xFolio: integer): string;
@@ -1407,7 +1476,7 @@ begin
       end;
   except
     on e:Exception do
-      AgregaLog('Excepcion ResultadoComando: '+e.Message);
+      Result:='False|'+e.Message;
   end;
 end;
 
@@ -1424,6 +1493,7 @@ var lin,ss,rsp,descrsp,saux,
     ximporte,xvolumen,
     xprecio,xprec,
     xvalor,ximpo,xvol           :real;
+    centavos:Integer;
 begin
   try
     if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
@@ -1644,12 +1714,31 @@ begin
                    while length(spre)<5 do
                      spre:=spre+'0';
                    ximporte:=StrToFloat(simp)/1000;
+                   if WayneAjusteImporte='Si' then
+                     ximporte:=10*ximporte;
                    xprecio:=StrToFloat(spre)/1000;
                    if (2*xvolumen*xprecio<ximporte) then // ajuste por error en digitos
                      ximporte:=ximporte/10;
                    if AjusteWayne='Si' then begin
                      ximporte:=AjustaFloat(xvolumen*xprecio,2);
                      AgregaLog('Calcula importe 1');
+                   end
+                   else if (AjusteWayne='No') and (AjusteWayne2='Si') then begin
+                     if AjusteWayne2='Si' then begin
+                       ximpo:=Trunc(ximporte);
+                       centavos:=Round(Frac(ximporte) * 100);
+                       if centavos >= 95 then
+                         ximporte:=ximpo+1
+                       else if centavos <= 5 then
+                         ximporte:=ximpo;
+                     end;
+                     if (importe<(volumen*precio*0.9)) then
+                       ximporte:=trunc(volumen*precio*100)/100
+                     else begin
+                       xvol:=ajustafloat(dividefloat(importe,precio),3);
+                       if abs(volumen-xvol)<0.02 then
+                         xvolumen:=xvol;
+                     end;
                    end
                    else begin
                      if (ximporte<(xvolumen*xprecio*0.9)) then begin
@@ -1733,6 +1822,10 @@ begin
                      SwCargaTotales[i]:=false;
                    end;
                except
+                 on e:Exception do begin
+                   AgregaLog('Error ProcesaLineaTotales: '+e.Message);
+                   GuardarLog;
+                 end;
                end;
              end;
            end;
@@ -1815,8 +1908,10 @@ begin
       end;
     end;
   except
-    on e:Exception do
-      AgregaLog(e.Message);
+    on e:Exception do begin
+      AgregaLog('Error ProcesaLinea: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -1872,6 +1967,10 @@ begin
       Timer1.Enabled:=true;
     end;
   except
+    on e:Exception do begin
+      AgregaLog('Error pSerialTriggerAvail: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -1879,19 +1978,26 @@ procedure Togcvdispensarios_wayne.MapeaPosicion(xpos: integer);
 var xcomb,xpr:integer;
     ss:string;
 begin
-  with TPosCarga[xpos] do begin
-    SwMapea:=true;
-    ss:='g'+IntToClaveNum(xpos,2);
-    if length(mapa)=nocomb then begin
-      ss:=ss+mapa;
-    end
-    else begin
-      for xpr:=1 to nocomb do
-        ss:=ss+IntToStr(CombustibleEnPosicion(xpos,xpr)); 
+  try
+    with TPosCarga[xpos] do begin
+      SwMapea:=true;
+      ss:='g'+IntToClaveNum(xpos,2);
+      if length(mapa)=nocomb then begin
+        ss:=ss+mapa;
+      end
+      else begin
+        for xpr:=1 to nocomb do
+          ss:=ss+IntToStr(CombustibleEnPosicion(xpos,xpr));
+      end;
+      while length(ss)<10 do
+        ss:=ss+'0';
+      ValorMapeo:=ss;
     end;
-    while length(ss)<10 do
-      ss:=ss+'0';
-    ValorMapeo:=ss;
+  except
+    on e:Exception do begin
+      AgregaLog('Error MapeaPosicion: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -1899,11 +2005,18 @@ function Togcvdispensarios_wayne.CombustibleEnPosicion(xpos,
   xposcarga: integer): integer;
 var i:integer;
 begin
-  with TPosCarga[xpos] do begin
-    result:=TComb[1];
-    for i:=1 to NoComb do begin
-      if TPos[i]=xposcarga then
-        result:=TComb[i];
+  try
+    with TPosCarga[xpos] do begin
+      result:=TComb[1];
+      for i:=1 to NoComb do begin
+        if TPos[i]=xposcarga then
+          result:=TComb[i];
+      end;
+    end;
+  except
+    on e:Exception do begin
+      AgregaLog('Error CombustibleEnPosicion: '+e.Message);
+      GuardarLog;
     end;
   end;
 end;
@@ -2269,6 +2382,10 @@ begin
       ProcesaLinea;
     end;
   except
+    on e:Exception do begin
+      AgregaLog('Error Timer1Timer: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -2276,15 +2393,22 @@ function Togcvdispensarios_wayne.PosicionDeCombustible(xpos,
   xcomb: integer): integer;
 var i:integer;
 begin
-  with TPosCarga[xpos] do begin
-    result:=0;
-    if xcomb>0 then begin
-      for i:=1 to NoComb do begin
-        if TComb[i]=xcomb then
-          result:=TPos[i];
-      end;
-    end
-    else result:=1;
+  try
+    with TPosCarga[xpos] do begin
+      result:=0;
+      if xcomb>0 then begin
+        for i:=1 to NoComb do begin
+          if TComb[i]=xcomb then
+            result:=TPos[i];
+        end;
+      end
+      else result:=1;
+    end;
+  except
+    on e:Exception do begin
+      AgregaLog('Error PosicionDeCombustible: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
@@ -2294,89 +2418,106 @@ var ss,sval:string;
     i,ndig,xpos,nc:integer;
     swlitros:boolean;
 begin
-  if SoportaSeleccionProducto<>'Si' then
-    xcomb:=0;
-  swlitros:=SnLitros>0.01;
-  if not (SnPosCarga in [1..MaxPosCarga]) then begin
-    rsp:='Posicion de Carga no Existe';
-    exit;
-  end;
-  rsp:='OK';
-  xpos:=SnPosCarga;
-  if not (TPosCarga[xpos].estatus in [1,5,9]) then begin
-    rsp:='Posicion no Disponible';
-    exit;
-  end;
-  if TPosCarga[xpos].SwDesHabilitado then begin
-    rsp:='Posicion Deshabilitada';
-    exit;
-  end;
-  if TPosCarga[xpos].estatus=9 then begin
-    ComandoConsola('E'+IntToClaveNum(xpos,2));
-    esperamiliseg(500);
-  end;
-  if SnImporte>=99999 then
-    ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
-  else begin
-    ss:='P'+IntToClaveNum(SnPosCarga,2);
-    if not swlitros then begin // pesos
-      TPosCarga[xpos].importe_aros:=SnImporte;
-      ss:=ss+'0';
-      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-      if DecimalesPresetWayne=0 then
-        sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
-      else if DecimalesPresetWayne=1 then
-        sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
-      else if DecimalesPresetWayne=2 then
-        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
-      else if DecimalesPresetWayne=3 then
-        sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
-      else begin
-        sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
-        if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
-          ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
-        else
-          ndig:=TPosCarga[SnPosCarga].tdiga[1];
-        if ndig>0 then begin
-          sval:=IntToClaveNum(0,ndig)+sval;
-          sval:=copy(sval,1,8);
-        end;
-      end;
-      ss:=ss+sval;
-    end
-    else begin // litros
-      ss:=ss+'1';
-      ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
-      case DecimalesPresetWayneLitros of
-        1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
-        2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
-        3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
-        4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
-      end;
-      ss:=ss+sval;
+  try
+    if SoportaSeleccionProducto<>'Si' then
+      xcomb:=0;
+    swlitros:=SnLitros>0.01;
+    if not (SnPosCarga in [1..MaxPosCarga]) then begin
+      rsp:='Posicion de Carga no Existe';
+      exit;
     end;
-    if xcomb>0 then begin
-      i:=PosiciondeCombustible(xpos,xcomb);
-      ss:=ss+inttostr(i);
-    end
-    else
-      ss:=ss+'0';
-  end;
+    rsp:='OK';
+    xpos:=SnPosCarga;
+    if not (TPosCarga[xpos].estatus in [1,5,9]) then begin
+      rsp:='Posicion no Disponible';
+      exit;
+    end;
+    if TPosCarga[xpos].SwDesHabilitado then begin
+      rsp:='Posicion Deshabilitada';
+      exit;
+    end;
+    if TPosCarga[xpos].estatus=9 then begin
+      ComandoConsola('E'+IntToClaveNum(xpos,2));
+      esperamiliseg(500);
+    end;
+    if SnImporte>=99999 then
+      ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
+    else begin
+      ss:='P'+IntToClaveNum(SnPosCarga,2);
+      if not swlitros then begin // pesos
+        TPosCarga[xpos].importe_aros:=SnImporte;
+        ss:=ss+'0';
+        ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+        if DecimalesPresetWayne=0 then
+          sval:=FiltraStrNum(FormatFloat('00000000',SnImporte))
+        else if DecimalesPresetWayne=1 then
+          sval:=FiltraStrNum(FormatFloat('0000000.0',SnImporte))
+        else if DecimalesPresetWayne=2 then
+          sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte))
+        else if DecimalesPresetWayne=3 then
+          sval:=FiltraStrNum(FormatFloat('00000.000',SnImporte))
+        else begin
+          sval:=FiltraStrNum(FormatFloat('000000.00',SnImporte));
+          if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then
+            ndig:=TPosCarga[SnPosCarga].tdigpreset[1]
+          else
+            ndig:=TPosCarga[SnPosCarga].tdiga[1];
+          if ndig>0 then begin
+            sval:=IntToClaveNum(0,ndig)+sval;
+            sval:=copy(sval,1,8);
+          end;
+        end;
+        ss:=ss+sval;
+      end
+      else begin // litros
+        ss:=ss+'1';
+        ss:=ss+'0'; //IntToStr(TPosCarga[SnPosCarga].TPrec[1]);   // 1-contado 0,2-credito
+        case DecimalesPresetWayneLitros of
+          1:sval:=FiltraStrNum(FormatFloat('0000000.0',SnLitros)); //saux:='0000000.0';
+          2:sval:=FiltraStrNum(FormatFloat('000000.00',SnLitros)); //saux:='000000.00';
+          3:sval:=FiltraStrNum(FormatFloat('00000.000',SnLitros)); //saux:='00000.000';
+          4:sval:=FiltraStrNum(FormatFloat('0000.0000',SnLitros)); //saux:='0000.0000';
+        end;
+        ss:=ss+sval;
+      end;
+      if xcomb>0 then begin
+        i:=PosiciondeCombustible(xpos,xcomb);
+        if i=0 then
+          ss:=ss+'0'
+        else
+          ss:=ss+inttostr(i);
+      end
+      else
+        ss:=ss+'0';
+    end;
 
-  TPosCarga[xpos].HoraOcc:=now;
-  ComandoConsola(ss);
-  esperamiliseg(100);
+    TPosCarga[xpos].HoraOcc:=now;
+    ComandoConsola(ss);
+    esperamiliseg(100);
+  except
+    on e:Exception do begin
+      AgregaLog('Error EnviaPreset: '+e.Message);
+      GuardarLog;
+    end;
+  end;
 end;
 
 function Togcvdispensarios_wayne.MangueraEnPosicion(xpos,
   xposcarga: integer): integer;
 var i:integer;
 begin
-  with TPosCarga[xpos] do begin
-    result:=TComb[1];
-    for i:=1 to NoComb do begin
-      if TPos[i]=xposcarga then
-        result:=TMang[i];
+  try
+    with TPosCarga[xpos] do begin
+      result:=TComb[1];
+      for i:=1 to NoComb do begin
+        if TPos[i]=xposcarga then
+          result:=TMang[i];
+      end;
+    end;
+  except
+    on e:Exception do begin
+      AgregaLog('Error MangueraEnPosicion: '+e.Message);
+      GuardarLog;
     end;
   end;
 end;
@@ -2386,23 +2527,30 @@ var
   xpos,i:Integer;
   ss:String;
 begin
-  for i:=1 to 4 do begin
-    if ValidaCifra(LPrecios[i],2,2)='OK' then begin
-      if WayneFusion='No' then begin
-        ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
-        EsperaMiliSeg(300);
-        ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
-        EsperaMiliSeg(300);
-      end
-      else begin
-        ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
-        esperamiliseg(300);
-        ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
-        esperamiliseg(300);
+  try
+    for i:=1 to 4 do begin
+      if ValidaCifra(LPrecios[i],2,2)='OK' then begin
+        if WayneFusion='No' then begin
+          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
+          EsperaMiliSeg(300);
+          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
+          EsperaMiliSeg(300);
+        end
+        else begin
+          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
+          esperamiliseg(300);
+          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
+          esperamiliseg(300);
+        end;
       end;
     end;
+    PreciosInicio:=False;
+  except
+    on e:Exception do begin
+      AgregaLog('Error IniciarPrecios: '+e.Message);
+      GuardarLog;
+    end;
   end;
-  PreciosInicio:=False;
 end;
 
 procedure Togcvdispensarios_wayne.GuardaLogComandos;
@@ -2463,28 +2611,6 @@ begin
     inc(i);
   end;
   result:=cont;
-end;
-
-function Togcvdispensarios_wayne.Decrypt(data, key3DES: string): string;
-var
-  key128 : TKey128;
-  dataOut : string;
-begin
-  GenerateMD5Key(key128, Key3DES);
-  TripleDESEncryptString(data,dataOut,key128,false);
-  dataOut := UTF8Decode(dataOut);
-  Result := dataOut;
-end;
-
-function Togcvdispensarios_wayne.Encrypt(data, key3DES: string): string;
-var
-  key128 : TKey128;
-  dataIn,dataOut : string;
-begin
-  dataIn := UTF8Encode(data);
-  GenerateMD5Key(key128, Key3DES);
-  TripleDESEncryptString(dataIn,dataOut,key128,true);
-  Result := dataOut;
 end;
 
 end.
