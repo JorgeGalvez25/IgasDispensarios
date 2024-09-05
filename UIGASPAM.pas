@@ -179,6 +179,7 @@ type
        CombActual:Integer;
        MangActual:Integer;
        MangAnterior:Integer;
+       HoraTotales:TDateTime;
      end;
 
      RegCmnd = record
@@ -228,8 +229,6 @@ var
   SwComandoB    :boolean;
   LinEstadoGen  :string;
   Token        :string;
-  key:OleVariant;
-  claveCre,key3DES:string;
 
 implementation
 
@@ -272,26 +271,9 @@ begin
 
     ReautorizaPam:='No';
 
-    CoInitialize(nil);
-    Key:=CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-    lic:=Key.GetKeyData(ExtractFilePath(ParamStr(0)),licencia);
-
-    if UpperCase(ExtraeElemStrSep(lic,1,'|'))='FALSE' then begin
-      ListaLog.Add('Error al validad licencia: '+Key.StatusMessage);
-      ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      ServiceThread.Terminate;
-      Exit;
-    end
-    else begin
-      claveCre:=ExtraeElemStrSep(lic,2,'|');
-      key3DES:=ExtraeElemStrSep(lic,3,'|');
-      key:=Unassigned;
-    end;    
-
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ServerSocket1.Active := False;
-    CoUninitialize;
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
@@ -423,10 +405,7 @@ begin
       Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
   except
     on e:Exception do begin
-      if (claveCre<>'') and (key3DES<>'') then
-        AgregaLogPetRes('Error: '+e.Message+'//Clave CRE: '+claveCre+'//Terminacion de Key 3DES: '+copy(key3DES,Length(key3DES)-3,4))
-      else
-        AgregaLogPetRes('Error: '+e.Message);
+      AgregaLogPetRes('Error: '+e.Message);
       GuardarLogPetRes;
       Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
     end;
@@ -1455,7 +1434,7 @@ begin
           xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
           SwAplicaCmnd:=False;
           with TPosCarga[xpos] do begin
-            if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) then begin
+            if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) and (SecondsBetween(Now,HoraTotales)>10) then begin
               AgregaLog('TOTALES EN TODAS LAS MANGUERAS');
               SwTotales[1]:=true;
               SwTotales[2]:=true;
@@ -1482,6 +1461,7 @@ begin
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TCombx[1]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TCombx[2]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TCombx[3]])+'|';
+                HoraTotales:=Now;
                 SwAplicaCmnd:=True;
               end;
             end;
@@ -1707,8 +1687,8 @@ begin
     result:=0;
     if xcomb>0 then begin
       for i:=1 to NoComb do begin
-        if TComb[i]=xcomb then
-          result:=TComb[i];
+        if TCombx[i]=xcomb then
+          result:=TPosx[i];
       end;
     end
     else result:=1;
@@ -1759,6 +1739,7 @@ begin
       //SwArosMag_stop:=false;
       SwOCC:=false;
       ContOcc:=0;
+      HoraTotales:=0;
     end;
 
     for i:=0 to posiciones.Count-1 do begin
