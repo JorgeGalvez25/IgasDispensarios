@@ -39,6 +39,7 @@ type
     SwInicio,
     SwBring,
     SwEspera      :boolean;
+    CmndNuevo     :Boolean;
     ContadorAlarma:Integer;
     HoraEspera      :TDateTime;
     SwPasoBien      :boolean;
@@ -48,7 +49,6 @@ type
     ListaLogPetRes:TStringList;
     ListaComandos:TStringList;
     rutaLog:string;
-    licencia:string;
     detenido:Boolean;
     estado:Integer;
     mapeoMangueras:String;
@@ -124,6 +124,7 @@ type
        volumen,
        precio       :real;
        Isla,
+       xCiclo,
        PosActual    :integer; // Posicion del combustible en proceso: 1..NoComb
        NoComb       :integer; // Cuantos combustibles hay en la posicion
        TComb        :array[1..MCxP] of integer; // Claves de los combustibles
@@ -185,6 +186,7 @@ var
   TPosCarga:array[1..100] of tiposcarga;
   TabCmnd  :array[1..200] of RegCmnd;
   LPrecios  :array[1..4] of Double;
+  StCiclo,
   MaxPosCarga:integer;
   EstatusAnterior,
   StrCiclo,
@@ -303,7 +305,6 @@ begin
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
-    licencia:=config.ReadString('CONF','Licencia','');
     mapeoMangueras:=config.ReadString('CONF','MapeoMangueras','');
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
@@ -599,7 +600,7 @@ end;
 function Togcvdispensarios_wayne2w.AgregaPosCarga(
   posiciones: TlkJSONbase): string;
 var
-  i,j,k,xpos,xcomb:integer;
+  i,j,k,xpos,xcomb,xc:integer;
   existe:boolean;
   mangueras:TlkJSONbase;
 begin
@@ -610,7 +611,12 @@ begin
     end;
     EstatusAnterior:='';
     MaxPosCarga:=0;
+    xc:=0;
     for i:=1 to 32 do with TPosCarga[i] do begin
+      xCiclo:=xc;
+      inc(xc);
+      if xc>2 then
+        xc:=0;
       DivImporte:=WtwDivImporte;
       DivLitros:=WtwDivLitros;
       estatus:=-1;
@@ -917,6 +923,7 @@ begin
       SwResp:=false;
       Respuesta:='';
       TabCmnd[ind].SwNuevo:=true;
+      CmndNuevo:=True;
     end;
     Result:=FolioCmnd;
   except
@@ -1258,6 +1265,7 @@ begin
     estado:=1;
     Timer1.Enabled:=True;
     numPaso:=0;
+    StCiclo:=0;
     Result:='True|';
   except
     on e:Exception do begin
@@ -1643,7 +1651,7 @@ begin
       xmodo:=xmodo+ModoOpera[1];
       if not SwDesHabil then begin
         case estatus of
-          0:xestado:=xestado+'0'; // Sin Comunicación
+          0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
           1:xestado:=xestado+'1'; // Inactivo (Idle)
           2:xestado:=xestado+'2'; // Despachando (In Use)
           3,4:xestado:=xestado+'3';
@@ -1898,6 +1906,7 @@ var ss,rsp,scmnd,precios      :string;
     ximporte,xlitros,nprec  :real;
 begin
   try
+    CmndNuevo:=False;
     // Checa Comandos
     for xcmnd:=1 to 40 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
@@ -1990,8 +1999,7 @@ begin
             end
             else rsp:='Posicion de Carga no Disponible';
           end
-          else rsp:='Posicion de Carga no Existe';
-
+          else rsp:='Posicion de Carga no Existe';    
         end
         // ORDENA FIN DE VENTA
         else if ss='FINV' then begin
@@ -2011,7 +2019,7 @@ begin
               end;
             end
             else  // EOT
-              rsp:='Posicion aún no esta en fin de venta';
+              rsp:='Posicion aun no esta en fin de venta';
           end
           else rsp:='Posicion de Carga no Existe';
 
@@ -2202,9 +2210,11 @@ begin
       horaLog:=Now;
       GuardarLog;
     end;
+    if CmndNuevo then
+      ProcesaComandos;
     if ContadorAlarma>=10 then begin
       if ContadorAlarma=10 then
-        AgregaLog('Desconexion de Dispositivo - Error Comunicación Dispensarios');
+        AgregaLog('Desconexion de Dispositivo - Error Comunicacion Dispensarios');
     end;
     if (swespera)and((now-horaespera)>3*tmsegundo) then
       swespera:=false;
@@ -2228,7 +2238,7 @@ begin
                 if LeePrecios(PosCiclo) then
                   SwLeePrecios:=false;
               end;
-            1:begin                           // ESTATUS
+            1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
                 try
                   if not swdeshabil then begin   // no polea los que estan deshabilitados
                     EstatusAnt:=Estatus;
@@ -2391,24 +2401,17 @@ end;
 
 procedure Togcvdispensarios_wayne2w.AvanzaPosCiclo;
 begin
-//  if (PosCiclo+1<=MaxPosCarga) then begin
-//    if (TPosCarga[PosCiclo+1].estatus=2) then
-//      inc(PosCiclo)
-//    else begin
-//      if TPosCarga[PosCiclo+1].Avanzar=0 then begin
-//        inc(PosCiclo);
-//        TPosCarga[PosCiclo].Avanzar:=3;
-//      end
-//      else
-//        Dec(TPosCarga[PosCiclo+1].Avanzar)
-//    end;
-//  end;
   try
-    inc(PosCiclo);
-    if PosCiclo>MaxPosCarga then begin
-      EstatusDispensarios;
-      PosCiclo:=1;
-    end;
+    repeat
+      inc(PosCiclo);
+      if PosCiclo>MaxPosCarga then begin
+        EstatusDispensarios;
+        PosCiclo:=1;
+        inc(StCiclo);
+        if StCiclo>2 then
+          StCiclo:=0;
+      end;
+    until (stciclo=TPosCarga[PosCiclo].xCiclo)or(TPosCarga[PosCiclo].Estatus>1);
   except
     on e:Exception do begin
       AgregaLog('Error AvanzaPosCiclo: '+e.Message);
