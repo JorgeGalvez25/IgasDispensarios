@@ -134,6 +134,7 @@ type
        TotalLitros  :array[1..MCxP] of real;
        SwLeeTotales :array[1..MCxP] of boolean;
 
+       TCambioPrecN1:boolean;
        TNuevoPrec   :array[1..MCxP] of real;
 
        MontoPreset    :string;
@@ -2078,7 +2079,7 @@ begin
               for xp:=1 to NoComb do if (i=TComb[xp]) and (nprec>0) then
                 TNuevoPrec[xp]:=nprec;
             end;
-            CambiaPrecios(xpos);
+            TCambioPrecN1:=true;
           end;
         end
         else rsp:='Comando no Soportado o no Existe';
@@ -2345,6 +2346,15 @@ begin
                 end;
               end;
             6:ProcesaComandos;
+            7:begin          // CAMBIA PRECIO
+                if not swdeshabil then begin   // no polea los que estan deshabilitados
+                  if (TCambioPrecN1) and (estatus=1) then begin
+                    AgregaLog('E> Cambia Precio: '+inttoclavenum(PosCiclo,2));
+                    if CambiaPrecios(PosCiclo) then
+                      TCambioPrecN1:=false;
+                  end;
+                end;
+              end;
           end;
         finally
           swespera:=false;
@@ -2377,8 +2387,14 @@ begin
             NumPaso:=6;
           if (NumPaso=6) and (PosCiclo<MaxPosCarga) then
             NumPaso:=7;
+          if (NumPaso=7) then begin
+            swprec:=TPosCarga[PosCiclo].TCambioPrecN1;
+            if not swprec then
+              NumPaso:=8;
+          end;
 
-          if NumPaso>=7 then begin
+
+          if NumPaso>=8 then begin
             AvanzaPosCiclo;
             if TPosCarga[PosCiclo].SwLeePrecios then
               NumPaso:=0
