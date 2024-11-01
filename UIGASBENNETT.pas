@@ -37,6 +37,7 @@ type
     PosicionActual:integer;
     SoportaSeleccionProducto,
     Bennett8Digitos:string;
+    BennetReintentosPreset:Integer;
     UltimoStatus:string;
     SnPosCarga:integer;
     SnImporte,SnLitros:real;
@@ -1123,7 +1124,7 @@ begin
                 TPosCarga[SnPosCarga].SwOCC:=true;
                 TPosCarga[SnPosCarga].SwCmndB:=false;
                 if TPosCarga[SnPosCarga].ContOCC=0 then
-                  TPosCarga[SnPosCarga].ContOCC:=5
+                  TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
                 else begin
                   dec(TPosCarga[SnPosCarga].ContOCC);
                   esperamiliseg(500);
@@ -1197,7 +1198,7 @@ begin
                   TPosCarga[SnPosCarga].SwOCC:=true;
                   TPosCarga[SnPosCarga].SwCmndB:=false;
                   if TPosCarga[SnPosCarga].ContOCC=0 then
-                    TPosCarga[SnPosCarga].ContOCC:=5
+                    TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
                   else begin
                     dec(TPosCarga[SnPosCarga].ContOCC);
                     esperamiliseg(500);
@@ -1225,7 +1226,6 @@ begin
                       xp:=PosicionDeCombustible(xpos,xcomb);
                     end;
                     if xp>0 then begin
-//                      TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
                       TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
                       if rsp='OK' then begin
                         ss:='F'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000',SnLitros));
@@ -1262,10 +1262,17 @@ begin
                 if (not TPosCarga[xpos].swcargando) then begin
                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
                   ComandoConsola(ss);
-                end;
+                end
+                else
+                  rsp:='Posicion no esta despachando';
+              end
+              else begin // EOT
+                rsp:='Posicion aun no esta en fin de venta';
               end;
-            end;
-          end;
+            end
+            else rsp:='Posicion de Carga no Existe';
+          end
+          else rsp:='Posicion no Existe';
         end
         // ORDENA ESPERA FIN DE VENTA
         else if ss='EFV' then begin
@@ -1980,12 +1987,15 @@ begin
 
     SoportaSeleccionProducto:='Si';
     Bennett8Digitos:='No';
+    BennetReintentosPreset:=5;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='SOPORTASELECCIONPRODUCTO' then
         SoportaSeleccionProducto:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='BENNETT8DIGITOS' then
-        Bennett8Digitos:=ExtraeElemStrSep(variable,2,'=');
+        Bennett8Digitos:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='BENNETREINTENTOSPRESET' then
+        BennetReintentosPreset:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),5);
     end;
 
     consolas := js.Field['Consoles'];
