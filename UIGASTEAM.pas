@@ -151,7 +151,8 @@ type
        SwInicio:boolean;
        SwInicio2:boolean;
        SwPreset,
-       SwCargaTotales,     
+       SwCargaTotales,
+       SwEsperandoTotales,
        IniciaCarga,
        SwPrepago:boolean;
        IntentosTotales:byte;
@@ -807,6 +808,7 @@ begin
                  TotalLitros[ii]:=StrToFloat(ss)/1000
                else
                  TotalLitros[ii]:=StrToFloat(ss)/100;
+               SwEsperandoTotales:=False;
              end;
            end;
          end;
@@ -1018,9 +1020,10 @@ begin
           with TPosCarga[xpos] do begin
             if TabCmnd[xcmnd].SwNuevo then begin
               SwCargaTotales:=True;
+              SwEsperandoTotales:=True;
               TabCmnd[xcmnd].SwNuevo:=false;
             end;
-            if not SwCargaTotales then begin
+            if not SwEsperandoTotales then begin
               rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
                               FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
                               FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]])+'|';
@@ -1035,29 +1038,39 @@ begin
           for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
             xcomb:=CombustibleEnPosicion(xpos,1);
             precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-            LPrecios[xcomb]:=precioComb;
-            ii:=Trunc(precioComb*100+0.5);
+            if precioComb>0 then
+              LPrecios[xcomb]:=precioComb;
+            ii:=Trunc(LPrecios[xcomb]*100+0.5);
             ss:='U'+IntToClaveNum(xpos,2)+inttoclavenum(ii,4);
             if NoComb=1 then begin
+              if precioComb<=0 then
+                Continue;
               ss:=ss+inttoclavenum(ii,4)+inttoclavenum(ii,4);
             end
             else if NoComb=2 then begin
               xcomb:=CombustibleEnPosicion(xpos,2);
               precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              LPrecios[xcomb]:=precioComb;
-              ii:=Trunc(precioComb*100+0.5);
+              if precioComb>0 then
+                LPrecios[xcomb]:=precioComb;
+              if StrToFloatDef(ExtraeElemStrSep(precios,2,'|'),-1)<=0 then
+                Continue;
+              ii:=Trunc(LPrecios[xcomb]*100+0.5);
               ss:=ss+inttoclavenum(ii,4)+'0000';
             end
             else begin
               xcomb:=CombustibleEnPosicion(xpos,2);
               precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              LPrecios[xcomb]:=precioComb;
-              ii:=Trunc(precioComb*100+0.5);
+              if precioComb>0 then
+                LPrecios[xcomb]:=precioComb;
+              ii:=Trunc(LPrecios[xcomb]*100+0.5);
               ss:=ss+inttoclavenum(ii,4);
               xcomb:=CombustibleEnPosicion(xpos,3);
               precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              LPrecios[xcomb]:=precioComb;
-              ii:=Trunc(precioComb*100+0.5);
+              if precioComb>0 then
+                LPrecios[xcomb]:=precioComb;
+              if StrToFloatDef(ExtraeElemStrSep(precios,3,'|'),-1)<=0 then
+                Continue;
+              ii:=Trunc(LPrecios[xcomb]*100+0.5);
               ss:=ss+inttoclavenum(ii,4);
             end;
             ComandoConsolaBuff(ss, False);
@@ -1455,6 +1468,7 @@ begin
     TresDecimTotTeam:='No';
     CodigoTeam:='00000000';
     for i:=1 to NoElemStrEnter(variables) do begin
+      variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='CONDIGITOAJUSTE' then
         Con_DigitoAjuste:=StrToInt(ExtraeElemStrSep(variable,2,'='))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='TRESDECIMTOTTEAM' then
