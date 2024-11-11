@@ -24,8 +24,8 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
     LogName = 'APRO.LOG'
     OnTriggerAvail = pSerialTriggerAvail
     OnTriggerData = pSerialTriggerData
-    Left = 168
-    Top = 39
+    Left = 171
+    Top = 33
   end
   object Timer1: TTimer
     Enabled = False
@@ -33,5 +33,17 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
     OnTimer = Timer1Timer
     Left = 106
     Top = 74
+  end
+  object pSerial2: TApdComPort
+    ComNumber = 1
+    Baud = 5700
+    Parity = pEven
+    Tracing = tlOn
+    TraceName = 'APRO.TRC'
+    TraceAllHex = True
+    LogName = 'APRO.LOG'
+    OnTriggerAvail = pSerial2TriggerAvail
+    Left = 172
+    Top = 85
   end
 end
