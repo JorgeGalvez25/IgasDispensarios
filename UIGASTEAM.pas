@@ -173,15 +173,14 @@ type
        TCodigoTeam,
        Boucher:string[12];
        HoraOcc:TDateTime;
-
        swarosmag:boolean;
        aros_cont,
        aros_mang,
        aros_cte,
        aros_vehi:integer;
        swarosmag_stop:boolean;
-
        AuxCmndN       :integer;
+       HoraTotales:TDateTime;
      end;
 
      RegCmnd = record
@@ -230,7 +229,7 @@ var
 
 implementation
 
-uses StrUtils;
+uses StrUtils, DateUtils;
 
 {$R *.DFM}
 
@@ -809,6 +808,7 @@ begin
                else
                  TotalLitros[ii]:=StrToFloat(ss)/100;
                SwEsperandoTotales:=False;
+               HoraTotales:=Now;
              end;
            end;
          end;
@@ -1018,7 +1018,7 @@ begin
           xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);;
           rsp:='OK';
           with TPosCarga[xpos] do begin
-            if TabCmnd[xcmnd].SwNuevo then begin
+            if (TabCmnd[xcmnd].SwNuevo) and (SecondsBetween(Now,HoraTotales)>10) then begin
               SwCargaTotales:=True;
               SwEsperandoTotales:=True;
               TabCmnd[xcmnd].SwNuevo:=false;
@@ -1384,6 +1384,7 @@ begin
       finventa:=0;
       TCodigoTeam:='';
       boucher:='';
+      HoraTotales:=0;
     end;
 
     for i:=0 to posiciones.Count-1 do begin
