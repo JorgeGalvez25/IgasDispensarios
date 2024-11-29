@@ -2544,7 +2544,7 @@ begin
     else xestado:=xestado+'7'; // Deshabilitado
     xcomb:=CombustibleEnPosicion(xpos,PosActual);
     CombActual:=xcomb;
-    MangActual:=TMang[NoComb];
+    MangActual:=TMang[PosActual];
     ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
     ss:=ss+'/'+FormatFloat('###0.##',volumen);
     ss:=ss+'/'+FormatFloat('#0.##',precio);
