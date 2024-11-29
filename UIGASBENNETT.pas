@@ -27,6 +27,7 @@ type
     LineaBuff,
     LineaTimer,
     Linea:string;
+    SwBcc,
     SwEspera,
     swcierrabd,
     FinLinea:boolean;
@@ -161,6 +162,7 @@ type
        Bloqueda:Boolean;
        CombActual:Integer;
        MangActual:Integer;
+       HoraTotales:TDateTime;
      end;
 
      RegCmnd = record
@@ -180,7 +182,7 @@ const idSTX = #2;
       MaximoDePosiciones = 32;
       NivelPrecioContado='1';
       NivelPrecioCredito='2';
-      MaxEsperaRsp=10;
+      MaxEsperaRsp=4;
 
 type
   TMetodos = (
@@ -589,6 +591,7 @@ begin
       PresetImpoN:=0;
       PresetComb:=0;
       SwPresetHora:=false;
+      HoraTotales:=0;
     end;
 
     for i:=0 to posiciones.Count-1 do begin
@@ -702,8 +705,11 @@ begin
       c:=LineaBuff[1];
       delete(LineaBuff,1,1);
       Linea:=Linea+C;
-      if C=idETX then begin
+      if SwBcc then begin
         FinLinea:=true;
+      end;
+      if C=idETX then begin
+        SwBcc:=true;
       end;
       if (C=idACK)or(c=idNAK) then
         FinLinea:=true;
@@ -712,6 +718,7 @@ begin
       LineaTimer:=Linea;
       AgregaLog('R '+LineaTimer);
       Linea:='';
+      SwBcc:=false;
       FinLinea:=false;
       ProcesaLinea;
       LineaTimer:='';
@@ -858,7 +865,7 @@ begin
                    if Estatus<>Estatusant then
                      HoraFinv:=Now;
                    if (Now-HoraFinv)>=(SegundosFinv*tmSegundo) then
-                     ComandoConsola('J'+IntToClaveNum(xpos,2));
+                     ComandoConsolaBuff('J'+IntToClaveNum(xpos,2),false);
                  end;
                8:descestat:='Venta Pendiente';
                9:descestat:='Error';
@@ -950,6 +957,7 @@ begin
              for j:=1 to MCxP do
                if TPos[j] in [1..4] then
                  TotalLitros[j]:=TotLts[TPos[j]];
+             HoraTotales:=Now;
            end;
          end;
        end;
@@ -1261,7 +1269,7 @@ begin
               if TPosCarga[xpos].Estatus in [7,8,1] then begin // EOT
                 if (not TPosCarga[xpos].swcargando) then begin
                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
-                  ComandoConsola(ss);
+                  ComandoConsolaBuff(ss,False);
                 end
                 else
                   rsp:='Posicion no esta despachando';
@@ -1304,7 +1312,7 @@ begin
           xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
           if xpos in [1..MaxPosCarga] then begin
             if (TPosCarga[xpos].estatus in [6]) then begin
-              ComandoConsola('S'+IntToClaveNum(xpos,2));
+              ComandoConsolaBuff('S'+IntToClaveNum(xpos,2),False);
             end;
           end;
         end
@@ -1313,7 +1321,7 @@ begin
           xpos:=SnPosCarga;
           rsp:='OK';
           with TPosCarga[xpos] do begin
-            if TabCmnd[claveCmnd].SwNuevo then begin
+            if (TabCmnd[claveCmnd].SwNuevo) and (SecondsBetween(Now,HoraTotales)>10) then begin
               SwCargaTotales:=True;
               TabCmnd[claveCmnd].SwNuevo:=false;
               ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
@@ -2026,6 +2034,7 @@ begin
     end;
     PreciosInicio:=False;
     estado:=0;
+    SwBcc:=false;
     Result:='True|';
   except
     on e:Exception do
