@@ -931,12 +931,41 @@ begin
                  swcargando:=false;
                  swdesp:=true;
                end;
-//               if (TPosCarga[xpos].finventa=0) then begin
-//                 if Estatus in [7,8] then begin
-//                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
-//                   ComandoConsola(ss);
-//                 end;
-//               end;
+             except
+             end;
+           end;
+         end;
+       end;
+   '1':begin // pide estatus de una bomba
+         NumPaso:=2;
+         xpos:=StrToIntDef(copy(lin,2,2),0);
+         if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
+           ContEsperaPaso2:=0;
+           with TPosCarga[xpos] do begin
+             try
+               swinicio2:=false;
+               volumen:=StrToFloat(copy(lin,5,8))/100;
+               simp:=copy(lin,11,8);
+               spre:=copy(lin,17,5);
+               importe:=StrToFloat(simp)/100;
+               precio:=StrToFloat(spre)/100;
+
+               // valida ventas mayores a 10000 pesos
+               ximpo:=volumen*precio;
+               xdif:=abs(ximpo-importe);
+               if xdif>=900 then begin
+                 importe:=AjustaFloat(ximpo,2);
+               end;
+               // fin
+
+               xvol:=ajustafloat(dividefloat(importe,precio),3);
+               if abs(volumen-xvol)<0.05 then
+                 volumen:=xvol;
+               if (Estatus in [7,8])and(swcargando) then begin
+                 swcargando:=false;
+                 swdesp:=true;
+                 AgregaLog('GUARDA VENTA Pos:'+inttostr(xpos)+' Estatus:'+inttostr(estatus)+' - ant:'+inttostr(estatusant));
+               end;
              except
              end;
            end;
@@ -1297,8 +1326,12 @@ begin
           rsp:='OK';
           xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
           if (xpos<=MaximoDePosiciones) then begin
-            if TPosCarga[xpos].ModoOpera='Normal' then
-              ComandoConsolaBuff('P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',9999.00)),false);
+            if TPosCarga[xpos].ModoOpera='Normal' then begin
+              if Bennett8Digitos<>'Si' then
+                ComandoConsolaBuff('P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',9999.00)),false)
+              else
+                ComandoConsolaBuff('5'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('000000.00',999999.00)),false);
+            end;
             ComandoConsolaBuff('E'+IntToClaveNum(xpos,2),false);
             if TPosCarga[xpos].estatus=2 then
               TPosCarga[xpos].tipopago:=0;
@@ -1369,7 +1402,10 @@ begin
   if SnImporte<>9999 then begin
     ss:='K'+IntToClaveNum(xpos,2)+'2'; // Modo PrePago
     ComandoConsolaBuff(ss,false);
-    ss:='P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',SnImporte));
+    if Bennett8Digitos<>'Si' then
+      ss:='P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',SnImporte))
+    else
+      ss:='5'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('000000.00',SnImporte));
     ComandoConsolaBuff(ss,false);
     ss:='L'+IntToClaveNum(xpos,2)+NivelPrecioContado; // Nivel de Precios
     ComandoConsolaBuff(ss,false);
