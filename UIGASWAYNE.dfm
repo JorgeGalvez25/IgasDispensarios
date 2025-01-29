@@ -1,7 +1,10 @@
 object ogcvdispensarios_wayne: Togcvdispensarios_wayne
   OldCreateOrder = False
+  OnDestroy = ServiceDestroy
   DisplayName = 'OpenGas Dispensarios'
   OnExecute = ServiceExecute
+  OnShutdown = ServiceShutdown
+  OnStop = ServiceStop
   Left = 326
   Top = 392
   Height = 231

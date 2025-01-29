@@ -17,6 +17,9 @@ type
       Socket: TCustomWinSocket);
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
     procedure Timer1Timer(Sender: TObject);
+    procedure ServiceDestroy(Sender: TObject);
+    procedure ServiceShutdown(Sender: TService);
+    procedure ServiceStop(Sender: TService; var Stopped: Boolean);
   private
     { Private declarations }
     LineaBuff,
@@ -2611,6 +2614,22 @@ begin
     inc(i);
   end;
   result:=cont;
+end;
+
+procedure Togcvdispensarios_wayne.ServiceDestroy(Sender: TObject);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne.ServiceShutdown(Sender: TService);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne.ServiceStop(Sender: TService;
+  var Stopped: Boolean);
+begin
+  GuardarLog;
 end;
 
 end.

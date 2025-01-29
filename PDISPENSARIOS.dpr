@@ -27,12 +27,12 @@ var
 begin
   Application.Initialize;
 
-  version:='898f1badaf01c03b921be926fbd6036c59704531';
+  version:='df53b15099848bd8f1b9bea2a60173a946a3dadf';
   config:=TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'PDISPENSARIOS.ini');
   marca:=StrToInt(config.ReadString('CONF','Marca','0'));
 
   case marca of
-    1: begin
+    1:begin
         Application.CreateForm(Togcvdispensarios_wayne, ogcvdispensarios_wayne);
         ogcvdispensarios_wayne.version:=version;
       end;

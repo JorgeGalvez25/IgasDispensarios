@@ -21,6 +21,9 @@ type
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
     procedure pSerialTriggerData(CP: TObject; TriggerHandle: Word);
     procedure Timer1Timer(Sender: TObject);
+    procedure ServiceStop(Sender: TService; var Stopped: Boolean);
+    procedure ServiceShutdown(Sender: TService);
+    procedure ServiceDestroy(Sender: TObject);
   private
     { Private declarations }
     WtwDivImporte:Integer;
@@ -1839,6 +1842,7 @@ begin
     DataBlock:=EmpacaWayne(stComando);
     if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then
       result:=true;
+    AgregaLog('Autoriza xPosCarga:'+IntToStr(xPosCarga)+' Result:'+BoolToStr(result));
   except
     on e:Exception do begin
       AgregaLog('Error Autoriza: '+e.Message);
@@ -1864,6 +1868,7 @@ begin
       DataBlock:=EmpacaWayne(stComando);
       if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then
         result:=true;
+      AgregaLog('AutorizaPm xPosCarga:'+IntToStr(xPosCarga)+' xPm:'+IntToStr(xPm)+' Result:'+BoolToStr(result));
     end;
   except
     on e:Exception do begin
@@ -2264,7 +2269,7 @@ begin
                         Estatus:=4;
                     end;
                     EstatusDispensarios;
-                    if (Estatusant=2)and(Estatus=9)and(not swpreset) then begin // Desautoriza
+                    if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
                       AgregaLog('Desautorizo posicion: '+inttostr(PosCiclo));
                       Esperamiliseg(300);
                       DetenerDespacho(PosCiclo);
@@ -2434,6 +2439,22 @@ begin
       GuardarLog;
     end;
   end;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceStop(Sender: TService;
+  var Stopped: Boolean);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceShutdown(Sender: TService);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceDestroy(Sender: TObject);
+begin
+  GuardarLog;
 end;
 
 end.
