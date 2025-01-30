@@ -43,6 +43,7 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
     TraceAllHex = True
     LogName = 'APRO.LOG'
     OnTriggerAvail = pSerial2TriggerAvail
+    OnTriggerData = pSerial2TriggerData
     Left = 172
     Top = 85
   end

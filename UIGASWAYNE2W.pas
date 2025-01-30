@@ -23,6 +23,7 @@ type
     procedure pSerialTriggerData(CP: TObject; TriggerHandle: Word);
     procedure Timer1Timer(Sender: TObject);
     procedure pSerial2TriggerAvail(CP: TObject; Count: Word);
+    procedure pSerial2TriggerData(CP: TObject; TriggerHandle: Word);
   private
     { Private declarations }
     WtwDivImporte:Integer;
@@ -831,6 +832,7 @@ begin
       LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
     end;
     PreciosInicio:=False;
+    SegmActual:=1;
     estado:=0;
     Result:='True|';
   except
@@ -1277,8 +1279,11 @@ begin
         Result:='False|No se han recibido los parametros de inicializacion|';
         Exit;
       end
-      else if detenido then
+      else if detenido then begin
         pSerial.Open:=True;
+        if MaxPosCarga>=WtwPosIniExt then
+          pSerial2.Open:=True;
+      end;
     end;
 
     detenido:=False;
@@ -2006,6 +2011,8 @@ begin
           end;
         end;
       end;
+      if rTotalLitros<=0 then
+        rTotalLitros:=0.001
     end;
   except
     on e:Exception do begin
@@ -2698,7 +2705,7 @@ begin
        bListo2:= false;
        bEndOfText:= false;
        bLineFeed:= false;
-       sRespuesta:= '';
+       sRespuesta2:= '';
        pSerial2.FlushInBuffer;
        pSerial2.FlushOutBuffer;
        ss:=StrToHexSep(DataBlock);
@@ -2715,9 +2722,9 @@ begin
              Sleep(10);
           until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
           if ( bListo2 ) then begin
-            if length(sRespuesta)=13 then begin
+            if length(sRespuesta2)=13 then begin
               bOk:=true;
-              AgregaLog('R  '+StrToHexSep(sRespuesta));
+              AgregaLog('R  '+StrToHexSep(sRespuesta2));
             end;
           end;
           if ( not bOk ) then begin
@@ -2736,13 +2743,11 @@ end;
 
 procedure Togcvdispensarios_wayne2w.PonPuertoPos(xpos: integer);
 begin
-  if MaxPosCarga>=WtwPosIniExt then begin
-    if (xpos>=WtwPosIniExt) then begin // Parte Extendida
-      SegmActual:=2;
-    end
-    else begin
+  if (WtwPosIniExt>0) and (MaxPosCarga>=WtwPosIniExt) then begin
+    if (xpos>=WtwPosIniExt) then // Parte Extendida
+      SegmActual:=2
+    else
       SegmActual:=1;
-    end;
   end;
 end;
 
@@ -2814,6 +2819,22 @@ begin
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.pSerial2TriggerData(CP: TObject;
+  TriggerHandle: Word);
+begin
+  try
+    if ( TriggerHandle=wTriggerEOT ) then
+       bEndOfText:= true
+    else
+       bLineFeed:= true;
+  except
+    on e:Exception do begin
+      AgregaLog('Error pSerialTriggerData: '+e.Message);
+      GuardarLog;
+    end;
   end;
 end;
 
