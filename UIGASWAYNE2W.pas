@@ -23,6 +23,9 @@ type
     procedure pSerialTriggerData(CP: TObject; TriggerHandle: Word);
     procedure Timer1Timer(Sender: TObject);
     procedure pSerial2TriggerAvail(CP: TObject; Count: Word);
+    procedure ServiceStop(Sender: TService; var Stopped: Boolean);
+    procedure ServiceShutdown(Sender: TService);
+    procedure ServiceDestroy(Sender: TObject);
     procedure pSerial2TriggerData(CP: TObject; TriggerHandle: Word);
   private
     { Private declarations }
@@ -2660,6 +2663,188 @@ begin
       GuardarLog;
     end;
   end;
+end;
+
+procedure Togcvdispensarios_wayne2w.pSerial2TriggerAvail(CP: TObject;
+  Count: Word);
+var i : integer;  
+begin
+   for i:=1 to Count do begin
+     sRespuesta2:= sRespuesta2 + pSerial2.GetChar;
+   end;
+   i:= length(sRespuesta2);
+   if ( ( i>=iBytesEsperados ) ) then
+      bListo2:= true
+   else
+      newtimer(etTimeOut2,MSecs2Ticks(GtwTimeout));
+end;
+
+procedure Togcvdispensarios_wayne2w.pSerial2TriggerData(CP: TObject;
+  TriggerHandle: Word);
+begin
+  try
+    if ( TriggerHandle=wTriggerEOT ) then
+       bEndOfText:= true
+    else
+       bLineFeed:= true;
+  except
+    on e:Exception do begin
+      AgregaLog('Error pSerialTriggerData: '+e.Message);
+      GuardarLog;
+    end;
+  end;
+end;
+
+function Togcvdispensarios_wayne2w.TransmiteComando2(
+  DataBlock: string): boolean;
+var ss:string;
+    iMaxIntentos,i,
+    iNoIntento    :integer;
+    bOk           :boolean;
+begin
+  try
+    iMaxIntentos:=2;
+    iBytesEsperados:=13;
+    iNoIntento:= 0;
+    bOk:=false;
+    repeat
+       inc(iNoIntento);
+       bListo2:= false;
+       bEndOfText:= false;
+       bLineFeed:= false;
+       sRespuesta:= '';
+       pSerial2.FlushInBuffer;
+       pSerial2.FlushOutBuffer;
+       ss:=StrToHexSep(DataBlock);
+       AgregaLog('E  '+ss);
+       for i:= 1 to length ( DataBlock ) do begin
+          pSerial2.PutChar(DataBlock[i]);
+          repeat
+             pSerial2.ProcessCommunications;
+          until ( pSerial2.OutBuffUsed=0 );
+       end;
+       if ( not bOk ) then begin
+          newtimer(etTimeOut2,MSecs2Ticks(GtwTimeout));
+          repeat
+             Sleep(10);
+          until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
+          if ( bListo2 ) then begin
+            if length(sRespuesta)=13 then begin
+              bOk:=true;
+              AgregaLog('R  '+StrToHexSep(sRespuesta));
+            end;
+          end;
+          if ( not bOk ) then begin
+             if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
+          end;
+       end;
+    until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
+    result:= bOk;
+  except
+    on e:Exception do begin
+      AgregaLog('Error TransmiteComando1: '+e.Message);
+      GuardarLog;
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.PonPuertoPos(xpos: integer);
+begin
+  if MaxPosCarga>=WtwPosIniExt then begin
+    if (xpos>=WtwPosIniExt) then begin // Parte Extendida
+      SegmActual:=2;
+    end
+    else begin
+      SegmActual:=1;
+    end;
+  end;
+end;
+
+function Togcvdispensarios_wayne2w.IniciaPSerial2(
+  datosPuerto: string): string;
+var
+  puerto:string;
+begin
+  try
+    if pSerial2.Open then begin
+      Result:='False|El puerto ya se encontraba abierto|';
+      Exit;
+    end;
+
+    puerto:=ExtraeElemStrSep(datosPuerto,2,',');
+    if Length(puerto)>=4 then begin
+      if StrToIntDef(Copy(puerto,4,Length(puerto)-3),-99)=-99 then begin
+        Result:='False|Favor de indicar un numero de puerto correcto|';
+        Exit;
+      end
+      else
+        pSerial2.ComNumber:=StrToInt(Copy(puerto,4,Length(puerto)-3));
+    end
+    else begin
+      if StrToIntDef(ExtraeElemStrSep(datosPuerto,2,','),-99)=-99 then begin
+        Result:='False|Favor de indicar un numero de puerto correcto|';
+        Exit;
+      end
+      else
+        pSerial2.ComNumber:=StrToInt(ExtraeElemStrSep(datosPuerto,2,','));
+    end;
+
+    if StrToIntDef(ExtraeElemStrSep(datosPuerto,3,','),-99)=-99 then begin
+      Result:='False|Favor de indicar los baudios correctos|';
+      Exit;
+    end
+    else
+      pSerial2.Baud:=StrToInt(ExtraeElemStrSep(datosPuerto,3,','));
+
+    if ExtraeElemStrSep(datosPuerto,4,',')<>'' then begin
+      case ExtraeElemStrSep(datosPuerto,4,',')[1] of
+        'N':pSerial2.Parity:=pNone;
+        'E':pSerial2.Parity:=pEven;
+        'O':pSerial2.Parity:=pOdd;
+        else begin
+          Result:='False|Favor de indicar una paridad correcta [N,E,O]|';
+          Exit;
+        end;
+      end;
+    end
+    else begin
+      Result:='False|Favor de indicar una paridad [N,E,O]|';
+      Exit;
+    end;
+
+    if StrToIntDef(ExtraeElemStrSep(datosPuerto,5,','),-99)=-99 then begin
+      Result:='False|Favor de indicar los bits de datos correctos|';
+      Exit;
+    end
+    else
+      pSerial2.DataBits:=StrToInt(ExtraeElemStrSep(datosPuerto,5,','));
+
+    if StrToIntDef(ExtraeElemStrSep(datosPuerto,6,','),-99)=-99 then begin
+      Result:='False|Favor de indicar los bits de paro correctos|';
+      Exit;
+    end
+    else
+      pSerial2.StopBits:=StrToInt(ExtraeElemStrSep(datosPuerto,6,','));
+  except
+    on e:Exception do
+      Result:='False|Excepcion: '+e.Message+'|';
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceStop(Sender: TService;
+  var Stopped: Boolean);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceShutdown(Sender: TService);
+begin
+  GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne2w.ServiceDestroy(Sender: TObject);
+begin
+  GuardarLog;
 end;
 
 end.
