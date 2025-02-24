@@ -141,6 +141,7 @@ type
     procedure GuardaLogComandos;
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;
+    procedure ComandoConsolaBuff(ss:string);
   end;
 
 type
@@ -244,7 +245,6 @@ var
   PreciosInicio,
   SwCerrar    :boolean;
   ListaCmnd    :TStrings;
-  SwEsperaRsp  :boolean;
   Token        :string;
   TabCmnd  :array[1..200] of RegCmnd;
   LinEstadoGen  :string;
@@ -314,6 +314,7 @@ procedure Togcvdispensarios_wayne.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
+    if mensaje='' then Exit;
     if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
       Socket.SendText('1');
@@ -775,16 +776,12 @@ begin
       if ValidaCifra(precioComb,2,2)='OK' then begin
         if precioComb>=0.01 then begin
           if WayneFusion='No' then begin
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-            EsperaMiliSeg(300);
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
-            EsperaMiliSeg(300);
+            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
           end
           else begin
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
-            esperamiliseg(300);
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0');  // credito
-            esperamiliseg(300);
+            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
+            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0');  // credito
           end;
           entro:=True;
         end;
@@ -1521,8 +1518,7 @@ begin
       else begin
         SwComandoN:=false;
         if (WayneFusion='No')or(MapeoFusion='Si') then begin
-          ComandoConsola('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
-          esperamiliseg(100);
+          ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
         end;
       end;
     end;
@@ -1587,8 +1583,7 @@ begin
                  swarosmag_stop:=false;
                if SwFINV then begin
                  if estatus=3 then begin
-                   ComandoConsola('R'+IntToClaveNum(xpos,2)+'0');
-                   esperamiliseg(100);
+                   ComandoConsolaBuff('R'+IntToClaveNum(xpos,2)+'0');
                  end
                  else SwFinv:=false;
                end;
@@ -1624,10 +1619,9 @@ begin
                        inc(ContDetenido);
                        if ContDetenido<6 then begin
                          if i<3 then
-                           ComandoConsola('G'+inttoclavenum(xpos,2))
+                           ComandoConsolaBuff('G'+inttoclavenum(xpos,2))
                          else
-                           ComandoConsola('R'+inttoclavenum(xpos,2));
-                         esperamiliseg(300);
+                           ComandoConsolaBuff('R'+inttoclavenum(xpos,2));
                        end;
                      end;
                    end;
@@ -1636,8 +1630,7 @@ begin
                      importeant:=0;
                      if estatusant=2 then begin
                        ss:='E'+IntToClaveNum(xpos,2); // STOP
-                       ComandoConsola(ss);
-                       esperamiliseg(500);
+                       ComandoConsolaBuff(ss);
                      end;
                    end;
                end;
@@ -1669,8 +1662,7 @@ begin
            LinEstadoGen:=xestado;
            if (contstop>0)and(contact=0) then begin
              if (WayneFusion='No')or(MapeoFusion='Si') then begin
-               ComandoConsola('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
-               esperamiliseg(100);
+               ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
              end;
            end;
            // ENLLAVA O DESENLLAVA DISPENSARIOS
@@ -1682,13 +1674,10 @@ begin
                  SwReinicio:=true;  // Nuevo
                  if (WayneFusion='No')or(MapeoFusion='Si') then begin
                    ss:='h'+IntToClaveNum(xpos,2)+'00';
-                   ComandoConsola(ss);
-                   esperamiliseg(200);
+                   ComandoConsolaBuff(ss);
                    ss:='k'+IntToClaveNum(xpos,2)+'00';
-                   ComandoConsola(ss);
-                   esperamiliseg(200);
+                   ComandoConsolaBuff(ss);
                    MapeaPosicion(xpos);
-                   esperamiliseg(200);
                    exit;
                  end;
                end;
@@ -1837,8 +1826,7 @@ begin
     if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
       ss:=ListaCmnd[0];
       ListaCmnd.Delete(0);
-      ComandoConsola(ss);
-      esperamiliseg(100);
+      ComandoConsolaBuff(ss);
       exit;
     end;
     if NumPaso=2 then begin  // Checa carga de lecturas
@@ -1848,8 +1836,7 @@ begin
           with TPosCarga[PosicionCargaActual] do if NoComb>0 then begin
             if (estatus<>9)and((estatusant<>estatus)or(estatus in [2,3])or(swcargando)or(SwCargaLectura)) then begin
               SwCargaLectura:=false;
-              ComandoConsola('A'+IntToClaveNum(PosicionCargaActual,2)+'00');
-              esperamiliseg(100);
+              ComandoConsolaBuff('A'+IntToClaveNum(PosicionCargaActual,2)+'00');
               exit;
             end;
           end;
@@ -1891,8 +1878,7 @@ begin
             with TPosCarga[PosicionCargaActual2] do begin
               if SwCargaTotales[PosicionDispenActual] then begin
                 ContEsperaPaso5:=0;
-                ComandoConsola('C'+IntToClaveNum(PosicionCargaActual2,2)+IntToStr(PosicionDispenActual)+'0');
-                esperamiliseg(100);
+                ComandoConsolaBuff('C'+IntToClaveNum(PosicionCargaActual2,2)+IntToStr(PosicionDispenActual)+'0');
                 exit;
               end;
             end;
@@ -2033,362 +2019,362 @@ var ss,rsp,str1:string;
     swok,swerr,swAllTotals:boolean;
 begin
   try
-    if (reinicioDiario) and (HoursBetween(Now,horaInicio)>=24) and (SecondsBetween(Now,horaDespacho)>=30) then begin
-      Detener;
-      Terminar;
-      Shutdown;
-      Exit;
-    end;
+    Timer1.Enabled:=False;
+    try
+      if (reinicioDiario) and (HoursBetween(Now,horaInicio)>=24) and (SecondsBetween(Now,horaDespacho)>=30) then begin
+        Detener;
+        Terminar;
+        Shutdown;
+        Exit;
+      end;
 
-    if PrecioFisicoProc>0 then begin
-      inc(ContPrecioFisico);
-      if ContPrecioFisico>20 then
-        PrecioFisicoProc:=0;
-    end;
-    if PrecioCambioProc>0 then begin
-      inc(ContPrecioCambio);
-      if ContPrecioCambio>20 then
-        PrecioCambioProc:=0;
-    end;
+      if PrecioFisicoProc>0 then begin
+        inc(ContPrecioFisico);
+        if ContPrecioFisico>20 then
+          PrecioFisicoProc:=0;
+      end;
+      if PrecioCambioProc>0 then begin
+        inc(ContPrecioCambio);
+        if ContPrecioCambio>20 then
+          PrecioCambioProc:=0;
+      end;
 
-    if ContadorAlarma>=10 then begin
-      if ContadorAlarma=10 then
-        AgregaLog('Desconexion de Dispositivo Error Comunicacion Dispensarios');
-    end;
+      if ContadorAlarma>=10 then begin
+        if ContadorAlarma=10 then
+          AgregaLog('Desconexion de Dispositivo Error Comunicacion Dispensarios');
+      end;
 
-    // Checa comandos
-    if SwComandoB then begin
-      SwComandoB:=false;
-      for xcmnd:=1 to 200 do if (TabCmnd[xcmnd].SwActivo and not TabCmnd[xcmnd].SwResp) then begin
-        SwAplicaCmnd:=true;
-        rsp:='';
-        ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
-        AgregaLog(TabCmnd[xcmnd].Comando);
-        // CMND: CERRAR CONSOLA
-        if ss='CERRAR' then begin
-          rsp:='OK';
-          SwCerrar:=true;
-        end
-        // ORDENA CARGA DE COMBUSTIBLE
-        else if ss='OCC' then begin
-          rsp:='OK';
-          SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          xpos:=SnPosCarga;
-          if (SnPosCarga in [1..MaxPosCarga]) then begin
-            if (TPosCarga[SnPosCarga].estatus in [1,5])or(TPosCarga[SnPosCarga].SwOCC) then begin
-              // Valida que se haya aplicado el PRESET
-              if TabCmnd[xcmnd].SwNuevo then begin
-                TPosCarga[SnPosCarga].SwOCC:=false;
-                TabCmnd[xcmnd].SwNuevo:=false;
-              end;
-              Swerr:=false;
-              if (TPosCarga[SnPosCarga].SwOCC) then begin
-                if (TPosCarga[SnPosCarga].SwCmndB) then begin
-                  if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
-                    TPosCarga[SnPosCarga].SwOCC:=false;
+      // Checa comandos
+      if SwComandoB then begin
+        SwComandoB:=false;
+        for xcmnd:=1 to 200 do if (TabCmnd[xcmnd].SwActivo and not TabCmnd[xcmnd].SwResp) then begin
+          SwAplicaCmnd:=true;
+          rsp:='';
+          ss:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,1,' ');
+          AgregaLog(TabCmnd[xcmnd].Comando);
+          // CMND: CERRAR CONSOLA
+          if ss='CERRAR' then begin
+            rsp:='OK';
+            SwCerrar:=true;
+          end
+          // ORDENA CARGA DE COMBUSTIBLE
+          else if ss='OCC' then begin
+            rsp:='OK';
+            SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            xpos:=SnPosCarga;
+            if (SnPosCarga in [1..MaxPosCarga]) then begin
+              if (TPosCarga[SnPosCarga].estatus in [1,5])or(TPosCarga[SnPosCarga].SwOCC) then begin
+                // Valida que se haya aplicado el PRESET
+                if TabCmnd[xcmnd].SwNuevo then begin
+                  TPosCarga[SnPosCarga].SwOCC:=false;
+                  TabCmnd[xcmnd].SwNuevo:=false;
+                end;
+                Swerr:=false;
+                if (TPosCarga[SnPosCarga].SwOCC) then begin
+                  if (TPosCarga[SnPosCarga].SwCmndB) then begin
+                    if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
+                      TPosCarga[SnPosCarga].SwOCC:=false;
+                    end
+                    else if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
+                      rsp:='Error al aplicar PRESET';
+                      TPosCarga[SnPosCarga].SwOCC:=false;
+                      TPosCarga[SnPosCarga].ContOCC:=0;
+                      Swerr:=true;
+                    end;
                   end
-                  else if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
-                    rsp:='Error al aplicar PRESET';
-                    TPosCarga[SnPosCarga].SwOCC:=false;
-                    TPosCarga[SnPosCarga].ContOCC:=0;
-                    Swerr:=true;
+                  else SwAplicaCmnd:=false;
+                end;
+                if (TPosCarga[SnPosCarga].estatus in [1,5])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
+                  TPosCarga[SnPosCarga].SwOCC:=true;
+                  TPosCarga[SnPosCarga].SwCmndB:=false;
+                  if TPosCarga[SnPosCarga].ContOCC=0 then
+                    TPosCarga[SnPosCarga].ContOCC:=3
+                  else begin
+                    dec(TPosCarga[SnPosCarga].ContOCC);
+                    esperamiliseg(500);
                   end;
-                end
-                else SwAplicaCmnd:=false;
-              end;
-              if (TPosCarga[SnPosCarga].estatus in [1,5])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
-                TPosCarga[SnPosCarga].SwOCC:=true;
-                TPosCarga[SnPosCarga].SwCmndB:=false;
-                if TPosCarga[SnPosCarga].ContOCC=0 then
-                  TPosCarga[SnPosCarga].ContOCC:=3
-                else begin
-                  dec(TPosCarga[SnPosCarga].ContOCC);
-                  esperamiliseg(500);
-                end;
-                SwAplicaCmnd:=false;
-                try
-                  SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
-                  rsp:=ValidaCifra(SnImporte,5,2);
-                  if rsp='OK' then
-                    if (SnImporte<0.01) then
-                      SnImporte:=99999;
-                except
-                  rsp:='Error en Importe';
-                end;
-                if rsp='OK' then begin
-                  xcomb:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0);
-                  xp:=PosicionDeCombustible(xpos,xcomb);
-                  if xp>0 then begin
-                    TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
-                    TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
-                    SnLitros:=0;
-                    TPosCarga[SnPosCarga].swarosmag:=false;
+                  SwAplicaCmnd:=false;
+                  try
+                    SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+                    rsp:=ValidaCifra(SnImporte,5,2);
                     if rsp='OK' then
-                      EnviaPreset(xcomb,rsp);
-                  end
-                  else rsp:='Combustible no existe en esta posicion';
-                end;
-              end;
-              if (not SwAplicaCmnd)and(rsp<>'OK') then
-                 SwAplicaCmnd:=true;
-            end
-            else rsp:='Posicion de Carga no Disponible';
-            if SwAplicaCmnd then
-              TPosCarga[SnPosCarga].SwOCC:=false;
-          end
-          else rsp:='Posicion de Carga no Existe';
-        end
-        // ORDENA CARGA DE COMBUSTIBLE LITROS
-        else if ss='OCL' then begin
-          rsp:='OK';
-          SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          xpos:=SnPosCarga;
-          if (SnPosCarga in [1..MaxPosCarga]) then begin
-            if (TPosCarga[SnPosCarga].estatus in [1,5])or(TPosCarga[SnPosCarga].SwOCC) then begin
-              // Valida que se haya aplicado el PRESET
-              if TabCmnd[xcmnd].SwNuevo then begin
-                TPosCarga[SnPosCarga].SwOCC:=false;
-                TabCmnd[xcmnd].SwNuevo:=false;
-              end;
-              Swerr:=false;
-              if (TPosCarga[SnPosCarga].SwOCC) then begin
-                if (TPosCarga[SnPosCarga].SwCmndB) then begin
-                  if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
-                    TPosCarga[SnPosCarga].SwOCC:=false;
-                  end
-                  else if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
-                    rsp:='Error al aplicar PRESET';
-                    TPosCarga[SnPosCarga].SwOCC:=false;
-                    TPosCarga[SnPosCarga].ContOCC:=0;
-                    Swerr:=true;
+                      if (SnImporte<0.01) then
+                        SnImporte:=99999;
+                  except
+                    rsp:='Error en Importe';
                   end;
-                end
-                else SwAplicaCmnd:=false;
-              end;
-              if (TPosCarga[SnPosCarga].estatus in [1,5])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
-                TPosCarga[SnPosCarga].SwOCC:=true;
-                TPosCarga[SnPosCarga].SwCmndB:=false;
-                if TPosCarga[SnPosCarga].ContOCC=0 then
-                  TPosCarga[SnPosCarga].ContOCC:=3
-                else begin
-                  dec(TPosCarga[SnPosCarga].ContOCC);
-                  esperamiliseg(500);
+                  if rsp='OK' then begin
+                    xcomb:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0);
+                    xp:=PosicionDeCombustible(xpos,xcomb);
+                    if xp>0 then begin
+                      TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
+                      TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
+                      SnLitros:=0;
+                      TPosCarga[SnPosCarga].swarosmag:=false;
+                      if rsp='OK' then
+                        EnviaPreset(xcomb,rsp);
+                    end
+                    else rsp:='Combustible no existe en esta posicion';
+                  end;
                 end;
-                SwAplicaCmnd:=false;
-                try
-                  SnImporte:=0;
-                  SnLitros:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
-                  rsp:=ValidaCifra(SnLitros,4,2);
-                  if rsp='OK' then
-                    if (SnLitros<0.1) then
-                      rsp:='Valor minimo permitido: 0.1 lts'
-                except
-                  rsp:='Error en Litros';
+                if (not SwAplicaCmnd)and(rsp<>'OK') then
+                   SwAplicaCmnd:=true;
+              end
+              else rsp:='Posicion de Carga no Disponible';
+              if SwAplicaCmnd then
+                TPosCarga[SnPosCarga].SwOCC:=false;
+            end
+            else rsp:='Posicion de Carga no Existe';
+          end
+          // ORDENA CARGA DE COMBUSTIBLE LITROS
+          else if ss='OCL' then begin
+            rsp:='OK';
+            SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            xpos:=SnPosCarga;
+            if (SnPosCarga in [1..MaxPosCarga]) then begin
+              if (TPosCarga[SnPosCarga].estatus in [1,5])or(TPosCarga[SnPosCarga].SwOCC) then begin
+                // Valida que se haya aplicado el PRESET
+                if TabCmnd[xcmnd].SwNuevo then begin
+                  TPosCarga[SnPosCarga].SwOCC:=false;
+                  TabCmnd[xcmnd].SwNuevo:=false;
                 end;
-                if rsp='OK' then begin
-                  xcomb:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0);
-                  xp:=PosicionDeCombustible(xpos,xcomb);
-                  if xp>0 then begin
-                    TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
-                    TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
-                    TPosCarga[SnPosCarga].swarosmag:=false;
-                    if rsp='OK' then
-                      EnviaPreset(xcomb,rsp);
+                Swerr:=false;
+                if (TPosCarga[SnPosCarga].SwOCC) then begin
+                  if (TPosCarga[SnPosCarga].SwCmndB) then begin
+                    if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
+                      TPosCarga[SnPosCarga].SwOCC:=false;
+                    end
+                    else if (TPosCarga[SnPosCarga].estatus in [1,5])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
+                      rsp:='Error al aplicar PRESET';
+                      TPosCarga[SnPosCarga].SwOCC:=false;
+                      TPosCarga[SnPosCarga].ContOCC:=0;
+                      Swerr:=true;
+                    end;
                   end
-                  else rsp:='Combustible no existe en esta posicion';
+                  else SwAplicaCmnd:=false;
                 end;
-              end;
-              if (not SwAplicaCmnd)and(rsp<>'OK') then
-                 SwAplicaCmnd:=true;
+                if (TPosCarga[SnPosCarga].estatus in [1,5])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
+                  TPosCarga[SnPosCarga].SwOCC:=true;
+                  TPosCarga[SnPosCarga].SwCmndB:=false;
+                  if TPosCarga[SnPosCarga].ContOCC=0 then
+                    TPosCarga[SnPosCarga].ContOCC:=3
+                  else begin
+                    dec(TPosCarga[SnPosCarga].ContOCC);
+                    esperamiliseg(500);
+                  end;
+                  SwAplicaCmnd:=false;
+                  try
+                    SnImporte:=0;
+                    SnLitros:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+                    rsp:=ValidaCifra(SnLitros,4,2);
+                    if rsp='OK' then
+                      if (SnLitros<0.1) then
+                        rsp:='Valor minimo permitido: 0.1 lts'
+                  except
+                    rsp:='Error en Litros';
+                  end;
+                  if rsp='OK' then begin
+                    xcomb:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0);
+                    xp:=PosicionDeCombustible(xpos,xcomb);
+                    if xp>0 then begin
+                      TPosCarga[SnPosCarga].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
+                      TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,6,' '),0);
+                      TPosCarga[SnPosCarga].swarosmag:=false;
+                      if rsp='OK' then
+                        EnviaPreset(xcomb,rsp);
+                    end
+                    else rsp:='Combustible no existe en esta posicion';
+                  end;
+                end;
+                if (not SwAplicaCmnd)and(rsp<>'OK') then
+                   SwAplicaCmnd:=true;
+              end
+              else rsp:='Posicion de Carga no Disponible';
+              if SwAplicaCmnd then
+                TPosCarga[SnPosCarga].SwOCC:=false;
             end
-            else rsp:='Posicion de Carga no Disponible';
-            if SwAplicaCmnd then
-              TPosCarga[SnPosCarga].SwOCC:=false;
+            else rsp:='Posicion de Carga no Existe';
           end
-          else rsp:='Posicion de Carga no Existe';
-        end
-        // ORDENA FIN DE VENTA
-        else if ss='FINV' then begin
-          rsp:='Ok';
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          if (xpos in [1..MaxPosCarga]) then begin
-            TPosCarga[xpos].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '),0);
-            if (TPosCarga[xpos].Estatus=3)or(TPosCarga[xpos].Estatus=1) then begin // EOT
-                TPosCarga[xpos].SwFINV:=true;
-                ComandoConsola('R'+IntToClaveNum(xpos,2)+'0');
-                esperamiliseg(100);
-                if TPosCarga[xpos].sw3virtual then begin
-                  TPosCarga[xpos].sw3virtual:=false;
-                  TPosCarga[xpos].estatus:=1;
-                  TPosCarga[xpos].estatusant:=1;
-                  TPosCarga[xpos].finventa:=0;
-                end;
+          // ORDENA FIN DE VENTA
+          else if ss='FINV' then begin
+            rsp:='Ok';
+            xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            if (xpos in [1..MaxPosCarga]) then begin
+              TPosCarga[xpos].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '),0);
+              if (TPosCarga[xpos].Estatus=3)or(TPosCarga[xpos].Estatus=1) then begin // EOT
+                  TPosCarga[xpos].SwFINV:=true;
+                  ComandoConsolaBuff('R'+IntToClaveNum(xpos,2)+'0');
+                  if TPosCarga[xpos].sw3virtual then begin
+                    TPosCarga[xpos].sw3virtual:=false;
+                    TPosCarga[xpos].estatus:=1;
+                    TPosCarga[xpos].estatusant:=1;
+                    TPosCarga[xpos].finventa:=0;
+                  end;
+              end
+              else begin // EOT
+                rsp:='Posicion aun no esta en fin de venta: Estat='+inttostr(TPosCarga[xpos].Estatus);
+              end;
             end
-            else begin // EOT
-              rsp:='Posicion aun no esta en fin de venta: Estat='+inttostr(TPosCarga[xpos].Estatus);
+            else rsp:='Posicion de Carga no Existe';
+          end
+          // ORDENA ESPERA FIN DE VENTA
+          else if ss='EFV' then begin
+            xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            rsp:='OK';
+            if (xpos in [1..MaxPosCarga]) then
+              if (TPosCarga[xpos].Estatus=2) then
+                TPosCarga[xpos].finventa:=1
+              else rsp:='Posicion debe estar Despachando'
+            else rsp:='Posicion de Carga no Existe';
+          end
+          else if (ss='DVC')or(ss='PARAR') then begin
+            rsp:='OK';
+            xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            if xpos in [1..MaxPosCarga] then begin
+              if (TPosCarga[xpos].estatus in [2,9]) then begin
+                ComandoConsolaBuff('E'+IntToClaveNum(xpos,2));
+                TPosCarga[xpos].SwParado:=true;
+                if TPosCarga[xpos].estatus=9 then
+                  TPosCarga[xpos].tipopago:=0;
+              end;
             end;
           end
-          else rsp:='Posicion de Carga no Existe';
-        end
-        // ORDENA ESPERA FIN DE VENTA
-        else if ss='EFV' then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          rsp:='OK';
-          if (xpos in [1..MaxPosCarga]) then
-            if (TPosCarga[xpos].Estatus=2) then
-              TPosCarga[xpos].finventa:=1
-            else rsp:='Posicion debe estar Despachando'
-          else rsp:='Posicion de Carga no Existe';
-        end
-        else if (ss='DVC')or(ss='PARAR') then begin
-          rsp:='OK';
-          xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          if xpos in [1..MaxPosCarga] then begin
-            if (TPosCarga[xpos].estatus in [2,9]) then begin
-              ComandoConsola('E'+IntToClaveNum(xpos,2));
-              esperamiliseg(500);
-              TPosCarga[xpos].SwParado:=true;
-              if TPosCarga[xpos].estatus=9 then
-                TPosCarga[xpos].tipopago:=0;
+          else if (ss='REANUDAR') then begin
+            rsp:='OK';
+            xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            if xpos in [1..MaxPosCarga] then begin
+              ComandoConsolaBuff('G'+IntToClaveNum(xpos,2));
+              TPosCarga[xpos].SwParado:=false;
             end;
-          end;
-        end
-        else if (ss='REANUDAR') then begin
-          rsp:='OK';
-          xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          if xpos in [1..MaxPosCarga] then begin
-            ComandoConsola('G'+IntToClaveNum(xpos,2));
-            esperamiliseg(200);
-            TPosCarga[xpos].SwParado:=false;
-          end;
-        end
-        else if (ss='TOTAL') then begin
-          rsp:='OK';
-          xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
-          SwAplicaCmnd:=False;
-          with TPosCarga[xpos] do begin
-            if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) then begin
-              AgregaLog('TOTALES EN TODAS LAS MANGUERAS');
-              SwCargaTotales[1]:=true;
-              SwCargaTotales[2]:=true;
-              SwCargaTotales[3]:=true;
-              SwCargaTotales[4]:=true;
-            end
-            else begin
-              for i:=1 to nocomb do begin
-                swAllTotals:=True;
-                if SwCargaTotales[i] then begin
-                  swAllTotals:=False;
-                  Break;
+          end
+          else if (ss='TOTAL') then begin
+            rsp:='OK';
+            xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+            SwAplicaCmnd:=False;
+            with TPosCarga[xpos] do begin
+              if (TabCmnd[xcmnd].SwNuevo) and (not SwPidiendoTotales) then begin
+                AgregaLog('TOTALES EN TODAS LAS MANGUERAS');
+                SwCargaTotales[1]:=true;
+                SwCargaTotales[2]:=true;
+                SwCargaTotales[3]:=true;
+                SwCargaTotales[4]:=true;
+              end
+              else begin
+                for i:=1 to nocomb do begin
+                  swAllTotals:=True;
+                  if SwCargaTotales[i] then begin
+                    swAllTotals:=False;
+                    Break;
+                  end;
+                end;
+
+                if (SwPidiendoTotales) and (SwCargaTotales[PosDispActual]) and (SwDesp) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
+                  ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen;
+                  SwCargaTotales[PosDispActual]:=False;
+                  swAllTotals:=True;
+                  SwDesp:=False;
+                end;
+
+                if swAllTotals then begin
+                  rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
+                                  FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
+                                  FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
+                  SwAplicaCmnd:=True;
                 end;
               end;
-
-              if (SwPidiendoTotales) and (SwCargaTotales[PosDispActual]) and (SwDesp) and (SecondsBetween(Now,TabCmnd[xcmnd].hora)>=3) and (not swAllTotals) then begin
-                ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen;
-                SwCargaTotales[PosDispActual]:=False;
-                swAllTotals:=True;
-                SwDesp:=False;
-              end;
-
-              if swAllTotals then begin
-                rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])+'|'+
-                                FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[2])+'|'+
-                                FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[3])+'|';
-                SwAplicaCmnd:=True;
-              end;
             end;
+          end
+          else rsp:='Comando no Soportado o no Existe';
+          TabCmnd[xcmnd].SwNuevo:=false;
+          if SwAplicaCmnd then begin
+            TabCmnd[xcmnd].SwResp:=true;
+            TabCmnd[xcmnd].Respuesta:=rsp;
+            AgregaLog(LlenaStr(TabCmnd[xcmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[xcmnd].Respuesta);
+          end;
+        end;
+      end;
+
+      // Inicia ciclo ------------------
+      if NumPaso>1 then begin
+        if NumPaso=2 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso2);     // espera hasta 5 ciclos
+          if ContEsperaPaso2>MaxEspera2 then begin
+            ContEsperaPaso2:=0;
+            LineaTimer:='.A00..';  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+            exit;
+          end;
+        end;
+        if NumPaso=4 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso5);     // espera hasta 5 ciclos
+          if ContEsperaPaso5>5 then begin
+            ContEsperaPaso5:=0;
+            LineaTimer:='.C00..';  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+            exit;
+          end;
+        end;
+        if NumPaso=5 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso6);     // espera hasta 5 ciclos
+          if ContEsperaPaso6>3 then begin
+            ContEsperaPaso6:=0;
+            LineaTimer:='.a00..';  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+            exit;
+          end;
+        end;
+        if (NumPaso=3)and(StEsperaPaso3>0) then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso3);
+          if (ContEsperaPaso3>MaxEspera31)and(StEsperaPaso3=1) then begin
+            LineaTimer:='.h1..';
+            ProcesaLinea;       // activa la respuesta automatica
+            exit;
+          end
+          else if ContEsperaPaso3>(MaxEspera3+10) then begin
+            ContEsperaPaso3:=0;
+            StEsperaPaso3:=2;
+            LineaTimer:='.s'+IntToClaveNum(PosProceso,2)+'1..';
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+            exit;
           end;
         end
-        else rsp:='Comando no Soportado o no Existe';
-        TabCmnd[xcmnd].SwNuevo:=false;
-        if SwAplicaCmnd then begin
-          TabCmnd[xcmnd].SwResp:=true;
-          TabCmnd[xcmnd].Respuesta:=rsp;
-          AgregaLog(LlenaStr(TabCmnd[xcmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[xcmnd].Respuesta);
+        else if (NumPaso=3) then begin
+          inc(ContEsperaPaso3);
+          if (ContEsperaPaso3>MaxEspera31) then begin
+            NumPaso:=1;
+            ss:='B00';
+            ComandoConsolaBuff(ss);
+          end;
         end;
-      end;
-    end;
-
-    // Inicia ciclo ------------------
-    if NumPaso>1 then begin
-      if NumPaso=2 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso2);     // espera hasta 5 ciclos
-        if ContEsperaPaso2>MaxEspera2 then begin
-          ContEsperaPaso2:=0;
-          LineaTimer:='.A00..';  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
-          exit;
-        end;
-      end;
-      if NumPaso=4 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso5);     // espera hasta 5 ciclos
-        if ContEsperaPaso5>5 then begin
-          ContEsperaPaso5:=0;
-          LineaTimer:='.C00..';  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
-          exit;
-        end;
-      end;
-      if NumPaso=5 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso6);     // espera hasta 5 ciclos
-        if ContEsperaPaso6>3 then begin
-          ContEsperaPaso6:=0;
-          LineaTimer:='.a00..';  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
-          exit;
-        end;
-      end;
-      if (NumPaso=3)and(StEsperaPaso3>0) then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso3);
-        if (ContEsperaPaso3>MaxEspera31)and(StEsperaPaso3=1) then begin
-          LineaTimer:='.h1..';
-          ProcesaLinea;       // activa la respuesta automatica
-          exit;
-        end
-        else if ContEsperaPaso3>(MaxEspera3+10) then begin
-          ContEsperaPaso3:=0;
-          StEsperaPaso3:=2;
-          LineaTimer:='.s'+IntToClaveNum(PosProceso,2)+'1..';
-          ProcesaLinea;       // el proceso con la siguiente solicitud
-          exit;
-        end;
-      end
-      else if (NumPaso=3) then begin
-        inc(ContEsperaPaso3);
-        if (ContEsperaPaso3>MaxEspera31) then begin
-          NumPaso:=1;
-          ss:='B00';
-          ComandoConsola(ss);
-          esperamiliseg(100);
-        end;
-      end;
-      exit;
-    end;
-
-    // Espera en el paso 0 hasta que reciba respuesta
-    if (NumPaso=1)and(not swreinicio) then begin
-      inc(ContEspera);
-      if ContEspera<10 then
         exit;
-    end;
+      end;
 
-    NumPaso:=1;
-    ContEspera:=0;
-    if not SwReinicio then begin
-      ss:='B00';
-      ComandoConsola(ss);
-      esperamiliseg(100);
-    end
-    else begin
-      SwReinicio:=false;
-      LineaTimer:=UltimaLineaTimer;
-      ProcesaLinea;
+      // Espera en el paso 0 hasta que reciba respuesta
+      if (NumPaso=1)and(not swreinicio) then begin
+        inc(ContEspera);
+        if ContEspera<10 then
+          exit;
+      end;
+
+      NumPaso:=1;
+      ContEspera:=0;
+      if not SwReinicio then begin
+        ss:='B00';
+        ComandoConsolaBuff(ss);
+      end
+      else begin
+        SwReinicio:=false;
+        LineaTimer:=UltimaLineaTimer;
+        ProcesaLinea;
+      end;
+    except
+      on e:Exception do begin
+        AgregaLog('Error Timer1Timer: '+e.Message);
+        GuardarLog;
+      end;
     end;
-  except
-    on e:Exception do begin
-      AgregaLog('Error Timer1Timer: '+e.Message);
-      GuardarLog;
-    end;
+  finally
+    Timer1.Enabled:=True;
   end;
 end;
 
@@ -2440,8 +2426,7 @@ begin
       exit;
     end;
     if TPosCarga[xpos].estatus=9 then begin
-      ComandoConsola('E'+IntToClaveNum(xpos,2));
-      esperamiliseg(500);
+      ComandoConsolaBuff('E'+IntToClaveNum(xpos,2));
     end;
     if SnImporte>=99999 then
       ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
@@ -2495,8 +2480,7 @@ begin
     end;
 
     TPosCarga[xpos].HoraOcc:=now;
-    ComandoConsola(ss);
-    esperamiliseg(100);
+    ComandoConsolaBuff(ss);
   except
     on e:Exception do begin
       AgregaLog('Error EnviaPreset: '+e.Message);
@@ -2534,16 +2518,12 @@ begin
     for i:=1 to 4 do begin
       if ValidaCifra(LPrecios[i],2,2)='OK' then begin
         if WayneFusion='No' then begin
-          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
-          EsperaMiliSeg(300);
-          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
-          EsperaMiliSeg(300);
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
         end
         else begin
-          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
-          esperamiliseg(300);
-          ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
-          esperamiliseg(300);
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
         end;
       end;
     end;
@@ -2630,6 +2610,14 @@ procedure Togcvdispensarios_wayne.ServiceStop(Sender: TService;
   var Stopped: Boolean);
 begin
   GuardarLog;
+end;
+
+procedure Togcvdispensarios_wayne.ComandoConsolaBuff(ss: string);
+begin
+  if (ListaCmnd.Count=0)and(not SwEsperaRsp) then
+    ComandoConsola(ss)
+  else
+    ListaCmnd.Add(ss);
 end;
 
 end.
