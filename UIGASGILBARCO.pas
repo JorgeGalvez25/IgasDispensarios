@@ -63,7 +63,8 @@ type
     ContadorTotPos,
     ContadorTot :Integer;
     DecimalesGilbarco :Integer;
-    DigGilbarco :Integer;
+    DigGilbarco :string;
+    PermiteModoNormal: Boolean;
 
     GtwDivPresetLts,        // Divisor preset litros           **
     GtwDivPresetPesos,      // Divisor preset pesos            **
@@ -248,7 +249,7 @@ var
 
 implementation
 
-uses TypInfo, StrUtils, Variants, DateUtils;
+uses TypInfo, StrUtils, Variants, DateUtils, Math;
 
 {$R *.DFM}
 
@@ -336,6 +337,8 @@ begin
     ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',1001);
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
+    DigGilbarco:=config.ReadString('CONF','DigitosGilbarco','');
+    PermiteModoNormal:=config.ReadString('CONF','PermiteModoNormal','No')='Si';
     ListaCmnd:=TStringList.Create;
     ServerSocket1.Active:=True;
     detenido:=True;
@@ -974,18 +977,20 @@ var
   xpos:Integer;
 begin
   try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
+    if PermiteModoNormal then begin
+      xpos:=StrToIntDef(msj,-1);
+      if xpos=-1 then begin
+        Result:='False|Favor de indicar correctamente la posicion de carga|';
+        Exit;
+      end;
 
-    if xpos=0 then begin
-      for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Prepago';
-    end
-    else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Prepago';
+      if xpos=0 then begin
+        for xpos:=1 to MaxPosCarga do
+          TPosCarga[xpos].ModoOpera:='Normal';
+      end
+      else if (xpos in [1..maxposcarga]) then
+        TPosCarga[xpos].ModoOpera:='Normal';
+    end;
 
     Result:='True|';
   except
@@ -1622,7 +1627,7 @@ begin
       end;
       SwDeshabil:=false;
       SwTotales:=true;
-      SwLeeVenta:=true;
+      SwLeeVenta:=False;
       SwFinVenta:=false;
       SwNivelPrecio:=true;
       SwCambiaPrecio:=false;
@@ -1638,17 +1643,20 @@ begin
       with TPosCarga[xpos] do begin
         SwPrec:=false;
         existe:=false;
-        ModoOpera:='Prepago';
 
-        if (DecimalesGilbarco=100) or (DecimalesGilbarco=1000) then begin
-          DivImporte:=DecimalesGilbarco;
-          DivLitros:=DecimalesGilbarco;
-        end;
+        if PermiteModoNormal then begin
+          if posiciones.Child[i].Field['OperationMode'].Value='FULLSERVICE' then
+            ModoOpera:='Normal'
+          else
+            ModoOpera:='Prepago';
+        end
+        else
+          ModoOpera:='Prepago';
 
-        if DigGilbarco=8 then
-          DigitosGilbarco:=8;
+        DigitosGilbarco:=StrToIntDef(ExtraeElemStrSep(DigGilbarco,xpos,';'),6);
 
-        AgregaLog('DigitosGilbarco='+IntToStr(DigitosGilbarco));
+        DivImporte:=IfThen(DigitosGilbarco=8,1000,100);
+        DivLitros:=IfThen(DigitosGilbarco=8,1000,100);
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
@@ -1783,7 +1791,6 @@ begin
     dispensarios := js.Field['Dispensers'];
 
     DecimalesGilbarco:=2;
-    DigGilbarco:=6;
     GtwDivPresetLts:=100;
     GtwDivPresetPesos:=100;
     GtwDivPrecio:=100;
@@ -1798,8 +1805,6 @@ begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='DECIMALESGILBARCO' then
         DecimalesGilbarco:=StrToInt(ExtraeElemStrSep(variable,2,'='))
-      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='DIGITOSGILBARCO' then
-        DigGilbarco:=StrToInt(ExtraeElemStrSep(variable,2,'='))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='GTWDIVPRESETLTS' then
         GtwDivPresetLts:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),100)
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='GTWDIVPRESETPESOS' then
@@ -2323,7 +2328,7 @@ begin
                     begin
                       HoraOcc:=Now;
                       xvolumen:=ajustafloat(dividefloat(importe,precio),3);
-                      if abs(volumen-xvolumen)>0.5 then
+                      if abs(volumen-xvolumen)>0.05 then
                         volumen:=xvolumen;
                       AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
                       swleeventa:=false;
@@ -2336,7 +2341,7 @@ begin
                     begin
                       HoraOcc:=Now;
                       xvolumen:=ajustafloat(dividefloat(importe,precio),3);
-                      if abs(volumen-xvolumen)>0.5 then
+                      if abs(volumen-xvolumen)>0.05 then
                         volumen:=xvolumen;
                       AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
                       swleeventa:=false;
@@ -2344,7 +2349,7 @@ begin
                   end;
                 end;
               end;
-            3:if (swtotales)and(estatus>0) then begin        // LEE TOTALES
+            3:if (swtotales)and(estatus=1) then begin        // LEE TOTALES
                 if not swdeshabil then begin   // no polea los que estan deshabilitados
                   if DigitosGilbarco=6 then begin
                     AgregaLog('E> Lee Totales(6): '+inttoclavenum(PosCiclo,2));
