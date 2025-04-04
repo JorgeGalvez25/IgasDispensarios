@@ -1683,16 +1683,14 @@ begin
                 if TPosCarga[PosCiclo].DigitosGilbarco=6 then begin
                   AgregaLog('E> Lee Venta Proc(6): '+inttoclavenum(PosCiclo,2));
                   if DameVentaProceso6(PosCiclo,Importe) then begin
-                    volumen:=0;
-                    precio:=0;
+                    volumen:=importe/precio;
                     AgregaLog('R> '+FormatFloat('###,##0.00',importe));
                   end;
                 end
                 else begin
                   AgregaLog('E> Lee Venta Proc(8): '+inttoclavenum(PosCiclo,2));
                   if DameVentaProceso8(PosCiclo,Importe) then begin
-                    volumen:=0;
-                    precio:=0;
+                    volumen:=importe/precio;
                     AgregaLog('R> '+FormatFloat('###,##0.00',importe));
                   end;
                 end;
@@ -1812,7 +1810,7 @@ begin
   for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
     if not SwDesHabil then begin
       case estatus of
-        0:xestado:=xestado+'0'; // Sin Comunicación
+        0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
         1:xestado:=xestado+'1'; // Inactivo (Idle)
         2:xestado:=xestado+'2'; // Cargando (In Use)
         3,4:if not swcargando then
@@ -2266,7 +2264,7 @@ begin
                   rsp:=ValidaCifra(xImporte,4,2);
                 if rsp='OK' then
                   if (xImporte<0.50) then
-                    rsp:='Minimo permitido: $0.50';
+                    ximporte:=9999;
               except
                 rsp:='Error en Importe';
               end;
@@ -2319,7 +2317,7 @@ begin
                 rsp:=ValidaCifra(xLitros,3,2);
                 if rsp='OK' then
                   if (xLitros<0.10) then
-                    rsp:='Minimo permitido: 0.10 lts';
+                    xlitros:=999;;
               except
                 rsp:='Error en Litros';
               end;
@@ -2379,7 +2377,7 @@ begin
               end;
             end
             else  // EOT
-              rsp:='Posicion aún no esta en fin de venta';
+              rsp:='Posicion aï¿½n no esta en fin de venta';
           end
           else rsp:='Posicion de Carga no Existe';
 
