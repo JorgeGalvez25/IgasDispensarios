@@ -1240,6 +1240,8 @@ begin
                   try
                     SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
                     SnLitros:=0;
+                    if SnImporte>9999 then
+                      SnImporte:=0;
                     if SnImporte<>0 then begin
                       if VersionPam1000='3' then
                         rsp:=ValidaCifra(SnImporte,4,2)
@@ -1260,7 +1262,7 @@ begin
                       if xp>0 then begin
                         TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                         if VersionPam1000='3' then
-                          EnviaPreset3(rsp,0)
+                          EnviaPreset3(rsp,xcomb)
                         else
                           EnviaPreset(rsp,xcomb);
                       end
@@ -1343,7 +1345,7 @@ begin
                       if xp>0 then begin
                         TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                         if VersionPam1000='3' then
-                          EnviaPreset3(rsp,0)
+                          EnviaPreset3(rsp,xcomb)
                         else
                           EnviaPreset(rsp,xcomb);
                       end
