@@ -776,12 +776,16 @@ begin
       if ValidaCifra(precioComb,2,2)='OK' then begin
         if precioComb>=0.01 then begin
           if WayneFusion='No' then begin
-            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
+            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+            EsperaMiliSeg(250);
+            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
+            EsperaMiliSeg(250);
           end
           else begin
-            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
-            ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0');  // credito
+            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
+            esperamiliseg(250);
+            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0');  // credito
+            esperamiliseg(250);
           end;
           entro:=True;
         end;
@@ -2099,7 +2103,7 @@ begin
                     rsp:=ValidaCifra(SnImporte,5,2);
                     if rsp='OK' then
                       if (SnImporte<0.01) then
-                        SnImporte:=99999;
+                        SnImporte:=9999;
                   except
                     rsp:='Error en Importe';
                   end;
@@ -2428,7 +2432,7 @@ begin
     if TPosCarga[xpos].estatus=9 then begin
       ComandoConsolaBuff('E'+IntToClaveNum(xpos,2));
     end;
-    if SnImporte>=99999 then
+    if SnImporte>=9999 then
       ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
     else begin
       ss:='P'+IntToClaveNum(SnPosCarga,2);
