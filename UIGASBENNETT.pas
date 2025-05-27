@@ -945,19 +945,10 @@ begin
              try
                swinicio2:=false;
                volumen:=StrToFloat(copy(lin,5,8))/100;
-               simp:=copy(lin,11,8);
-               spre:=copy(lin,17,5);
+               simp:=copy(lin,13,8);
+               spre:=copy(lin,21,5);
                importe:=StrToFloat(simp)/100;
                precio:=StrToFloat(spre)/100;
-
-               // valida ventas mayores a 10000 pesos
-               ximpo:=volumen*precio;
-               xdif:=abs(ximpo-importe);
-               if xdif>=900 then begin
-                 importe:=AjustaFloat(ximpo,2);
-               end;
-               // fin
-
                xvol:=ajustafloat(dividefloat(importe,precio),3);
                if abs(volumen-xvol)<0.05 then
                  volumen:=xvol;
@@ -965,6 +956,12 @@ begin
                  swcargando:=false;
                  swdesp:=true;
                  AgregaLog('GUARDA VENTA Pos:'+inttostr(xpos)+' Estatus:'+inttostr(estatus)+' - ant:'+inttostr(estatusant));
+               end;
+               if (TPosCarga[xpos].finventa=0) then begin
+                 if Estatus in [7,8] then begin
+                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
+                   ComandoConsola(ss);
+                 end;
                end;
              except
              end;
