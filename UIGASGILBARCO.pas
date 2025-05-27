@@ -43,7 +43,6 @@ type
     Buffer:TList;
     CmndNuevo     :Boolean;
     function  TransmiteComando(iComando, xNPos: integer; sDataBlock: string) : boolean;
-    procedure  TransmiteComandoEsp(sDataBlock: string);
     function  DataControlWordValue(chDataControlWord : char; iLongitud : integer) : longint;
   public
     ListaLog:TStringList;
@@ -140,7 +139,6 @@ type
     function  DetenerDespacho(xNPos : integer) : boolean;
     function  ReanudaDespacho(PosCarga: integer) : boolean;
     function  PonNivelPrecio(xNPos, xNPrec : integer) : boolean;
-    function EnviaPresetFlu(xpos:integer;xsube:boolean):boolean;
     procedure EstatusDispensarios;
     procedure ProcesaComandos;
     procedure AvanzaPosCiclo;
@@ -1562,27 +1560,6 @@ begin
   result:= ( TransmiteComando($20,xNPos,sDataBlock) );
 end;
 
-procedure Togcvdispensarios_gilbarco2W.TransmiteComandoEsp(
-  sDataBlock: string);
-var 
-    i:integer;
-begin
-  sleep(10);
-  pSerial.FlushInBuffer;
-  pSerial.FlushOutBuffer;
-  for i:= 1 to length ( sDataBlock ) do begin
-    pSerial.PutChar(sDataBlock[i]);
-    repeat
-       pSerial.ProcessCommunications;
-    until ( pSerial.OutBuffUsed=0 );
-  end;
-  sleep(GtwTiempoCmnd);
-  newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
-  repeat
-    ServiceThread.ProcessRequests(True);
-  until ( ( bListo ) or ( timerexpired(etTimeOut) ) );        // FALLA
-end;
-
 function Togcvdispensarios_gilbarco2W.AgregaPosCarga(
   posiciones: TlkJSONbase): string;
 var i,j,k,xisla,xpos,xcomb,xnum,xc:integer;
@@ -1900,10 +1877,8 @@ var ss,rsp,ss2,precios       :string;
 begin
   try
     CmndNuevo:=False;
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then
       GuardarLog;
-    end;
     // Checa Comandos
     for xcmnd:=1 to 200 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
@@ -2210,42 +2185,6 @@ begin
    sDataBlock:= #$FF + DLChar(sDataBlock) + sDataBlock;
    sDataBlock:= sDataBlock + LrcCheckChar(sDataBlock) + #$F0;
    result:= ( TransmiteComando($20,xNPos,sDataBlock) );
-end;
-
-function Togcvdispensarios_gilbarco2W.EnviaPresetFlu(xpos: integer;
-  xsube: boolean): boolean;
-var ximporte:real;
-begin
-  result:=true;
-  try
-    if xsube then
-      ximporte:=StrToIntDef(Valorx+inttostr(tagx[1]),0)/100
-    else
-      ximporte:=StrToIntDef(Valorx+'0',0)/100;
-    AgregaLog('Preset Posicion '+inttoclavenum(xpos,2)+' $'+FormatoMoneda(ximporte));
-    if TPosCarga[xPos].DigitosGilbarco=6 then begin
-      if EnviaPresetBomba6(xpos,1,1,ximporte,0) then
-      begin
-        if Autoriza(xpos) then begin
-          TPosCarga[xpos].SwPreset:=true;
-        end
-        else result:=false;
-      end
-      else result:=false;
-    end
-    else begin
-      if EnviaPresetBomba8(xpos,1,1,ximporte,0) then
-      begin
-        if Autoriza(xpos) then begin
-          TPosCarga[xpos].SwPreset:=true;
-        end
-        else result:=false;
-      end
-      else result:=false;
-    end;
-  except
-    result:=false;
-  end;
 end;
 
 procedure Togcvdispensarios_gilbarco2W.Timer1Timer(Sender: TObject);
@@ -2623,7 +2562,7 @@ begin
   try
     if Buffer.Count=0 then
       Exit;
-    AgregaLog('Ejecutó buffer');
+    AgregaLog('Ejecutï¿½ buffer');
     objBuffer:=Buffer[0];
     with objBuffer do begin
       AgregaLog('Comando buffer:'+comando);
