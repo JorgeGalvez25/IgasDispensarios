@@ -27,6 +27,7 @@ type
     MapeoFusion,
     AjusteWayne,
     AjusteWayne2,
+    AjusteWayne3,
     WayneAjusteImporte,
     InicializaWayne,
     TierLavelWayne,
@@ -493,6 +494,7 @@ begin
     MapeoFusion:='No';
     AjusteWayne:='No';
     AjusteWayne2:='No';
+    AjusteWayne3:='No';
     WayneAjusteImporte:='No';
     WayneValidaImporteDespacho:='No';
     InicializaWayne:='Si';
@@ -512,6 +514,8 @@ begin
         AjusteWayne:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEWAYNE2' then
         AjusteWayne2:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEWAYNE3' then
+        AjusteWayne3:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEAJUSTEIMPORTE' then
         WayneAjusteImporte:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEVALIDAIMPORTEDESPACHO' then
@@ -1719,8 +1723,10 @@ begin
                      ximporte:=AjustaFloat(xvolumen*xprecio,2);
                      AgregaLog('Calcula importe 1');
                    end
-                   else if (AjusteWayne='No') and (AjusteWayne2='Si') then begin
-                     if AjusteWayne2='Si' then begin
+                   else if (AjusteWayne2='Si')and(abs(xvolumen-trunc(xvolumen))<0.0001) then
+                     ximporte:=AjustaFloat(xvolumen*xprecio,2)
+                   else if (AjusteWayne='No') and (AjusteWayne3='Si') then begin
+                     if AjusteWayne3='Si' then begin
                        ximpo:=Trunc(ximporte);
                        centavos:=Round(Frac(ximporte) * 100);
                        if centavos >= 95 then
