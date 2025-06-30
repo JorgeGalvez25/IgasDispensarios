@@ -202,6 +202,8 @@ type
        CombActual:Integer;
        MangActual:Integer;
        HoraTotales:TDateTime;
+       SinComunicacion:Boolean;
+       HoraDesconexion:TDateTime;
      end;
 
      RegCmnd = record
@@ -1138,7 +1140,6 @@ begin
         Sleep(200);
         pSerial.Open:=True;
         GuardarLog(0);
-        raise Exception.Create('Error TransmiteComando');
       end;
     end;
   finally
@@ -1958,7 +1959,7 @@ begin
                 AgregaLog('PrecioComb: '+FloatToStr(precioComb));
                 if TPosCarga[xpos].DigitosGilbarco=6 then begin
                   if CambiaPrecio6(xpos,TMang[i],1,precioComb) then begin
-                    Sleep(200);
+                    Sleep(50);
                     if not CambiaPrecio6(xpos,i,2,precioComb) then
                       rsp:='Error en cambio de precios';
                   end
@@ -1967,7 +1968,7 @@ begin
                 end
                 else begin
                   if CambiaPrecio8(xpos,TMang[i],1,precioComb) then begin
-                    Sleep(200);
+                    Sleep(50);
                     if not CambiaPrecio8(xpos,i,2,precioComb) then
                       rsp:='Error en cambio de precios';
                   end
@@ -2097,7 +2098,7 @@ begin
                 end;
               1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
                   try
-                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                    if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now,HoraDesconexion)>=60)) then begin   // no polea los que estan deshabilitados
                       EstatusAnt:=Estatus;
                       Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
                       EstatusDispensarios;
@@ -2107,14 +2108,20 @@ begin
                         HoraNivelPrecio:=Now+5*TMSegundo;
                         Swleeventa:=true;
                         SwTotales:=true;
+                        SinComunicacion:=False;
                       end;
                       if (EstatusAnt in [2,3,4])and(Estatus=1) then begin // Termina Venta
                         swcargando:=false;
-                        PosActual:=0;
                         if EsperaFinVenta=1 then
                           Estatus:=4
                         else
                           SwTotales:=true;
+                      end;
+                      if estatus=2 then
+                        PosActual:=0;
+                      if (estatusant=0) and (estatus=0) then begin
+                        SinComunicacion:=True;
+                        HoraDesconexion:=Now;
                       end;
                     end;
                   except
@@ -2324,7 +2331,7 @@ begin
     end;
   finally
     try
-//      if xTurnoSocket=3 then
+      if xTurnoSocket=3 then
         Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e:Exception do begin
@@ -2611,11 +2618,11 @@ var
 begin
   try
     if rootJSON = nil then
-      raise Exception.Create('rootJSON is nulo');
+      AgregaLog('rootJSON is nulo');
 
     posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
     if posArr = nil then
-      raise Exception.Create('No se encontro "PosCarga" en rootJSON.');
+      AgregaLog('No se encontro "PosCarga" en rootJSON.');
 
     for i := 0 to posArr.Count - 1 do
     begin
@@ -2641,7 +2648,7 @@ begin
       Exit;
     end;
 
-    raise Exception.CreateFmt('DispenserId no encontrado en PosCarga.', [xpos]);
+    AgregaLog('DispenserId no encontrado en PosCarga.');
   except
     on e:Exception do begin
       AgregaLog('Error ActualizaCampoJSON: '+e.Message+'|');
@@ -2658,7 +2665,7 @@ var
 begin
   try
     if rootJSON = nil then
-      raise Exception.Create('rootObj es nulo');
+      AgregaLog('rootObj es nulo');
 
     petArr := TlkJSONlist(rootJSON.Field['Peticiones']);
 

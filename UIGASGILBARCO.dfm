@@ -19,7 +19,7 @@ object ogcvdispensarios_gilbarco2W: Togcvdispensarios_gilbarco2W
   end
   object Timer1: TTimer
     Enabled = False
-    Interval = 100
+    Interval = 50
     OnTimer = Timer1Timer
     Left = 22
     Top = 93
