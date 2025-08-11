@@ -295,12 +295,17 @@ procedure Togcvdispensarios_pam.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
+
+    AgregaLogPetRes('R '+mensaje);
+
     if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
+      SwEsperaRsp:=False;
+      Timer1.Enabled:=pSerial.Open;
       Socket.SendText('1');
       Exit;
     end;
-    AgregaLogPetRes('R '+mensaje);
+
     for i:=1 to Length(mensaje) do begin
       if mensaje[i]=#2 then begin
         mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
@@ -657,6 +662,7 @@ var lin,ss,rsp,
     ximporte:real;
     xvol,ximp:real;
     swerr,SwAplicaMapa,swAllTotals:boolean;
+    SnImporteStr,SnLitrosStr,decImporteStr:String;
 begin
   if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
     horaLog:=Now;
@@ -1232,7 +1238,12 @@ begin
                   end;
                   SwAplicaCmnd:=false;
                   try
-                    SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+                    SnImporteStr:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' ');
+                    decImporteStr:=ExtraeElemStrSep(SnImporteStr,2,'.');
+                    if (Length(decImporteStr)=5) then
+                      SnImporte:=StrToFloat(copy(SnImporteStr,1,length(SnImporteStr)-3))
+                    else
+                      SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
                     SnLitros:=0;
                     if SnImporte>9999 then
                       SnImporte:=0;
@@ -1680,7 +1691,7 @@ begin
           result:=TPosx[i];
       end;
     end
-    else result:=1;
+    else result:=99;
   end;
 end;
 
@@ -1996,9 +2007,10 @@ begin
     // Espera en el paso 0 hasta que reciba respuesta
     if NumPaso=1 then begin
       inc(ContEspera1);
-      if ContEspera1>10 then begin
-      end
-      else exit;
+      if ContEspera1>10 then
+        SwEsperaRsp:=False
+      else
+        exit;
     end;
 
     NumPaso:=1;

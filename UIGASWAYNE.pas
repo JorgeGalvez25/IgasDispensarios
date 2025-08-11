@@ -1362,12 +1362,6 @@ end;
 function Togcvdispensarios_wayne.GuardarLog: string;
 begin
   try
-    if SecondsBetween(now,horaLog)<10 then begin
-      Detener;
-      Terminar;
-      Shutdown;
-      Exit;
-    end;
     horaLog:=Now;
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes;
@@ -2528,12 +2522,12 @@ begin
     for i:=1 to 4 do begin
       if ValidaCifra(LPrecios[i],2,2)='OK' then begin
         if WayneFusion='No' then begin
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
+          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
+          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
         end
         else begin
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
+          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
+          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
         end;
       end;
     end;
