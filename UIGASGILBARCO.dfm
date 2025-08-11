@@ -36,7 +36,7 @@ object ogcvdispensarios_gilbarco2W: Togcvdispensarios_gilbarco2W
     Top = 33
   end
   object Timer2: TTimer
-    Interval = 500
+    Interval = 200
     OnTimer = Timer2Timer
     Left = 88
     Top = 93
