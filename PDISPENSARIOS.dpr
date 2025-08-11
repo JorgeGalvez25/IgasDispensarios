@@ -27,7 +27,7 @@ var
 begin
   Application.Initialize;
 
-  version:='df53b15099848bd8f1b9bea2a60173a946a3dadf';
+  version:='c1dae62a1c4dd4fe8a675f7854f490f678a5d419';
   config:=TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'PDISPENSARIOS.ini');
   marca:=StrToInt(config.ReadString('CONF','Marca','0'));
 

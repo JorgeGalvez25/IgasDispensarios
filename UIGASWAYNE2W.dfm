@@ -9,14 +9,6 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
   Top = 199
   Height = 191
   Width = 270
-  object ServerSocket1: TServerSocket
-    Active = False
-    Port = 8585
-    ServerType = stNonBlocking
-    OnClientRead = ServerSocket1ClientRead
-    Left = 41
-    Top = 37
-  end
   object pSerial: TApdComPort
     ComNumber = 1
     Baud = 5700
@@ -27,15 +19,15 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
     LogName = 'APRO.LOG'
     OnTriggerAvail = pSerialTriggerAvail
     OnTriggerData = pSerialTriggerData
-    Left = 171
-    Top = 33
+    Left = 150
+    Top = 27
   end
   object Timer1: TTimer
     Enabled = False
-    Interval = 100
+    Interval = 50
     OnTimer = Timer1Timer
-    Left = 106
-    Top = 74
+    Left = 56
+    Top = 90
   end
   object pSerial2: TApdComPort
     ComNumber = 1
@@ -47,7 +39,23 @@ object ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w
     LogName = 'APRO.LOG'
     OnTriggerAvail = pSerial2TriggerAvail
     OnTriggerData = pSerial2TriggerData
-    Left = 172
-    Top = 85
+    Left = 170
+    Top = 92
+  end
+  object Timer2: TTimer
+    Interval = 200
+    OnTimer = Timer2Timer
+    Left = 112
+    Top = 93
+  end
+  object ClientSocket1: TClientSocket
+    Active = False
+    ClientType = ctNonBlocking
+    Port = 0
+    OnConnect = ClientSocket1Connect
+    OnDisconnect = ClientSocket1Disconnect
+    OnRead = ClientSocket1Read
+    Left = 73
+    Top = 28
   end
 end
