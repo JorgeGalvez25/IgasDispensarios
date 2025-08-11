@@ -12,13 +12,12 @@ uses
 
 type
   Togcvdispensarios_wayne2w = class(TService)
-    ServerSocket1: TServerSocket;
     pSerial: TApdComPort;
     Timer1: TTimer;
     pSerial2: TApdComPort;
+    Timer2: TTimer;
+    ClientSocket1: TClientSocket;
     procedure ServiceExecute(Sender: TService);
-    procedure ServerSocket1ClientRead(Sender: TObject;
-      Socket: TCustomWinSocket);
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
     procedure pSerialTriggerData(CP: TObject; TriggerHandle: Word);
     procedure Timer1Timer(Sender: TObject);
@@ -27,6 +26,12 @@ type
     procedure ServiceShutdown(Sender: TService);
     procedure ServiceDestroy(Sender: TObject);
     procedure pSerial2TriggerData(CP: TObject; TriggerHandle: Word);
+    procedure Timer2Timer(Sender: TObject);
+    procedure ClientSocket1Connect(Sender: TObject;
+      Socket: TCustomWinSocket);
+    procedure ClientSocket1Disconnect(Sender: TObject;
+      Socket: TCustomWinSocket);
+    procedure ClientSocket1Read(Sender: TObject; Socket: TCustomWinSocket);
   private
     { Private declarations }
     WtwDivImporte:Integer;
@@ -51,8 +56,11 @@ type
     SwEspera      :boolean;
     CmndNuevo     :Boolean;
     ContadorAlarma:Integer;
-    HoraEspera      :TDateTime;
-    SwPasoBien      :boolean;
+    HoraEspera, HoraArranque  :TDateTime;
+    SwPasoBien :boolean;
+    conectado, respJson:Boolean;
+    rootJSON : TlkJSONbase;
+    socketResponse : TCustomWinSocket;
     function  TransmiteComando1(DataBlock:string):boolean;
     function  TransmiteComando2(DataBlock:string):boolean;
   public
@@ -63,50 +71,30 @@ type
     detenido:Boolean;
     estado:Integer;
     mapeoMangueras:String;
+    xTurnoSocket:Integer;
     version:String;
     ListaCmnd    :TStrings;
     FolioCmnd   :integer;
     horaLog:TDateTime;
     minutosLog:Integer;
     function GetServiceController: TServiceController; override;
-    procedure Responder(socket:TCustomWinSocket;resp:string);
+    procedure Responder(resp:string);
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
-    function GuardarLog: string;
-    function GuardarLogPetRes: string;
     procedure GuardaLogComandos;
     function AgregaPosCarga(posiciones: TlkJSONbase):string;
     function IniciaPSerial(datosPuerto:string):string;
     function IniciaPSerial2(datosPuerto:string):string;
-    function Inicializar(msj:string): string;
+    procedure Inicializar(folio:Integer; msj: string);
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;
     function MD5(const usuario: string): string;
-    function Login(mensaje:string): string;
-    function Logout: string;
     function EjecutaComando(xCmnd:string):integer;
-    function IniciaPrecios(msj: string): string;
-    function AutorizarVenta(msj:string): string;
-    function DetenerVenta(msj: string): string;
-    function ReanudarVenta(msj: string): string;
-    function ActivaModoPrepago(msj:string): string;
-    function DesactivaModoPrepago(msj:string): string;
-    function Bloquear(msj: string): string;
-    function Desbloquear(msj: string): string;
-    function FinVenta(msj: string): string;
     function TransaccionPosCarga(msj: string): string;
     function EstadoPosiciones(msj: string): string;
-    function TotalesBomba(msj: string): string;
-    function Detener: string;
-    function Iniciar: string;
-    function Shutdown: string;
-    function Terminar: string;
     function ObtenerEstado: string;
-    function RespuestaComando(msj: string): string;
     function ResultadoComando(xFolio:integer):string;
-    function ObtenerLog(r: Integer): string;
-    function ObtenerLogPetRes(r: Integer): string;
     function  LeePrecios(xPosCarga : integer): boolean;
     function  DameEstatus(xPosCarga:integer) : integer;
     function  ReanudaDespacho(xPosCarga: integer) : boolean;
@@ -123,6 +111,31 @@ type
     function  CambiaPrecios(xPosCarga : integer): boolean;
     procedure AvanzaPosCiclo;
     procedure PonPuertoPos(xpos:integer);
+    procedure Bloquear(folio:Integer; msj: string);
+    procedure Desbloquear(folio:Integer; msj: string);
+    procedure Detener(folio:Integer);
+    procedure Iniciar(folio:Integer);
+    procedure Shutdown(folio:Integer);
+    procedure AutorizarVenta(folio:Integer; msj: string);
+    procedure DetenerVenta(folio:Integer; msj: string);
+    procedure ReanudarVenta(folio:Integer; msj: string);
+    procedure RespuestaComando(folio:Integer; msj: string);
+    procedure ObtenerLog(folio:Integer; r: Integer);
+    procedure ObtenerLogPetRes(folio:Integer; r: Integer);
+    procedure ActivaModoPrepago(folio:Integer; msj:string);
+    procedure DesactivaModoPrepago(folio:Integer; msj:string);
+    procedure FinVenta(folio:Integer; msj: string);
+    procedure Terminar(folio:Integer);
+    procedure IniciaPrecios(folio:Integer; msj:string);
+    procedure GuardarLog(folio:Integer);
+    procedure GuardarLogPetRes(folio:Integer);
+    procedure TotalesBomba(folio:Integer; msj: string);
+    procedure Login(folio:Integer; mensaje:string);
+    procedure Logout(folio:Integer);
+    procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
+    procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
+    procedure ApplyTotalLitrosToJSON(const xpos: Integer; const TotalLitros: array of Real);
+    procedure SetEstadoJSON(const AEstado: Integer);
     { Public declarations }
   end;
 
@@ -319,154 +332,30 @@ begin
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
-    ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
+    ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
+    ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     mapeoMangueras:=config.ReadString('CONF','MapeoMangueras','');
     ListaCmnd:=TStringList.Create;
-    ServerSocket1.Active:=True;
     detenido:=True;
     estado:=-1;
     horaLog:=Now;
+    HoraArranque:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
+    rootJSON:=TlkJSONObject.Create;
+    SetEstadoJSON(estado);
 
     while not Terminated do
       ServiceThread.ProcessRequests(True);
-    ServerSocket1.Active := False;
+    ClientSocket1.Active := False;
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      GuardarLog;
+      GuardarLog(0);
       if ListaLogPetRes.Count>0 then
-        GuardarLogPetRes;
-    end;
-  end;
-end;
-
-procedure Togcvdispensarios_wayne2w.ServerSocket1ClientRead(
-  Sender: TObject; Socket: TCustomWinSocket);
-  var
-    mensaje,comando,checksum,parametro:string;
-    i:Integer;
-    chks_valido:Boolean;
-    metodoEnum:TMetodos;
-begin
-  try
-    mensaje:=Socket.ReceiveText;
-    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
-      pSerial.Open:=mensaje='1';
-      Socket.SendText('1');
-      Exit;
-    end;
-    AgregaLogPetRes('R '+mensaje);
-    for i:=1 to Length(mensaje) do begin
-      if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
-        Break;
-      end;
-    end;
-    for i:=Length(mensaje) downto 1 do begin              
-      if mensaje[i]=#3 then begin
-        checksum:=Copy(mensaje,i+1,4);
-        mensaje:=Copy(mensaje,1,i-1);
-        Break;                
-      end;
-    end;
-    chks_valido:=checksum=CRC16(mensaje);
-    if mensaje[1]='|' then
-      Delete(mensaje,1,1);
-    if mensaje[Length(mensaje)]='|' then
-      Delete(mensaje,Length(mensaje),1);
-    if NoElemStrSep(mensaje,'|')>=2 then begin  
-      if UpperCase(ExtraeElemStrSep(mensaje,1,'|'))<>'DISPENSERS' then begin
-        Responder(Socket,'DISPENSERS|False|Este servicio solo procesa solicitudes de dispensarios|');
-        Exit;
-      end;
-
-      comando:=UpperCase(ExtraeElemStrSep(mensaje,2,'|'));
-
-      if not chks_valido then begin
-        Responder(Socket,'DISPENSERS|'+comando+'|False|Checksum invalido|');
-        Exit;
-      end;
-
-      if NoElemStrSep(mensaje,'|')>2 then begin
-        for i:=3 to NoElemStrSep(mensaje,'|') do
-          parametro:=parametro+ExtraeElemStrSep(mensaje,i,'|')+'|';
-
-        if parametro[Length(parametro)]='|' then
-          Delete(parametro,Length(parametro),1);
-      end;
-
-      metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
-
-      case metodoEnum of
-        NOTHING_e:
-          Responder(Socket, 'DISPENSERS|NOTHING|True|');
-        INITIALIZE_e:
-          Responder(Socket, 'DISPENSERS|INITIALIZE|'+Inicializar(parametro));
-        PARAMETERS_e:
-          Responder(Socket, 'DISPENSERS|PARAMETERS|True');
-        LOGIN_e:
-          Responder(Socket, 'DISPENSERS|LOGIN|'+Login(parametro));
-        LOGOUT_e:
-          Responder(Socket, 'DISPENSERS|LOGOUT|'+Logout);
-        PRICES_e:
-          Responder(Socket, 'DISPENSERS|PRICES|'+IniciaPrecios(parametro));
-        AUTHORIZE_e:
-          Responder(Socket, 'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro));
-        STOP_e:
-          Responder(Socket, 'DISPENSERS|STOP|'+DetenerVenta(parametro));
-        START_e:
-          Responder(Socket, 'DISPENSERS|START|'+ReanudarVenta(parametro));
-        SELFSERVICE_e:
-          Responder(Socket, 'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro));
-        FULLSERVICE_e:
-          Responder(Socket, 'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro));
-        BLOCK_e:
-          Responder(Socket, 'DISPENSERS|BLOCK|'+Bloquear(parametro));
-        UNBLOCK_e:
-          Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
-        PAYMENT_e:
-          Responder(Socket, 'DISPENSERS|PAYMENT|'+FinVenta(parametro));
-        TRANSACTION_e:
-          Responder(Socket, 'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro));
-        STATUS_e:
-          Responder(Socket, 'DISPENSERS|STATUS|'+EstadoPosiciones(parametro));
-        TOTALS_e:
-          Responder(Socket, 'DISPENSERS|TOTALS|'+TotalesBomba(parametro));
-        HALT_e:
-          Responder(Socket, 'DISPENSERS|HALT|'+Detener);
-        RUN_e:
-          Responder(Socket, 'DISPENSERS|RUN|'+Iniciar);
-        SHUTDOWN_e:
-          Responder(Socket, 'DISPENSERS|SHUTDOWN|'+Shutdown);
-        TERMINATE_e:
-          Responder(Socket, 'DISPENSERS|TERMINATE|'+Terminar);
-        STATE_e:
-          Responder(Socket, 'DISPENSERS|STATE|'+ObtenerEstado);
-        TRACE_e:
-          Responder(Socket, 'DISPENSERS|TRACE|'+GuardarLog);
-        SAVELOGREQ_e:
-          Responder(Socket, 'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes);
-        RESPCMND_e:
-          Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
-        LOG_e:
-          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
-        LOGREQ_e:
-          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
-      else
-        Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
-      end;
-    end
-    else
-      Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
-  except
-    on e:Exception do begin
-      AgregaLogPetRes('Error: '+e.Message);
-      GuardarLogPetRes;
-      Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
+        GuardarLogPetRes(0);
     end;
   end;
 end;
@@ -493,7 +382,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error AgregaLog: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -520,7 +409,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error AgregaLogPetRes: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -541,55 +430,27 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error CRC16: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
 
-procedure Togcvdispensarios_wayne2w.Responder(socket: TCustomWinSocket;
-  resp: string);
+procedure Togcvdispensarios_wayne2w.Responder(resp: string);
 begin
   try
-    socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
-    AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
+    if Assigned(socketResponse) then begin
+      socketResponse.SendText(resp);
+      socketResponse:=nil;
+    end
+    else
+      ClientSocket1.Socket.SendText(resp);
+
+    AgregaLogPetRes('E '+resp);
   except
     on e:Exception do begin
-      AgregaLog('Error Responder: '+e.Message);
-      GuardarLog;
+      AgregaLogPetRes('False|Excepcion: '+e.Message+'|');
+      GuardarLogPetRes(0);
     end;
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.GuardarLog: string;
-begin
-  try
-    AgregaLog('Version: '+version);
-    ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraExtToStr(Now))+'.txt');
-    GuardarLogPetRes;
-    GuardaLogComandos;
-    Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraExtToStr(Now))+'.txt';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.GuardarLogPetRes: string;
-begin
-  try
-    if SecondsBetween(now,horaLog)<10 then begin
-      Detener;
-      Terminar;
-      Shutdown;
-      Exit;
-    end;
-    horaLog:=Now;
-    AgregaLogPetRes('Version: '+version);
-    ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraExtToStr(Now))+'.txt');
-    Result:='True|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
   end;
 end;
 
@@ -618,6 +479,10 @@ var
   i,j,k,xpos,xcomb,xc:integer;
   existe:boolean;
   mangueras:TlkJSONbase;
+  posArr  : TlkJSONlist;
+  posObj      : TlkJSONObject;
+  hosesArr    : TlkJSONlist;
+  hoseObj     : TlkJSONObject;
 begin
   try
     if not detenido then begin
@@ -636,6 +501,7 @@ begin
       DivLitros:=WtwDivLitros;
       estatus:=-1;
       estatusant:=-1;
+      HoraOcc:=0;
       NoComb:=0;
       SwPreset:=false;
       SwPreset2:=false;
@@ -664,6 +530,8 @@ begin
       SwLeePrecios:=true;
     end;
 
+    posArr := TlkJSONlist.Create;
+
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
       if xpos>MaxPosCarga then
@@ -671,6 +539,19 @@ begin
       if (xpos in [1..32]) then begin
         with TPosCarga[xpos] do begin
           ModoOpera:='Prepago';
+
+          posObj := TlkJSONObject.Create;
+          posObj.Add('DispenserId', xpos);
+          posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
+          posObj.Add('Manguera', 0);
+          posObj.Add('Combustible', 0);
+          posObj.Add('Estatus', 0);
+          posObj.Add('Importe', 0);
+          posObj.Add('Volumen', 0);
+          posObj.Add('Precio', 0);
+
+          hosesArr := TlkJSONlist.Create;
+
           mangueras:=posiciones.Child[i].Field['Hoses'];
           for j:=0 to mangueras.Count-1 do begin
             existe:=false;
@@ -686,11 +567,20 @@ begin
                 TPosx[NoComb]:=StrToInt(ExtraeElemStrSep(ExtraeElemStrSep(mapeoMangueras,xpos,';'),TMang[NoComb],','))
               else
                 TPosx[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+
+              hoseObj := TlkJSONObject.Create;
+              hoseObj.Add('HoseId',TMang[NoComb]);
+              hoseObj.Add('ProductId', xcomb);
+              hoseObj.Add('Total', 0);
+              hosesArr.Add(hoseObj);
             end;
           end;
+          posObj.Add('Hoses', hosesArr);
         end;
+        posArr.Add(posObj);
       end;
     end;
+    TlkJSONobject(rootJSON).Add('PosCarga',   posArr);
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -768,16 +658,17 @@ begin
   end;
 end;
 
-function Togcvdispensarios_wayne2w.Inicializar(msj: string): string;
+procedure Togcvdispensarios_wayne2w.Inicializar(folio:Integer; msj: string);
 var
   js: TlkJSONBase;
   consolas,dispensarios,productos: TlkJSONbase;
   i,productID: Integer;
-  datosPuerto, variables, variable:string;
+  datosPuerto, variables, variable, resultado:string;
 begin
   try
     if estado>-1 then begin
-      Result:='False|El servicio ya habia sido inicializado|';
+      resultado:='False|El servicio ya habia sido inicializado|';
+      AddPeticionJSON(folio, resultado);
       Exit;
     end;
 
@@ -788,7 +679,7 @@ begin
     WtwDivLitros:=100;
     GtwTimeout:=1000;
     GtwTiempoCmnd:=1000;
-    WtwPosIniExt:=0;
+    WtwPosIniExt:=999;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WTWDIVIMPORTE' then
@@ -809,27 +700,32 @@ begin
       datosPuerto:=VarToStr(consolas.Child[i].Field['Connection'].Value);
 
       if (i>0) and (WtwPosIniExt>0) then
-        Result:=IniciaPSerial2(datosPuerto)
+        resultado:=IniciaPSerial2(datosPuerto)
       else
-        Result:=IniciaPSerial(datosPuerto);
+        resultado:=IniciaPSerial(datosPuerto);
 
-      if Result<>'' then
+      if resultado<>'' then begin
+        AddPeticionJSON(folio, resultado);
         Exit;
+      end;
     end;
 
     dispensarios := js.Field['Dispensers'];
 
-    Result:=AgregaPosCarga(dispensarios);
+    resultado:=AgregaPosCarga(dispensarios);
 
-    if Result<>'' then
+    if resultado<>'' then begin
+      AddPeticionJSON(folio, resultado);
       Exit;
+    end;
 
     productos := js.Field['Products'];
 
     for i:=0 to productos.Count-1 do begin
       productID:=productos.Child[i].Field['ProductId'].Value;
       if productos.Child[i].Field['Price'].Value<0 then begin
-        Result:='False|El precio '+IntToStr(productID)+' es incorrecto|';
+        resultado:='False|El precio '+IntToStr(productID)+' es incorrecto|';
+        AddPeticionJSON(folio, resultado);
         Exit;
       end;
       LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
@@ -837,10 +733,10 @@ begin
     PreciosInicio:=False;
     SegmActual:=1;
     estado:=0;
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
@@ -896,26 +792,6 @@ begin
   idmd5.Destroy;
 end;
 
-function Togcvdispensarios_wayne2w.Login(mensaje: string): string;
-var
-  usuario,password:string;
-begin
-  usuario:=ExtraeElemStrSep(mensaje,1,'|');
-  password:=ExtraeElemStrSep(mensaje,2,'|');
-  if MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now))<>password then
-    Result:='False|Password invalido|'
-  else begin
-    Token:=MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now));
-    Result:='True|'+Token+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Logout: string;
-begin
-  Token:='';
-  Result:='True|';
-end;
-
 function Togcvdispensarios_wayne2w.EjecutaComando(xCmnd: string): integer;
 var ind:integer;
 begin
@@ -953,222 +829,8 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error EjecutaComando: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.IniciaPrecios(msj: string): string;
-begin
-  try
-    if EjecutaComando('CPREC '+msj)>0 then
-      Result:='True|'
-    else
-      Result:='False|No fue posible aplicar comando de cambio de precios|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.AutorizarVenta(msj: string): string;
-var
-  cmd,cantidad,posCarga,comb,finv:string;
-begin
-  try
-
-    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
-      cmd:='OCL';
-      cantidad:=ExtraeElemStrSep(msj,4,'|');
-    end
-    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
-      cmd:='OCC';
-      cantidad:=ExtraeElemStrSep(msj,3,'|');
-    end
-    else begin
-      Result:='False|Favor de indicar la cantidad que se va a despachar|';
-      Exit;
-    end;
-
-    posCarga:=ExtraeElemStrSep(msj,1,'|');
-
-    if posCarga='' then begin
-      Result:='False|Favor de indicar la posicion de carga|';
-      Exit;
-    end;
-
-    comb:=ExtraeElemStrSep(msj,2,'|');
-
-    if comb='' then
-      comb:='00';
-
-    finv:=ExtraeElemStrSep(msj,5,'|');
-
-    if finv='0' then
-      finv:='1'
-    else
-      finv:='0';
-
-    Result:='True|'+IntToStr(EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv))+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.DetenerVenta(msj: string): string;
-begin
-  try
-    if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    Result:='True|'+IntToStr(EjecutaComando('DVC '+msj))+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.ReanudarVenta(msj: string): string;
-begin
-  try
-    if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    Result:='True|'+IntToStr(EjecutaComando('REANUDAR '+msj))+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.ActivaModoPrepago(msj: string): string;
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    if xpos=0 then begin
-      for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Prepago';
-    end
-    else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Prepago';
-
-    Result:='True|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.DesactivaModoPrepago(
-  msj: string): string;
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    if xpos=0 then begin
-      for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Prepago';
-    end
-    else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Prepago';
-
-    Result:='True|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Bloquear(msj: string): string;
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-
-    if xpos<0 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    if (xpos<=MaxPosCarga) then begin
-      if xpos=0 then begin
-        for xpos:=1 to MaxPosCarga do
-          TPosCarga[xpos].SwDesHabil:=True;
-        Result:='True|';
-      end
-      else if (xpos in [1..maxposcarga]) then begin
-        TPosCarga[xpos].SwDesHabil:=True;
-        Result:='True|';
-      end;
-    end
-    else Result:='False|Posicion no Existe|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Desbloquear(msj: string): string;
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-
-    if xpos<0 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    if (xpos<=MaxPosCarga) then begin
-      if xpos=0 then begin
-        for xpos:=1 to MaxPosCarga do
-          TPosCarga[xpos].SwDesHabil:=False;
-        Result:='True|';
-      end
-      else if (xpos in [1..maxposcarga]) then begin
-        TPosCarga[xpos].SwDesHabil:=False;
-        Result:='True|';
-      end;
-    end
-    else Result:='False|Posicion no Existe|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.FinVenta(msj: string): string;
-begin
-  try
-    if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    Result:='True|'+IntToStr(EjecutaComando('FINV '+msj))+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
   end;
 end;
 
@@ -1224,120 +886,6 @@ begin
   end;
 end;
 
-function Togcvdispensarios_wayne2w.TotalesBomba(msj: string): string;
-var
-  xpos,xfolioCmnd:Integer;
-  valor:string;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos<1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
-
-    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
-
-    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Detener: string;
-begin
-  try
-    if estado=-1 then begin
-      Result:='False|El proceso no se ha iniciado aun|';
-      Exit;
-    end;
-
-    if not detenido then begin
-      pSerial.Open:=False;
-      pSerial2.Open:=False;
-      Timer1.Enabled:=False;
-      detenido:=True;
-      estado:=0;
-      Result:='True|';
-    end
-    else
-      Result:='False|El proceso ya habia sido detenido|'
-  except
-    on e:Exception do begin
-      AgregaLog('Error Detener: '+e.Message);
-      GuardarLog;
-      Result:='False|'+e.Message+'|';
-    end;
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Iniciar: string;
-begin
-  try
-    if (not pSerial.Open) then begin
-      if (estado=-1) then begin
-        Result:='False|No se han recibido los parametros de inicializacion|';
-        Exit;
-      end
-      else if detenido then begin
-        pSerial.Open:=True;
-        if MaxPosCarga>=WtwPosIniExt then
-          pSerial2.Open:=True;
-      end;
-    end;
-
-    detenido:=False;
-    estado:=1;
-    Timer1.Enabled:=True;
-    numPaso:=0;
-    StCiclo:=0;
-    Result:='True|';
-  except
-    on e:Exception do begin
-      AgregaLog('Error Iniciar: '+e.Message);
-      GuardarLog;
-      Result:='False|'+e.Message+'|';
-    end;
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Shutdown: string;
-begin
-  if estado>0 then
-    Result:='False|El servicio esta en proceso, no fue posible detenerlo|'
-  else begin
-    ServiceThread.Terminate;
-    Result:='True|';
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.Terminar: string;
-begin
-  try
-    if estado>0 then
-      Result:='False|El servicio no esta detenido, no es posible terminar la comunicacion|'
-    else begin
-      Timer1.Enabled:=False;
-      pSerial.Open:=False;
-      pSerial2.Open:=False;
-      LPrecios[1]:=0;
-      LPrecios[2]:=0;
-      LPrecios[3]:=0;
-      LPrecios[4]:=0;
-      estado:=-1;
-      Result:='True|';
-    end;
-  except
-    on e:Exception do begin
-      AgregaLog('Error Terminar: '+e.Message);
-      GuardarLog;
-    end;
-  end;
-end;
-
 function Togcvdispensarios_wayne2w.ObtenerEstado: string;
 begin
   try
@@ -1345,35 +893,8 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error ObtenerEstado: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
-  end;
-end;
-
-function Togcvdispensarios_wayne2w.RespuestaComando(msj: string): string;
-var
-  resp:string;
-begin
-  try
-    if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente el numero de folio de comando|';
-      Exit;
-    end;
-
-    resp:=ResultadoComando(StrToInt(msj));
-
-    if (UpperCase(Copy(resp,1,2))='OK') then begin
-      if Length(resp)>2 then
-        resp:=copy(resp,3,Length(resp)-2)
-      else
-        resp:='';
-      Result:='True|'+resp;
-    end
-    else
-      Result:='False|'+resp+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
   end;
 end;
 
@@ -1394,52 +915,6 @@ begin
   end;
 end;
 
-function Togcvdispensarios_wayne2w.ObtenerLog(r: Integer): string;
-var
-  i:Integer;
-begin
-  if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
-    Exit;
-  end;
-
-  if ListaLog.Count<1 then begin
-    Result:='False|No hay registros en el log|';
-    Exit;
-  end;
-
-  i:=ListaLog.Count-(r+1);
-  if i<1 then i:=0;
-
-  Result:='True|';
-
-  for i:=i to ListaLog.Count-1 do
-    Result:=Result+ListaLog[i]+'|';
-end;
-
-function Togcvdispensarios_wayne2w.ObtenerLogPetRes(r: Integer): string;
-var
-  i:Integer;
-begin
-  if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
-    Exit;
-  end;
-
-  if ListaLogPetRes.Count<1 then begin
-    Result:='False|No hay registros en el log de peticiones|';
-    Exit;
-  end;
-
-  i:=ListaLogPetRes.Count-(r+1);
-  if i<1 then i:=0;
-
-  Result:='True|';
-
-  for i:=i to ListaLogPetRes.Count-1 do
-    Result:=Result+ListaLogPetRes[i]+'|';
-end;
-
 procedure Togcvdispensarios_wayne2w.pSerialTriggerAvail(CP: TObject;
   Count: Word);
 var i : integer;
@@ -1456,7 +931,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error pSerialTriggerAvail: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1472,7 +947,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error pSerialTriggerData: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1488,49 +963,44 @@ begin
   try
     PonPuertoPos(xPosCarga);
     result:=false;
-    timer1.Enabled:=false;
-    try
-      for xp:=1 to TPosCarga[xPosCarga].nocomb do begin
-        xposfis:=TPosCarga[xPosCarga].TPosx[xp];
-        stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
-        sse:=StrToHexSep(stComando);
-        DataBlock:=EmpacaWayne(stComando);
-        if SegmActual=1 then begin
-          if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-            ss1:=ExtraeElemStrSep(ss,5,' ');
-            Val1:=HexToInt(ss1);
-            ss1:=ExtraeElemStrSep(ss,4,' ');
-            Val2:=HexToInt(ss1);
-            xprecio:=256*val1+val2;
-            TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
-            Esperamiliseg(50);
-            if xp=TPosCarga[xPosCarga].nocomb then
-              result:=true;
-          end;
-        end
-        else begin
-          if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-            ss1:=ExtraeElemStrSep(ss,5,' ');
-            Val1:=HexToInt(ss1);
-            ss1:=ExtraeElemStrSep(ss,4,' ');
-            Val2:=HexToInt(ss1);
-            xprecio:=256*val1+val2;
-            TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
-            Esperamiliseg(50);
-            if xp=TPosCarga[xPosCarga].nocomb then
-              result:=true;
-          end;
+    for xp:=1 to TPosCarga[xPosCarga].nocomb do begin
+      xposfis:=TPosCarga[xPosCarga].TPosx[xp];
+      stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
+      sse:=StrToHexSep(stComando);
+      DataBlock:=EmpacaWayne(stComando);
+      if SegmActual=1 then begin
+        if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
+          ss:=StrToHexSep(DesempacaWayne(sRespuesta));
+          ss1:=ExtraeElemStrSep(ss,5,' ');
+          Val1:=HexToInt(ss1);
+          ss1:=ExtraeElemStrSep(ss,4,' ');
+          Val2:=HexToInt(ss1);
+          xprecio:=256*val1+val2;
+          TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
+          Esperamiliseg(50);
+          if xp=TPosCarga[xPosCarga].nocomb then
+            result:=true;
+        end;
+      end
+      else begin
+        if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
+          ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
+          ss1:=ExtraeElemStrSep(ss,5,' ');
+          Val1:=HexToInt(ss1);
+          ss1:=ExtraeElemStrSep(ss,4,' ');
+          Val2:=HexToInt(ss1);
+          xprecio:=256*val1+val2;
+          TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
+          Esperamiliseg(50);
+          if xp=TPosCarga[xPosCarga].nocomb then
+            result:=true;
         end;
       end;
-    finally
-      Timer1.Enabled:=true;
     end;
   except
     on e:Exception do begin
       AgregaLog('Error LeePrecios: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1543,48 +1013,54 @@ var ss:string;
     bOk           :boolean;
 begin
   try
-    iMaxIntentos:=2;
-    iBytesEsperados:=13;
-    iNoIntento:= 0;
-    bOk:=false;
-    repeat
-       inc(iNoIntento);
-       bListo:= false;
-       bEndOfText:= false;
-       bLineFeed:= false;
-       sRespuesta:= '';
-       pSerial.FlushInBuffer;
-       pSerial.FlushOutBuffer;
-       ss:=StrToHexSep(DataBlock);
-       AgregaLog('E  '+ss);
-       for i:= 1 to length ( DataBlock ) do begin
-          pSerial.PutChar(DataBlock[i]);
-          repeat
-             pSerial.ProcessCommunications;
-          until ( pSerial.OutBuffUsed=0 );
-       end;
-       if ( not bOk ) then begin
-          newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
-          repeat
-             Sleep(10);
-          until ( ( bListo ) or ( timerexpired(etTimeOut) ) );
-          if ( bListo ) then begin
-            if length(sRespuesta)=13 then begin
-              bOk:=true;
-              AgregaLog('R  '+StrToHexSep(sRespuesta));
+    Timer1.Enabled:=False;
+    try
+      iMaxIntentos:=2;
+      iBytesEsperados:=13;
+      iNoIntento:= 0;
+      bOk:=false;
+      repeat
+         inc(iNoIntento);
+         bListo:= false;
+         bEndOfText:= false;
+         bLineFeed:= false;
+         sRespuesta:= '';
+         pSerial.FlushInBuffer;
+         pSerial.FlushOutBuffer;
+         ss:=StrToHexSep(DataBlock);
+         AgregaLog('E  '+ss);
+         for i:= 1 to length ( DataBlock ) do begin
+            pSerial.PutChar(DataBlock[i]);
+            repeat
+               pSerial.ProcessCommunications;
+            until ( pSerial.OutBuffUsed=0 );
+         end;
+         if ( not bOk ) then begin
+            newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
+            repeat
+               ServiceThread.ProcessRequests(False);
+            until ( ( bListo ) or ( timerexpired(etTimeOut) ) );
+            AgregaLog('sRespuesta Length: '+IntToStr(length(sRespuesta)));
+            if ( bListo ) then begin
+              if length(sRespuesta)=13 then begin
+                bOk:=true;
+                AgregaLog('R  '+StrToHexSep(sRespuesta));
+              end;
             end;
-          end;
-          if ( not bOk ) then begin
-             if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
-          end;
-       end;
-    until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
-    result:= bOk;
-  except
-    on e:Exception do begin
-      AgregaLog('Error TransmiteComando1: '+e.Message);
-      GuardarLog;
+            if ( not bOk ) then begin
+               if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
+            end;
+         end;
+      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
+      result:= bOk;
+    except
+      on e:Exception do begin
+        AgregaLog('Error TransmiteComando1: '+e.Message);
+        GuardarLog(0);
+      end;
     end;
+  finally
+    Timer1.Enabled:=True;
   end;
 end;
 
@@ -1728,7 +1204,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error DameEstatus: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1748,7 +1224,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error ReanudaDespacho: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1778,6 +1254,8 @@ begin
       xcomb:=TComb[PosActual];//CombustibleEnPosicion(xpos,PosActual);
       CombActual:=xcomb;
       MangActual:=TMang[PosActual];
+      ActualizaCampoJSON(xpos,'Combustible',CombActual);
+      ActualizaCampoJSON(xpos,'Manguera',MangActual);
       ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
       ss:=ss+'/'+FormatFloat('###0.###',volumen);
       ss:=ss+'/'+FormatFloat('#0.##',precio);
@@ -1798,7 +1276,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error EstatusDispensarios: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1824,7 +1302,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error DetenerDespacho: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -1946,7 +1424,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error DameLecturas: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
       rLitros:=0;rPesos:=0;rPrecio:=0;xposfis:=0;
     end;
   end;
@@ -2020,7 +1498,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error DameTotal: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2039,7 +1517,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error Autoriza: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2066,7 +1544,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error Autoriza: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2106,7 +1584,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error EnviaPresetPesosBomba: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2307,7 +1785,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error ProcesaComandos: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2341,7 +1819,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error ValidaCifra: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2363,7 +1841,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error PosicionDeCombustible: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2379,51 +1857,46 @@ begin
   try
     PonPuertoPos(xPosCarga);
     result:=false;
-    timer1.Enabled:=false;
-    try
-      for xp:=1 to TPosCarga[xPosCarga].nocomb do begin
-        xposfis:=TPosCarga[xPosCarga].TPosx[xp];
-        xprecio:=Trunc(TPosCarga[xPosCarga].TNuevoPrec[xp]*100+0.01);
-        val1:=(xprecio)div(256);
-        val2:=(xprecio)mod(256);
-        stComando:= char(ControlByte(xPosCarga,7))+#1+char(xposfis-1)+char(val2)+char(val1);
-        DataBlock:=EmpacaWayne(stComando);
-        if SegmActual=1 then begin
+    for xp:=1 to TPosCarga[xPosCarga].nocomb do begin
+      xposfis:=TPosCarga[xPosCarga].TPosx[xp];
+      xprecio:=Trunc(TPosCarga[xPosCarga].TNuevoPrec[xp]*100+0.01);
+      val1:=(xprecio)div(256);
+      val2:=(xprecio)mod(256);
+      stComando:= char(ControlByte(xPosCarga,7))+#1+char(xposfis-1)+char(val2)+char(val1);
+      DataBlock:=EmpacaWayne(stComando);
+      if SegmActual=1 then begin
+        if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
+          Esperamiliseg(50);
+          stComando:= char(ControlByte(xPosCarga,7))+#1+char(16+xposfis-1)+char(val2)+char(val1);
+          DataBlock:=EmpacaWayne(stComando);
           if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
             Esperamiliseg(50);
-            stComando:= char(ControlByte(xPosCarga,7))+#1+char(16+xposfis-1)+char(val2)+char(val1);
-            DataBlock:=EmpacaWayne(stComando);
-            if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-              Esperamiliseg(50);
-              if xp=TPosCarga[xPosCarga].nocomb then
-                result:=true;
-            end
-            else exit;
+            if xp=TPosCarga[xPosCarga].nocomb then
+              result:=true;
           end
           else exit;
         end
-        else begin
+        else exit;
+      end
+      else begin
+        if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
+          Esperamiliseg(50);
+          stComando:= char(ControlByte(xPosCarga,7))+#1+char(16+xposfis-1)+char(val2)+char(val1);
+          DataBlock:=EmpacaWayne(stComando);
           if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
             Esperamiliseg(50);
-            stComando:= char(ControlByte(xPosCarga,7))+#1+char(16+xposfis-1)+char(val2)+char(val1);
-            DataBlock:=EmpacaWayne(stComando);
-            if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-              Esperamiliseg(50);
-              if xp=TPosCarga[xPosCarga].nocomb then
-                result:=true;
-            end
-            else exit;
+            if xp=TPosCarga[xPosCarga].nocomb then
+              result:=true;
           end
           else exit;
-        end;
+        end
+        else exit;
       end;
-    finally
-      Timer1.Enabled:=true;
     end;
   except
     on e:Exception do begin
       AgregaLog('Error CambiaPrecios: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2435,210 +1908,237 @@ var xvolumen,n1,n2,n3:real;
     xtotallitros:real;
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog;
-    end;
-    if CmndNuevo then
-      ProcesaComandos;
-    if ContadorAlarma>=10 then begin
-      if ContadorAlarma=10 then
-        AgregaLog('Desconexion de Dispositivo - Error Comunicacion Dispensarios');
-    end;
-    if (swespera)and((now-horaespera)>3*tmsegundo) then
-      swespera:=false;
-    if not SwEspera then begin
-      if not SwPasoBien then begin
-        swespera:=false;
-        inc(ContadorAlarma);
-        goto L01;
+    try
+      Inc(xTurnoSocket);
+      if xTurnoSocket>3 then
+        xTurnoSocket:=1;
+
+      if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+        horaLog:=Now;
+        GuardarLog(0);
       end;
-      SwPasoBien:=false;
-      SwEspera:=true;
-      HoraEspera:=Now;
-      AgregaLog('PosCiclo: '+IntToStr(PosCiclo)+' - '+'NumPaso: '+IntToStr(NumPaso));
-      if PosCiclo in [1..MaxPosCarga] then with TPosCarga[PosCiclo] do begin
-        StrCiclo:=StrCiclo+inttostr(PosCiclo);
-        while length(StrCiclo)>20 do
-          delete(StrCiclo,1,1);
-        try
-          case NumPaso of
-            0:if SwLeePrecios then begin
-                if LeePrecios(PosCiclo) then
-                  SwLeePrecios:=false;
-              end;
-            1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
-                try
-                  if not swdeshabil then begin   // no polea los que estan deshabilitados
-                    EstatusAnt:=Estatus;
-                    Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
-                    ContadorAlarma:=0;
-                    if estatus=2 then
-                      swdesp:=true;
-                    if (swdesp)and(estatus in [1,3,5]) then begin
-                      AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
-                      swdesp:=false;
-                      SwStatusFV:=true;
-                      Estatus:=3;
-                    end;
-                    if (Estatusant=0)and(estatus=1) then begin
-                      Swleeventa:=true;
-                      for j:=1 to TPosCarga[PosCiclo].NoComb do
-                        SwLeeTotales[j]:=true;
-                    end;
-                    if (EstatusAnt in [3,4])and(Estatus=1) then begin
-                      swcargando:=false;
-                      if EsperaFinVenta=1 then
-                        Estatus:=4;
-                    end;
-                    EstatusDispensarios;
-                    if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
-                      AgregaLog('Desautorizo posicion: '+inttostr(PosCiclo));
-                      Esperamiliseg(300);
-                      DetenerDespacho(PosCiclo);
-                      Esperamiliseg(300);
-                      ReanudaDespacho(PosCiclo);
-                    end;
-                  end;
-                except
-                  AgregaLog('Error Estatus Pos: '+inttostr(PosCiclo));
-                  AvanzaPosCiclo;
-                  NumPaso:=1;
-                  exit;
-                end;
-              end;
-            2:if (swleeventa)and(estatus>0) then begin       // LEE VENTA TERMINADA
-                if not swdeshabil then begin   // no polea los que estan deshabilitados
-                  AgregaLog('E> FIN DE VENTA: '+inttoclavenum(PosCiclo,2));
-                  if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
-                    swleeventa:=false;
-                    SwStatusFV:=false;
-                    xvolumen:=ajustafloat(dividefloat(importe,precio),3);
-                    if abs(volumen-xvolumen)>0.5 then
-                      volumen:=xvolumen;
-                    AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
-                  end;
-                end;
-              end;
-            3:if (estatus>0)and(not swdeshabil) then begin        // LEE TOTALES
-                if LeeTotalPosCiclo(PosCiclo,MangCiclo) then begin
-                  AgregaLog('E> Lee Totales: '+inttoclavenum(PosCiclo,2)+' MangCiclo:'+IntToStr(MangCiclo)+' NoComb:'+IntToStr(TPosCarga[PosCiclo].NoComb));
-                  if DameTotal(PosCiclo,MangCiclo,xTotalLitros)then
-                  begin
-                    TotalLitros[MangCiclo]:=xTotalLitros;
-                    AgregaLog('R> '+FormatFloat('###,###,##0.00',xTotalLitros));
-                    SwLeeTotales[MangCiclo]:=false;
-                  end;
-                end;
-              end;
-            4:if (estatus=5)and(not swdeshabil)  then begin
-                if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
-                  AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
-                  if not swpreset then begin
-                    if Autoriza(PosCiclo) then ;
-                  end
-                  else if (swpreset)and(PosPreset=PosMangLev) then begin
-                    if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                      if AutorizaPm(PosCiclo,PosPreset) then begin
-                        swpreset2:=true;
-                      end;
-                  end
-                  else if (swpreset)and(PosPreset=0) then begin
-                    if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                      if Autoriza(PosCiclo) then begin
-                        swpreset2:=true;
-                      end;
-                  end;
-                end
-                else begin // AUTORIZA PREPAGO
-                  AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
-                  if (SwPreset)and(PosPreset=PosMangLev) then begin
-                    if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                      if AutorizaPm(PosCiclo,PosPreset) then begin
-                        swpreset2:=true;
-                      end;
-                  end
-                  else if (swpreset)and(PosPreset=0) then begin
-                    if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                      if Autoriza(PosCiclo) then begin
-                        swpreset2:=true;
-                      end;
-                  end;
-                end
-              end;
-            5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
-                if not swdeshabil then begin   // no polea los que estan deshabilitados
-                  AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
-                  if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
-                  end;
-                end;
-              end;
-            6:ProcesaComandos;
-            7:begin          // CAMBIA PRECIO
-                if not swdeshabil then begin   // no polea los que estan deshabilitados
-                  if (TCambioPrecN1) and (estatus=1) then begin
-                    AgregaLog('E> Cambia Precio: '+inttoclavenum(PosCiclo,2));
-                    if CambiaPrecios(PosCiclo) then
-                      TCambioPrecN1:=false;
-                  end;
-                end;
-              end;
-          end;
-        finally
+      if CmndNuevo then
+        ProcesaComandos;
+      if ContadorAlarma>=10 then begin
+        if ContadorAlarma=10 then
+          AgregaLog('Desconexion de Dispositivo - Error Comunicacion Dispensarios');
+      end;
+      if (swespera)and((now-horaespera)>3*tmsegundo) then
+        swespera:=false;
+      if not SwEspera then begin
+        if not SwPasoBien then begin
           swespera:=false;
+          inc(ContadorAlarma);
+          goto L01;
         end;
-  L01:
-        SwPasoBien:=true;
-        with TPosCarga[PosCiclo] do begin
-          case estatus of
-            2:swcargando:=true;
-            3:if NumPaso=1 then begin
-                SwLeeVenta:=true;
-                ContLeeVenta:=0;
-              end;
+        SwPasoBien:=false;
+        SwEspera:=true;
+        HoraEspera:=Now;
+        AgregaLog('PosCiclo: '+IntToStr(PosCiclo)+' - '+'NumPaso: '+IntToStr(NumPaso));
+        if PosCiclo in [1..MaxPosCarga] then with TPosCarga[PosCiclo] do begin
+          StrCiclo:=StrCiclo+inttostr(PosCiclo);
+          while length(StrCiclo)>20 do
+            delete(StrCiclo,1,1);
+          try
+            case NumPaso of
+              0:if SwLeePrecios then begin
+                  if LeePrecios(PosCiclo) then
+                    SwLeePrecios:=false;
+                end;
+              1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
+                  try
+                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                      EstatusAnt:=Estatus;
+                      Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
+                      ContadorAlarma:=0;
+                      if estatus=2 then
+                        swdesp:=true;
+                      if (swdesp)and(estatus in [1,3,5]) then begin
+                        AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
+                        swdesp:=false;
+                        SwStatusFV:=true;
+                        Estatus:=3;
+                      end;
+                      if (Estatusant=0)and(estatus=1) then begin
+                        Swleeventa:=true;
+                        for j:=1 to TPosCarga[PosCiclo].NoComb do
+                          SwLeeTotales[j]:=true;
+                      end;
+                      if (EstatusAnt in [3,4])and(Estatus=1) then begin
+                        swcargando:=false;
+                        if EsperaFinVenta=1 then
+                          Estatus:=4;
+                      end;
+                      EstatusDispensarios;
+                      if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
+                        AgregaLog('Desautorizo posicion: '+inttostr(PosCiclo));
+                        Esperamiliseg(300);
+                        DetenerDespacho(PosCiclo);
+                        Esperamiliseg(300);
+                        ReanudaDespacho(PosCiclo);
+                      end;
+                      ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
+                    end;
+                  except
+                    AgregaLog('Error Estatus Pos: '+inttostr(PosCiclo));
+                    AvanzaPosCiclo;
+                    NumPaso:=1;
+                    exit;
+                  end;
+                end;
+              2:if (swleeventa)and(estatus>0) then begin       // LEE VENTA TERMINADA
+                  if not swdeshabil then begin   // no polea los que estan deshabilitados
+                    AgregaLog('E> FIN DE VENTA: '+inttoclavenum(PosCiclo,2));
+                    if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                      swleeventa:=false;
+                      SwStatusFV:=false;
+                      HoraOcc:=Now;
+                      xvolumen:=ajustafloat(dividefloat(importe,precio),3);
+                      if abs(volumen-xvolumen)>0.5 then
+                        volumen:=xvolumen;
+                      AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
+                    end;
+                    ActualizaCampoJSON(PosCiclo,'HoraOcc',FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
+                    ActualizaCampoJSON(PosCiclo,'Volumen',Volumen);
+                    ActualizaCampoJSON(PosCiclo,'Precio',precio);
+                    ActualizaCampoJSON(PosCiclo,'Importe',importe);
+                  end;
+                end;
+              3:if (estatus>0)and(not swdeshabil) then begin        // LEE TOTALES
+                  if LeeTotalPosCiclo(PosCiclo,MangCiclo) then begin
+                    AgregaLog('E> Lee Totales: '+inttoclavenum(PosCiclo,2)+' MangCiclo:'+IntToStr(MangCiclo)+' NoComb:'+IntToStr(TPosCarga[PosCiclo].NoComb));
+                    if DameTotal(PosCiclo,MangCiclo,xTotalLitros)then
+                    begin
+                      TotalLitros[MangCiclo]:=xTotalLitros;
+                      ApplyTotalLitrosToJSON(PosCiclo,TotalLitros);
+                      AgregaLog('R> '+FormatFloat('###,###,##0.00',xTotalLitros));
+                      SwLeeTotales[MangCiclo]:=false;
+                    end;
+                  end;
+                end;
+              4:if (estatus=5)and(not swdeshabil)  then begin
+                  if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
+                    AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
+                    if not swpreset then begin
+                      if Autoriza(PosCiclo) then ;
+                    end
+                    else if (swpreset)and(PosPreset=PosMangLev) then begin
+                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                        if AutorizaPm(PosCiclo,PosPreset) then begin
+                          swpreset2:=true;
+                        end;
+                    end
+                    else if (swpreset)and(PosPreset=0) then begin
+                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                        if Autoriza(PosCiclo) then begin
+                          swpreset2:=true;
+                        end;
+                    end;
+                  end
+                  else begin // AUTORIZA PREPAGO
+                    AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
+                    if (SwPreset)and(PosPreset=PosMangLev) then begin
+                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                        if AutorizaPm(PosCiclo,PosPreset) then begin
+                          swpreset2:=true;
+                        end;
+                    end
+                    else if (swpreset)and(PosPreset=0) then begin
+                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                        if Autoriza(PosCiclo) then begin
+                          swpreset2:=true;
+                        end;
+                    end;
+                  end
+                end;
+              5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
+                  if not swdeshabil then begin   // no polea los que estan deshabilitados
+                    AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
+                    if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                    end;
+                    ActualizaCampoJSON(PosCiclo,'Volumen',volumen);
+                    ActualizaCampoJSON(PosCiclo,'Importe',importe);
+                    ActualizaCampoJSON(PosCiclo,'Precio',precio);
+                  end;
+                end;
+              6:ProcesaComandos;
+              7:begin          // CAMBIA PRECIO
+                  if not swdeshabil then begin   // no polea los que estan deshabilitados
+                    if (TCambioPrecN1) and (estatus=1) then begin
+                      AgregaLog('E> Cambia Precio: '+inttoclavenum(PosCiclo,2));
+                      if CambiaPrecios(PosCiclo) then
+                        TCambioPrecN1:=false;
+                    end;
+                  end;
+                end;
+            end;
+          finally
+            swespera:=false;
           end;
+    L01:
+          SwPasoBien:=true;
+          with TPosCarga[PosCiclo] do begin
+            case estatus of
+              2:swcargando:=true;
+              3:if NumPaso=1 then begin
+                  SwLeeVenta:=true;
+                  ContLeeVenta:=0;
+                end;
+            end;
 
-          inc(NumPaso);
-          if (NumPaso=2)and(not SwLeeVenta) then
-            NumPaso:=3;
-          if (NumPaso=3) then begin
-            if (swleeventa)and(contleeventa<3) then begin
-              NumPaso:=2;
-              inc(contleeventa);
-            end
-            else if (not LeeTotalPosCiclo(PosCiclo,MangCiclo)) then
-              NumPaso:=4;
-          end;
-          if (NumPaso=4) and (not estatus in [5,9]) then
-            NumPaso:=5;
-          if (NumPaso=5) and (estatus<>2) and (estatus<>8) then  // no esta ni estaba despachando
-            NumPaso:=6;
-          if (NumPaso=6) and (PosCiclo<MaxPosCarga) then
-            NumPaso:=7;
-          if (NumPaso=7) then begin
-            swprec:=TPosCarga[PosCiclo].TCambioPrecN1;
-            if not swprec then
-              NumPaso:=8;
-          end;
+            inc(NumPaso);
+            if (NumPaso=2)and(not SwLeeVenta) then
+              NumPaso:=3;
+            if (NumPaso=3) then begin
+              if (swleeventa)and(contleeventa<3) then begin
+                NumPaso:=2;
+                inc(contleeventa);
+              end
+              else if (not LeeTotalPosCiclo(PosCiclo,MangCiclo)) then
+                NumPaso:=4;
+            end;
+            if (NumPaso=4) and (not estatus in [5,9]) then
+              NumPaso:=5;
+            if (NumPaso=5) and (estatus<>2) and (estatus<>8) then  // no esta ni estaba despachando
+              NumPaso:=6;
+            if (NumPaso=6) and (PosCiclo<MaxPosCarga) then
+              NumPaso:=7;
+            if (NumPaso=7) then begin
+              swprec:=TPosCarga[PosCiclo].TCambioPrecN1;
+              if not swprec then
+                NumPaso:=8;
+            end;
 
 
-          if NumPaso>=8 then begin
-            AvanzaPosCiclo;
-            if TPosCarga[PosCiclo].SwLeePrecios then
-              NumPaso:=0
-            else
-              NumPaso:=1;
+            if NumPaso>=8 then begin
+              AvanzaPosCiclo;
+              if TPosCarga[PosCiclo].SwLeePrecios then
+                NumPaso:=0
+              else
+                NumPaso:=1;
+            end;
           end;
-        end;
-      end
-      else posciclo:=1;
+        end
+        else posciclo:=1;
+      end;
+    except
+      on e:Exception do begin
+        AgregaLog('Error Timer1: '+e.Message);
+        GuardarLog(0);
+        inc(NumPaso);
+        AvanzaPosCiclo;
+      end;
     end;
-  except
-    on e:Exception do begin
-      AgregaLog('Error Timer1: '+e.Message);
-      GuardarLog;
-      inc(NumPaso);
-      AvanzaPosCiclo;
+  finally
+    try
+      if xTurnoSocket=3 then
+        Responder(TlkJSON.GenerateText(rootJSON));
+    except
+      on e:Exception do begin
+        AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
+        Timer1.Enabled:=False;
+        Timer2.Enabled:=True;
+      end;
     end;
   end;
 end;
@@ -2660,7 +2160,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error AvanzaPosCiclo: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2690,7 +2190,7 @@ begin
   except
     on e:Exception do begin
       AgregaLog('Error pSerialTriggerData: '+e.Message);
-      GuardarLog;
+      GuardarLog(0);
     end;
   end;
 end;
@@ -2703,48 +2203,54 @@ var ss:string;
     bOk           :boolean;
 begin
   try
-    iMaxIntentos:=2;
-    iBytesEsperados:=13;
-    iNoIntento:= 0;
-    bOk:=false;
-    repeat
-       inc(iNoIntento);
-       bListo2:= false;
-       bEndOfText:= false;
-       bLineFeed:= false;
-       sRespuesta:= '';
-       pSerial2.FlushInBuffer;
-       pSerial2.FlushOutBuffer;
-       ss:=StrToHexSep(DataBlock);
-       AgregaLog('E  '+ss);
-       for i:= 1 to length ( DataBlock ) do begin
-          pSerial2.PutChar(DataBlock[i]);
-          repeat
-             pSerial2.ProcessCommunications;
-          until ( pSerial2.OutBuffUsed=0 );
-       end;
-       if ( not bOk ) then begin
-          newtimer(etTimeOut2,MSecs2Ticks(GtwTimeout));
-          repeat
-             Sleep(10);
-          until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
-          if ( bListo2 ) then begin
-            if length(sRespuesta)=13 then begin
-              bOk:=true;
-              AgregaLog('R  '+StrToHexSep(sRespuesta));
+    Timer1.Enabled:=False;
+    try
+      iMaxIntentos:=2;
+      iBytesEsperados:=13;
+      iNoIntento:= 0;
+      bOk:=false;
+      repeat
+         inc(iNoIntento);
+         bListo2:= false;
+         bEndOfText:= false;
+         bLineFeed:= false;
+         sRespuesta2:= '';
+         pSerial2.FlushInBuffer;
+         pSerial2.FlushOutBuffer;
+         ss:=StrToHexSep(DataBlock);
+         AgregaLog('E  '+ss);
+         for i:= 1 to length ( DataBlock ) do begin
+            pSerial2.PutChar(DataBlock[i]);
+            repeat
+               pSerial2.ProcessCommunications;
+            until ( pSerial2.OutBuffUsed=0 );
+         end;
+         if ( not bOk ) then begin
+            newtimer(etTimeOut2,MSecs2Ticks(GtwTimeout));
+            repeat
+               ServiceThread.ProcessRequests(False);
+            until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
+            AgregaLog('sRespuesta2 Length: '+IntToStr(length(sRespuesta2)));
+            if ( bListo2 ) then begin
+              if length(sRespuesta2)=13 then begin
+                bOk:=true;
+                AgregaLog('R  '+StrToHexSep(sRespuesta2));
+              end;
             end;
-          end;
-          if ( not bOk ) then begin
-             if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
-          end;
-       end;
-    until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
-    result:= bOk;
-  except
-    on e:Exception do begin
-      AgregaLog('Error TransmiteComando1: '+e.Message);
-      GuardarLog;
+            if ( not bOk ) then begin
+               if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
+            end;
+         end;
+      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
+      result:= bOk;
+    except
+      on e:Exception do begin
+        AgregaLog('Error TransmiteComando1: '+e.Message);
+        GuardarLog(0);
+      end;
     end;
+  finally
+    Timer1.Enabled:=True;
   end;
 end;
 
@@ -2834,17 +2340,782 @@ end;
 procedure Togcvdispensarios_wayne2w.ServiceStop(Sender: TService;
   var Stopped: Boolean);
 begin
-  GuardarLog;
+  GuardarLog(0);
 end;
 
 procedure Togcvdispensarios_wayne2w.ServiceShutdown(Sender: TService);
 begin
-  GuardarLog;
+  GuardarLog(0);
 end;
 
 procedure Togcvdispensarios_wayne2w.ServiceDestroy(Sender: TObject);
 begin
-  GuardarLog;
+  GuardarLog(0);
+end;
+
+procedure Togcvdispensarios_wayne2w.ActivaModoPrepago(folio: Integer;
+  msj: string);
+var
+  xpos:Integer;
+begin
+  try
+    xpos:=StrToIntDef(msj,-1);
+    if xpos=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    if xpos=0 then begin
+      for xpos:=1 to MaxPosCarga do
+        TPosCarga[xpos].ModoOpera:='Prepago';
+    end
+    else if (xpos in [1..maxposcarga]) then
+      TPosCarga[xpos].ModoOpera:='Prepago';
+
+    AddPeticionJSON(folio, 'True|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.ActualizaCampoJSON(xpos: Integer;
+  campo: string; valor: Variant);
+var
+  posArr : TlkJSONlist;
+  posObj : TlkJSONObject;
+  field  : TlkJSONbase;
+  i      : Integer;
+begin
+  try
+    if rootJSON = nil then
+      AgregaLog('rootJSON is nulo');
+
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then
+      AgregaLog('No se encontro "PosCarga" en rootJSON.');
+
+    for i := 0 to posArr.Count - 1 do
+    begin
+      posObj := TlkJSONObject(posArr.Child[i]);
+      if posObj = nil then
+        Continue;
+
+      if (posObj.Field['DispenserId'] <> nil) and
+         (posObj.Field['DispenserId'].Value = xpos) then
+      begin
+      end
+      else if (posObj.Field['DispenserId'] = nil) and (i + 1 = xpos) then
+      begin
+      end
+      else
+        Continue;
+
+      field := posObj.Field[campo];
+
+      if field <> nil then
+        field.Value := valor;
+
+      Exit;
+    end;
+
+    AgregaLog('DispenserId no encontrado en PosCarga.');
+  except
+    on e:Exception do begin
+      AgregaLog('Error ActualizaCampoJSON: '+e.Message+'|');
+      GuardarLog(0);
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.AddPeticionJSON(const aFolio: Integer;
+  const aResultado: string);
+var
+  petArr : TlkJSONlist;
+  petObj : TlkJSONObject;
+begin
+  try
+    if rootJSON = nil then
+      AgregaLog('rootObj es nulo');
+
+    petArr := TlkJSONlist(rootJSON.Field['Peticiones']);
+
+    if petArr = nil then
+    begin
+      petArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('Peticiones', petArr);
+    end;
+
+    while petArr.Count >= 2 do
+      petArr.Delete(0);
+
+    petObj := TlkJSONObject.Create;
+    petObj.Add('Folio',     aFolio);
+    petObj.Add('Resultado', aResultado);
+
+    petArr.Add(petObj);
+    respJson:=True;
+  except
+    on e:Exception do begin
+      AgregaLog('Error AddPeticionJSON: '+e.Message+'|');
+      GuardarLog(0);
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.ApplyTotalLitrosToJSON(
+  const xpos: Integer; const TotalLitros: array of Real);
+var
+  posCargaList : TlkJSONlist;
+  hosesList    : TlkJSONlist;
+  posObj       : TlkJSONobject;
+  hoseObj      : TlkJSONobject;
+  totalNode    : TlkJSONbase;
+  hoseIdx      : Integer;
+  posIndex0    : Integer;
+begin
+  posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
+  if posCargaList = nil then
+    Exit;
+
+  posIndex0 := xpos - 1;
+  if (posIndex0 < 0) or (posIndex0 >= posCargaList.Count) then
+    Exit;
+
+  posObj   := TlkJSONobject(posCargaList.Child[posIndex0]);
+  hosesList := posObj.Field['Hoses'] as TlkJSONlist;
+  if hosesList = nil then
+    Exit;
+
+  for hoseIdx := 0 to hosesList.Count - 1 do
+  begin
+    if hoseIdx > High(TotalLitros) then
+      Break;
+
+    hoseObj := TlkJSONobject(hosesList.Child[hoseIdx]);
+
+    totalNode := hoseObj.Field['Total'];
+    if totalNode <> nil then
+      totalNode.Value := TotalLitros[hoseIdx];
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.AutorizarVenta(folio: Integer;
+  msj: string);
+var
+  cmd,cantidad,posCarga,comb,finv:string;
+begin
+  try
+
+    if StrToFloatDef(ExtraeElemStrSep(msj,4,'|'),0)>0 then begin
+      cmd:='OCL';
+      cantidad:=ExtraeElemStrSep(msj,4,'|');
+    end
+    else if StrToFloatDef(ExtraeElemStrSep(msj,3,'|'),-99)<>-99 then begin
+      cmd:='OCC';
+      cantidad:=ExtraeElemStrSep(msj,3,'|');
+    end
+    else begin
+      AddPeticionJSON(folio,'False|Favor de indicar la cantidad que se va a despachar|');
+      Exit;
+    end;
+
+    posCarga:=ExtraeElemStrSep(msj,1,'|');
+
+    if posCarga='' then begin
+      AddPeticionJSON(folio,'False|Favor de indicar la posicion de carga|');
+      Exit;
+    end;
+
+    comb:=ExtraeElemStrSep(msj,2,'|');
+
+    if comb='' then
+      comb:='00';
+
+    finv:=ExtraeElemStrSep(msj,5,'|');
+
+    if finv='0' then
+      finv:='1'
+    else
+      finv:='0';
+
+    AddPeticionJSON(folio,'True|'+IntToStr(EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv))+'|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Bloquear(folio: Integer; msj: string);
+var
+  xpos:Integer;
+begin
+  try
+    xpos:=StrToIntDef(msj,-1);
+
+    if xpos<0 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    if (xpos<=MaxPosCarga) then begin
+      if xpos=0 then begin
+        for xpos:=1 to MaxPosCarga do
+          TPosCarga[xpos].SwDesHabil:=True;
+        AddPeticionJSON(folio, 'True|');
+      end
+      else if (xpos in [1..maxposcarga]) then begin
+        TPosCarga[xpos].SwDesHabil:=True;
+        AddPeticionJSON(folio, 'True|');
+      end;
+    end
+    else AddPeticionJSON(folio, 'False|Posicion no Existe|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.DesactivaModoPrepago(folio: Integer;
+  msj: string);
+var
+  xpos:Integer;
+begin
+  try
+    xpos:=StrToIntDef(msj,-1);
+    if xpos=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    if xpos=0 then begin
+      for xpos:=1 to MaxPosCarga do
+        TPosCarga[xpos].ModoOpera:='Prepago';
+    end
+    else if (xpos in [1..maxposcarga]) then
+      TPosCarga[xpos].ModoOpera:='Prepago';
+
+    AddPeticionJSON(folio, 'True|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Desbloquear(folio: Integer;
+  msj: string);
+var
+  xpos:Integer;
+begin
+  try
+    xpos:=StrToIntDef(msj,-1);
+
+    if xpos<0 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    if (xpos<=MaxPosCarga) then begin
+      if xpos=0 then begin
+        for xpos:=1 to MaxPosCarga do
+          TPosCarga[xpos].SwDesHabil:=False;
+        AddPeticionJSON(folio, 'True|');
+      end
+      else if (xpos in [1..maxposcarga]) then begin
+        TPosCarga[xpos].SwDesHabil:=False;
+        AddPeticionJSON(folio, 'True|');
+      end;
+    end
+    else AddPeticionJSON(folio, 'False|Posicion no Existe|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Detener(folio: Integer);
+begin
+  try
+    if estado=-1 then begin
+      AddPeticionJSON(folio, 'False|El proceso no se ha iniciado aun|');
+      Exit;
+    end;
+
+    if not detenido then begin
+      pSerial.Open:=False;
+      pSerial.Tracing:= tlOff;
+      pSerial.Open:= false;
+      pSerial.DTR:= false;
+      pSerial.RTS:= false;
+      Timer1.Enabled:=False;
+      Timer2.Enabled:=True;
+      detenido:=True;
+      estado:=0;
+      SetEstadoJSON(estado);
+      AddPeticionJSON(folio, 'True|');
+    end
+    else
+      AddPeticionJSON(folio, 'False|El proceso ya habia sido detenido|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|'+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.DetenerVenta(folio: Integer;
+  msj: string);
+begin
+  try
+    if StrToIntDef(msj,-1)=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('DVC '+msj))+'|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.FinVenta(folio: Integer; msj: string);
+begin
+  try
+    if StrToIntDef(msj,-1)=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('FINV '+msj))+'|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.GuardarLog(folio: Integer);
+begin
+  try
+    horaLog:=Now;
+    AgregaLog('Version: '+version);
+    AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
+    ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    GuardarLogPetRes(0);
+    if folio>0 then
+      AddPeticionJSON(folio, 'True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|');
+  except
+    on e:Exception do if folio>0 then
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.GuardarLogPetRes(folio: Integer);
+begin
+  try
+    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
+    ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    if folio>0 then
+      AddPeticionJSON(folio,'True|');
+  except
+    on e:Exception do begin
+      AgregaLog('False|Excepcion: '+e.Message+'|');
+      GuardarLog(0);
+      if folio>0 then
+        AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.IniciaPrecios(folio: Integer;
+  msj: string);
+var
+  ss:string;
+  precioComb:Double;
+  xpos,i:Integer;
+begin
+  try
+    if EjecutaComando('CPREC '+msj)>0 then
+      AddPeticionJSON(folio, 'True|')
+    else
+      AddPeticionJSON(folio, 'False|No fue posible aplicar comando de cambio de precios|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Iniciar(folio: Integer);
+begin
+  try
+    if (not pSerial.Open) then begin
+      if (estado=-1) then begin
+        AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
+        Exit;
+      end
+      else if detenido then
+        pSerial.Open:=True;
+    end;
+
+    wTriggerEOT:= pSerial.AddDataTrigger(#$F0,true);
+    wTriggerLF:= pSerial.AddDataTrigger(#$8A,true);
+
+    detenido:=False;
+    estado:=1;
+    numPaso:=0;
+    SwPasoBien:=true;
+    PosCiclo:=1;
+    swespera:=False;
+    StCiclo:=0;
+    Timer1.Enabled:=True;
+    Timer2.Enabled:=False;
+    SetEstadoJSON(estado);
+    AddPeticionJSON(folio, 'True|');
+  except
+    on e:Exception do begin
+      AgregaLog('Excepcion Iniciar: '+e.Message+'|');
+      GuardarLog(0);
+      if folio>0 then
+        AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Login(folio: Integer; mensaje: string);
+var
+  usuario,password:string;
+begin
+  usuario:=ExtraeElemStrSep(mensaje,1,'|');
+  password:=ExtraeElemStrSep(mensaje,2,'|');
+  if MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now))<>password then
+    AddPeticionJSON(folio, 'False|Password invalido|')
+  else begin
+    Token:=MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now));
+    AddPeticionJSON(folio, 'True|'+Token+'|')
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Logout(folio: Integer);
+begin
+  Token:='';
+  AddPeticionJSON(folio, 'True|')
+end;
+
+procedure Togcvdispensarios_wayne2w.ObtenerLog(folio, r: Integer);
+var
+  i:Integer;
+  log:string;
+begin
+  if r=0 then begin
+    AddPeticionJSON(folio, 'False|No se indico el numero de registros|');
+    Exit;
+  end;
+
+  if ListaLog.Count<1 then begin
+    AddPeticionJSON(folio, 'False|No hay registros en el log|');
+    Exit;
+  end;
+
+  i:=ListaLog.Count-(r+1);
+  if i<1 then i:=0;
+
+  log:='True|';
+
+  for i:=i to ListaLog.Count-1 do
+    log:=log+ListaLog[i]+'|';
+
+  AddPeticionJSON(folio, log);
+end;
+
+procedure Togcvdispensarios_wayne2w.ObtenerLogPetRes(folio, r: Integer);
+var
+  i:Integer;
+  log:string;
+begin
+  if r=0 then begin
+    AddPeticionJSON(folio, 'False|No se indico el numero de registros|');
+    Exit;
+  end;
+
+  if ListaLogPetRes.Count<1 then begin
+    AddPeticionJSON(folio, 'False|No hay registros en el log de peticiones|');
+    Exit;
+  end;
+
+  i:=ListaLogPetRes.Count-(r+1);
+  if i<1 then i:=0;
+
+  log:='True|';
+
+  for i:=i to ListaLogPetRes.Count-1 do
+    log:=log+ListaLogPetRes[i]+'|';
+
+  AddPeticionJSON(folio, log);
+end;
+
+procedure Togcvdispensarios_wayne2w.ReanudarVenta(folio: Integer;
+  msj: string);
+begin
+  try
+    if StrToIntDef(msj,-1)=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('REANUDAR '+msj))+'|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.RespuestaComando(folio: Integer;
+  msj: string);
+var
+  resp:string;
+begin
+  try
+    if StrToIntDef(msj,-1)=-1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente el numero de folio de comando|');
+      Exit;
+    end;
+
+    resp:=ResultadoComando(StrToInt(msj));
+
+    if (UpperCase(Copy(resp,1,2))='OK') then begin
+      if Length(resp)>2 then
+        resp:=copy(resp,3,Length(resp)-2)
+      else
+        resp:='';
+      AddPeticionJSON(folio, 'True|'+resp);
+    end
+    else
+      AddPeticionJSON(folio, 'False|'+resp+'|');
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.SetEstadoJSON(const AEstado: Integer);
+var
+  estadoNode: TlkJSONbase;
+begin
+  estadoNode := rootJSON.Field['Estado'];
+
+  if Assigned(estadoNode) then
+    estadoNode.Value := AEstado
+  else
+    TlkJSONObject(rootJSON).Add('Estado', TlkJSONnumber.Generate(AEstado));
+end;
+
+procedure Togcvdispensarios_wayne2w.Shutdown(folio: Integer);
+begin
+  if estado>0 then
+    AddPeticionJSON(folio, 'False|El servicio esta en proceso, no fue posible detenerlo|')
+  else begin
+    AddPeticionJSON(folio, 'True|');
+    ServiceThread.Terminate;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Terminar(folio: Integer);
+begin
+  if estado>0 then
+    AddPeticionJSON(folio, 'False|El servicio no esta detenido, no es posible terminar la comunicacion|')
+  else begin
+    Timer1.Enabled:=False;
+    pSerial.Open:=False;
+    LPrecios[1]:=0;
+    LPrecios[2]:=0;
+    LPrecios[3]:=0;
+    LPrecios[4]:=0;
+    estado:=-1;
+    SetEstadoJSON(estado);
+    AddPeticionJSON(folio, 'True|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.TotalesBomba(folio: Integer;
+  msj: string);
+var
+  xpos,xfolioCmnd:Integer;
+  valor:string;
+begin
+  try
+    xpos:=StrToIntDef(msj,-1);
+    if xpos<1 then begin
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
+      Exit;
+    end;
+
+    xfolioCmnd:=EjecutaComando('TOTAL'+' '+IntToStr(xpos));
+
+    valor:=IfThen(xfolioCmnd>0, 'True', 'False');
+
+    AddPeticionJSON(folio, valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|')
+  except
+    on e:Exception do
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.Timer2Timer(Sender: TObject);
+var
+  i:Integer;
+  json:String;
+begin
+  try
+    try
+      Timer2.Enabled:=False;
+      if not conectado then begin
+        ClientSocket1.Active:=True;
+        for i:=0 to 100 do begin
+          Sleep(10);
+          if conectado then Break;
+        end;
+        if not conectado then Exit;
+      end;
+
+      if not respJson then
+        Responder('PING')
+      else
+        Responder(TlkJSON.GenerateText(rootJSON));
+
+      if estado>0 then begin
+        Timer2.Enabled:=False;
+        Timer1.Enabled:=True;
+      end;
+    except
+      on e:Exception do begin
+        AgregaLog('Error Timer2Timer: '+e.Message);
+        GuardarLog(0);
+      end;
+    end;
+  finally
+    Timer2.Enabled:=True;
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.ClientSocket1Connect(Sender: TObject;
+  Socket: TCustomWinSocket);
+begin
+  conectado:=True;
+end;
+
+procedure Togcvdispensarios_wayne2w.ClientSocket1Disconnect(
+  Sender: TObject; Socket: TCustomWinSocket);
+begin
+  conectado:=False;
+  Timer1.Enabled:=False;
+  Timer2.Enabled:=True;
+end;
+
+procedure Togcvdispensarios_wayne2w.ClientSocket1Read(Sender: TObject;
+  Socket: TCustomWinSocket);
+  var
+    mensaje,comando,parametro:string;
+    i,folio:Integer;
+    metodoEnum:TMetodos;
+begin
+  try
+    mensaje:=Socket.ReceiveText;
+    if mensaje<>'' then begin
+      AgregaLogPetRes('R '+mensaje);
+
+      folio:=StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0);
+
+      comando:=UpperCase(ExtraeElemStrSep(mensaje,3,'|'));
+
+      if NoElemStrSep(mensaje,'|')>3 then begin
+        for i:=4 to NoElemStrSep(mensaje,'|') do
+          parametro:=parametro+ExtraeElemStrSep(mensaje,i,'|')+'|';
+
+        if parametro[Length(parametro)]='|' then
+          Delete(parametro,Length(parametro),1);
+      end;
+
+      metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
+
+      case metodoEnum of
+
+        INITIALIZE_e:
+          Inicializar(folio,parametro);
+
+        PARAMETERS_e:
+          AddPeticionJSON(folio, 'True|');
+
+        PRICES_e:
+          IniciaPrecios(folio, parametro);
+
+        AUTHORIZE_e:
+          AutorizarVenta(folio, parametro);
+
+        STOP_e:
+          DetenerVenta(folio, parametro);
+
+        START_e:
+          ReanudarVenta(folio, parametro);
+
+        SELFSERVICE_e:
+          ActivaModoPrepago(folio, parametro);
+
+        FULLSERVICE_e:
+          DesactivaModoPrepago(folio, parametro);
+
+        BLOCK_e:
+          Bloquear(folio, parametro);
+
+        UNBLOCK_e:
+          Desbloquear(folio, parametro);
+
+        PAYMENT_e:
+          FinVenta(folio, parametro);
+
+        TOTALS_e:
+          TotalesBomba(folio, parametro);
+
+        HALT_e:
+          Detener(folio);
+
+        RUN_e:
+          Iniciar(folio);
+
+        SHUTDOWN_e:
+          Shutdown(folio);
+
+        TERMINATE_e:
+          Terminar(folio);
+
+        LOGIN_e:
+          Login(folio,parametro);
+
+        LOGOUT_e:
+          Logout(folio);
+
+        TRACE_e:
+          GuardarLog(folio);
+
+        SAVELOGREQ_e:
+          GuardarLogPetRes(folio);
+
+        RESPCMND_e:
+          RespuestaComando(folio, parametro);
+
+        LOG_e:
+          ObtenerLog(folio, StrToIntDef(parametro, 0));
+
+        LOGREQ_e:
+          ObtenerLogPetRes(folio, StrToIntDef(parametro, 0));
+      end;
+      socketResponse:=Socket;
+    end;
+  except
+    on e:Exception do begin
+      AgregaLogPetRes('Error ClientSocket1Read: '+e.Message);
+      GuardarLog(0);
+    end;
+  end;
 end;
 
 end.
