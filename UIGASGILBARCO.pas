@@ -1043,7 +1043,7 @@ begin
         bOk := false;
         if (iComando in [$00, $20]) then
         begin
-          iMaxIntentos := 2;
+          iMaxIntentos := 1;
           iBytesEsperados := 1;
           if (iComando in [$20]) then
           begin
@@ -1053,7 +1053,7 @@ begin
         end
         else
         begin
-          iMaxIntentos := 2;
+          iMaxIntentos := 1;
           if TPosCarga[xpos].DigitosGilbarco = 6 then
           begin
             if (iComando = $40) then
@@ -1087,7 +1087,7 @@ begin
         pSerial.FlushInBuffer;
         pSerial.FlushOutBuffer;
         AgregaLog('E ' + chComando + ' - ' + IntToHex(iComando, 1) + '.' + IntToStr(xNPos));
-        newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+        newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))));
         pSerial.PutChar(chComando);
         repeat
           pSerial.ProcessCommunications;
@@ -1095,9 +1095,9 @@ begin
         if (not bOk) then
         begin
           if sw2 then
-            newtimer(etTimeOut, MSecs2Ticks(GtwTimeout))
+            newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))))
           else
-            newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+            newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))));
           repeat
             Sleep(5);
             ServiceThread.ProcessRequests(False);
@@ -1170,7 +1170,7 @@ begin
             AgregaLog('sDataBlock: ' + sDataBlock);
             for i := 1 to length(sDataBlock) do
             begin
-              newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+              newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))));
               pSerial.PutChar(sDataBlock[i]);
               repeat
                 pSerial.ProcessCommunications;
@@ -1179,12 +1179,12 @@ begin
             sleep(GtwTiempoCmnd);
             chComando := char($00 + xNPos);
             AgregaLog('E ' + chComando + ' - ' + IntToHex($00, 1) + '.' + IntToStr(xNPos));
-            newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+            newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))));
             pSerial.PutChar(chComando);
             repeat
               pSerial.ProcessCommunications;
             until ((pSerial.OutBuffUsed = 0) or (timerexpired(etTimeOut)));
-            newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+            newtimer(etTimeOut, MSecs2Ticks(Trunc(GtwTimeout/IfThen(iComando=$20,3,1))));
             repeat
               Sleep(5);
               ServiceThread.ProcessRequests(False);
@@ -2254,7 +2254,7 @@ label
   L01;
 var
   xvolumen, n1, n2, n3: real;
-  xcomb, xpos, xp, xgrade, i, xsuma: integer;
+  xcomb, xpos, xp, xgrade, i, xsuma, estatusRecibido: integer;
   xtotallitros: array[1..4] of real;
 begin
   try
@@ -2312,7 +2312,13 @@ begin
                       if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(55, 65))) then
                       begin   // no polea los que estan deshabilitados
                         EstatusAnt := Estatus;
-                        Estatus := DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
+                        estatusRecibido := DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
+                        if (Estatusant = 0) and (estatusRecibido = 0) then
+                          estatus:=0
+                        else if (estatusRecibido = 0) then
+                          estatus:=estatusant
+                        else
+                          estatus:=estatusRecibido;
                         EstatusDispensarios;
                         ContadorAlarma := 0;
                         if (Estatusant = 0) and (estatus = 1) then
@@ -2363,7 +2369,7 @@ begin
                         begin
                           HoraOcc := Now;
                           xvolumen := ajustafloat(dividefloat(importe, precio), 3);
-                          if abs(volumen - xvolumen) > 0.05 then
+                          if abs(volumen - xvolumen) > 0.01 then
                             volumen := xvolumen;
                           AgregaLog('R> ' + FormatFloat('###,##0.00', Volumen) + ' / ' + FormatFloat('###,##0.00', precio) + ' / ' + FormatFloat('###,##0.00', importe));
                           swleeventa := false;
@@ -2376,12 +2382,22 @@ begin
                         begin
                           HoraOcc := Now;
                           xvolumen := ajustafloat(dividefloat(importe, precio), 3);
-                          if abs(volumen - xvolumen) > 0.05 then
+                          if abs(volumen - xvolumen) > 0.01 then
                             volumen := xvolumen;
                           AgregaLog('R> ' + FormatFloat('###,##0.00', Volumen) + ' / ' + FormatFloat('###,##0.00', precio) + ' / ' + FormatFloat('###,##0.00', importe));
                           swleeventa := false;
                         end;
                       end;
+
+                      if PosActual > 0 then
+                      begin
+                        xcomb := CombustibleEnPosicion(PosCiclo, PosActual);
+                        CombActual := xcomb;
+                        MangActual := TMang[PosActual];
+                      end;
+
+                      ActualizaCampoJSON(PosCiclo,'Combustible',CombActual);
+                      ActualizaCampoJSON(PosCiclo,'Manguera',MangActual);
                       ActualizaCampoJSON(PosCiclo, 'HoraOcc', FormatDateTime('yyyy-mm-dd', HoraOcc) + 'T' + FormatDateTime('hh:nn', HoraOcc));
                       ActualizaCampoJSON(PosCiclo, 'Volumen', Volumen);
                       ActualizaCampoJSON(PosCiclo, 'Precio', precio);
@@ -2588,8 +2604,7 @@ L01:
     end;
   finally
     try
-      if xTurnoSocket = 3 then
-        Responder(TlkJSON.GenerateText(rootJSON));
+      Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e: Exception do
       begin
@@ -2726,7 +2741,7 @@ begin
   if ((i >= iBytesEsperados) or (bEndOfText) or (bLineFeed)) then
     bListo := true
   else
-    newtimer(etTimeOut, MSecs2Ticks(GtwTimeout));
+    newtimer(etTimeOut, MSecs2Ticks(300));
 end;
 
 procedure Togcvdispensarios_gilbarco2W.DespliegaMemo4(lin: string);
