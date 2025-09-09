@@ -70,6 +70,7 @@ type
     SnImporte,
     SnLitros                :real;    
     MapCombs:string;
+    HoraEnvioPuerto:TDateTime;
     function CRC16(Data: string): string;
   public
     { Public declarations }
@@ -290,6 +291,7 @@ begin
     SwComandoB:=false;
     horaLog:=Now;
     horaInicio:=Now;
+    HoraEnvioPuerto:=Now;
 
     while not Terminated do
       ServiceThread.ProcessRequests(True);
@@ -315,6 +317,8 @@ procedure Togcvdispensarios_wayne.ServerSocket1ClientRead(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
+    if (SecondsBetween(Now,HoraEnvioPuerto)>5) and (not Timer1.Enabled) then
+      Timer1.Enabled:=True;
     if mensaje='' then Exit;
     if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
       pSerial.Open:=mensaje='1';
@@ -857,18 +861,14 @@ begin
     inc(ContadorAlarma);
     if ContadorAlarma>10 then
       LinEstadoGen:=CadenaStr(length(LinEstadoGen),'0');
-    Timer1.Enabled:=false;
-    try
-      LineaBuff:='';
-      cc:=CalculaBCC(ss+#3);
-      s1:=#2+ss+#3+CC;
-      if pSerial.OutBuffFree >= Length(S1) then begin
-        AgregaLog('E '+s1);
-        if pSerial.Open then
-          pSerial.PutString(S1);
-      end;
-    finally
-      Timer1.Enabled:=true;
+    LineaBuff:='';
+    cc:=CalculaBCC(ss+#3);
+    s1:=#2+ss+#3+CC;
+    if pSerial.OutBuffFree >= Length(S1) then begin
+      AgregaLog('E '+s1);
+      HoraEnvioPuerto:=Now;
+      if pSerial.Open then
+        pSerial.PutString(S1);
     end;
   except
     on e:Exception do begin
@@ -2102,8 +2102,6 @@ begin
                     SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
                     rsp:=ValidaCifra(SnImporte,5,2);
                     if rsp='OK' then
-                      if (SnImporte<0.01) then
-                        SnImporte:=9999;
                   except
                     rsp:='Error en Importe';
                   end;
@@ -2432,7 +2430,7 @@ begin
     if TPosCarga[xpos].estatus=9 then begin
       ComandoConsolaBuff('E'+IntToClaveNum(xpos,2));
     end;
-    if SnImporte>=9999 then
+    if SnImporte=0 then
       ss:='S'+IntToClaveNum(SnPosCarga,2)+'00'
     else begin
       ss:='P'+IntToClaveNum(SnPosCarga,2);
@@ -2522,12 +2520,12 @@ begin
     for i:=1 to 4 do begin
       if ValidaCifra(LPrecios[i],2,2)='OK' then begin
         if WayneFusion='No' then begin
-          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
-          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // contado
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
         end
         else begin
-          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
-          ComandoConsolaBuff('a'+IntToStr(IfThen(i>1,i+1,i))+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
         end;
       end;
     end;
