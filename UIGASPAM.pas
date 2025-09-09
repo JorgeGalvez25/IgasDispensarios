@@ -789,19 +789,17 @@ begin
 
            if not SwComandoB then begin
              SwComandoB:=true;
-             if not SwMapOff then begin
-               if VersionPam1000='3' then begin
-                 if SetUpPAM1000='' then
-                   ComandoConsola('D06222'); // D05233
-                 Esperamiliseg(500);
-                 if SetUpPAM1000<>'.' then
-                   ComandoConsola('D0'+SetUpPAM1000);
-               end
-               else if SetUpPAM1000<>'' then
+             if VersionPam1000='3' then begin
+               if SetUpPAM1000='' then
+                 ComandoConsola('D06222'); // D05233
+               Esperamiliseg(500);
+               if SetUpPAM1000<>'.' then
                  ComandoConsola('D0'+SetUpPAM1000);
-               EsperaMiliSeg(500);
-               exit;
-             end;
+             end
+             else if SetUpPAM1000<>'' then
+               ComandoConsola('D0'+SetUpPAM1000);
+             EsperaMiliSeg(500);
+             exit;
            end;
            if (swcomandob) then begin
              // MAPEA LOS PRODUCTOS
