@@ -92,7 +92,6 @@ type
     function MD5(const usuario: string): string;
     function EjecutaComando(xCmnd:string):integer;
     function TransaccionPosCarga(msj: string): string;
-    function EstadoPosiciones(msj: string): string;
     function ObtenerEstado: string;
     function ResultadoComando(xFolio:integer):string;
     function  LeePrecios(xPosCarga : integer): boolean;
@@ -860,32 +859,6 @@ begin
   end;
 end;
 
-function Togcvdispensarios_wayne2w.EstadoPosiciones(msj: string): string;
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos<0 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
-      Exit;
-    end;
-
-    if EstatusActual='' then begin
-      Result:='False|Error de comunicacion|';
-      Exit;
-    end;    
-
-    if xpos>0 then
-      Result:='True|'+EstatusActual[xpos]+'|'
-    else
-      Result:='True|'+EstatusActual+'|';
-  except
-    on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
-  end;
-end;
-
 function Togcvdispensarios_wayne2w.ObtenerEstado: string;
 begin
   try
@@ -1598,7 +1571,7 @@ begin
   try
     CmndNuevo:=False;
     // Checa Comandos
-    for xcmnd:=1 to 40 do begin
+    for xcmnd:=1 to 200 do begin
       if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp) then begin
         SwAplicaCmnd:=true;
         scmnd:=TabCmnd[xcmnd].Comando;
@@ -2993,7 +2966,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled:=True;
+    Timer2.Enabled := estado<=0;
   end;
 end;
 
