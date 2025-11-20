@@ -221,7 +221,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo, DateUtils;
+uses StrUtils, TypInfo, DateUtils, Math;
 
 {$R *.DFM}
 
@@ -1057,64 +1057,52 @@ begin
         end;
       except
       end;
-
-      lin:='';xestado:='';xmodo:='';
-      for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
-        xmodo:=xmodo+ModoOpera[1];
-        if not SwDesHabilitado then begin
-          case estatus of
-            0:xestado:=xestado+'0'; // Sin Comunicaci�n
-            1:xestado:=xestado+'1'; // Inactivo (Idle)
-            5:xestado:=xestado+'2'; // Cargando (In Use)
-            7:if not swcargando then
-                xestado:=xestado+'3' // Fin de Carga (Used)
-              else
-                xestado:=xestado+'2';
-            3,4:xestado:=xestado+'5'; // Llamando (Calling)
-            2,8:xestado:=xestado+'9'; // Autorizado
-            6:xestado:=xestado+'8'; // Detenido (Stoped)
-            else xestado:=xestado+'0';
-          end;
-        end
-        else xestado:=xestado+'7'; // Deshabilitado
-        xcomb:=CombustibleEnPosicion(xpos,PosActual);
-        CombActual:=xcomb;
-        MangActual:=MangueraEnPosicion(xpos,PosActual);
-        ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
-        ss:=ss+'/'+FormatFloat('###0.##',volumen);
-        ss:=ss+'/'+FormatFloat('#0.##',precio);
-        ss:=ss+'/'+FormatFloat('####0.##',importe);
-        lin:=lin+'#'+ss;
-      end;
-      if lin='' then
-        lin:=xestado+xestado2+'#'
-      else
-        lin:=xestado+xestado2+lin;
-      lin:=lin+xdisp2+'&'+xmodo+xmodo2;
-      LinEstado:='D'+lin;
-      LinEstadoGen:=xestado;
     except
     end;
     // FIN
 
-//    if PosicionActual<MaxPosCargaActiva then begin
-//      repeat
-//        Inc(PosicionActual);
-//        with TPosCarga[PosicionActual] do if NoComb>0 then begin
-//          if swcargatotales then begin
-//            inc(intentostotales);
-//            if intentostotales>3 then
-//              swcargatotales:=false;
-//            ComandoConsolaBuff('N'+IntToClaveNum(PosicionActual,2),false); // Totales
-//          end;
-//        end;
-//      until (PosicionActual>=MaxPosCargaActiva);
-//    end;
     if not SwEsperaRsp then begin
       NumPaso:=4;
       PosicionActual:=0;
     end;
   end;
+
+  lin:='';xestado:='';xmodo:='';
+  for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
+    xmodo:=xmodo+ModoOpera[1];
+    if not SwDesHabilitado then begin
+      case estatus of
+        0:xestado:=xestado+'0'; // Sin Comunicaci�n
+        1:xestado:=xestado+'1'; // Inactivo (Idle)
+        5:xestado:=xestado+'2'; // Cargando (In Use)
+        7:if not swcargando then
+            xestado:=xestado+'3' // Fin de Carga (Used)
+          else
+            xestado:=xestado+'2';
+        3,4:xestado:=xestado+'5'; // Llamando (Calling)
+        2,8:xestado:=xestado+'9'; // Autorizado
+        6:xestado:=xestado+'8'; // Detenido (Stoped)
+        else xestado:=xestado+'0';
+      end;
+    end
+    else xestado:=xestado+'7'; // Deshabilitado
+    xcomb:=CombustibleEnPosicion(xpos,PosActual);
+    CombActual:=xcomb;
+    MangActual:=MangueraEnPosicion(xpos,PosActual);
+    ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
+    ss:=ss+'/'+FormatFloat('###0.##',volumen);
+    ss:=ss+'/'+FormatFloat('#0.##',precio);
+    ss:=ss+'/'+FormatFloat('####0.##',importe);
+    lin:=lin+'#'+ss;
+  end;
+  if lin='' then
+    lin:=xestado+xestado2+'#'
+  else
+    lin:=xestado+xestado2+lin;
+  lin:=lin+xdisp2+'&'+xmodo+xmodo2;
+  LinEstado:='D'+lin;
+  LinEstadoGen:=xestado;
+
   if (NumPaso=4) then begin
     // Checa Comandos
     if swcierrabd then begin
@@ -1166,9 +1154,7 @@ begin
                 SwAplicaCmnd:=false;
                 try
                   SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
-                  rsp:=ValidaCifra(SnImporte,4,2);
-                  if (SnImporte<0.01) then
-                    SnImporte:=9999;
+                  rsp:=ValidaCifra(SnImporte,IfThen(UpperCase(Bennett8Digitos)='SI',6,4),2);
                 except
                   rsp:='Error en Importe';
                 end;
@@ -1355,19 +1341,30 @@ begin
           xpos:=SnPosCarga;
           rsp:='OK';
           with TPosCarga[xpos] do begin
-            if (TabCmnd[claveCmnd].SwNuevo) and (SecondsBetween(Now,HoraTotales)>10) then begin
-              SwCargaTotales:=True;
-              TabCmnd[claveCmnd].SwNuevo:=false;
-              ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
-            end;
-            if not SwCargaTotales then begin
+            if estatus=1 then begin
+              if (SecondsBetween(Now,HoraTotales)>10) then begin
+                SwCargaTotales:=True;
+                TabCmnd[claveCmnd].SwNuevo:=false;
+                SwAplicaCmnd:=False;
+                ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
+              end;
+              if not SwCargaTotales then begin
+                rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
+                                FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
+                                FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
+                SwAplicaCmnd:=True;
+              end
+            end
+            else if (estatus=9) and (SecondsBetween(Now,HoraFinv)<=5) and (SecondsBetween(Now,HoraTotales)>30) then begin
+              TotalLitros[MangActual]:=TotalLitros[MangActual]+volumen;
+              HoraTotales:=Now;
               rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
                               FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
                               FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
               SwAplicaCmnd:=True;
             end
             else
-              SwAplicaCmnd:=False;
+              SwAplicaCmnd:=False;            
           end;
         end
         else rsp:='Comando no Soportado o no Existe';
@@ -1400,7 +1397,7 @@ begin
     rsp:='Posicion Bloqueada';
     exit;
   end;
-  if SnImporte<>9999 then begin
+  if SnImporte<>0 then begin
     ss:='K'+IntToClaveNum(xpos,2)+'2'; // Modo PrePago
     ComandoConsolaBuff(ss,false);
     if Bennett8Digitos<>'Si' then

@@ -2800,7 +2800,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := True;
+    Timer2.Enabled := estado<=0;
   end;
 end;
 
