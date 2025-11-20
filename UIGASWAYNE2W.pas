@@ -184,6 +184,8 @@ type
        CombActual:Integer;
        HoraOcc:TDateTime;
        Avanzar:Integer;
+       SinComunicacion: Boolean;
+       HoraDesconexion: TDateTime;
      end;
 
      RegCmnd = record
@@ -1920,7 +1922,7 @@ begin
                 end;
               1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
                   try
-                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                    if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(55, 65))) then begin   // no polea los que estan deshabilitados
                       EstatusAnt:=Estatus;
                       Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
                       ContadorAlarma:=0;
@@ -1936,11 +1938,17 @@ begin
                         Swleeventa:=true;
                         for j:=1 to TPosCarga[PosCiclo].NoComb do
                           SwLeeTotales[j]:=true;
+                        SinComunicacion := False;
                       end;
                       if (EstatusAnt in [3,4])and(Estatus=1) then begin
                         swcargando:=false;
                         if EsperaFinVenta=1 then
                           Estatus:=4;
+                      end;
+                      if (estatusant = 0) and (estatus = 0) then
+                      begin
+                        SinComunicacion := True;
+                        HoraDesconexion := Now;
                       end;
                       EstatusDispensarios;
                       if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
