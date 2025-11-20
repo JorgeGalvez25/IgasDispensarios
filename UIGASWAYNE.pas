@@ -919,419 +919,422 @@ var lin,ss,rsp,descrsp,saux,
     centavos:Integer;
 begin
   try
-    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-      horaLog:=Now;
-      GuardarLog(0);
-    end;    
-    saux:=LineaTimer;
-    if LineaTimer='' then
-      exit;
-    SwEsperaRsp:=false;
-    if length(LineaTimer)>3 then begin
-      lin:=copy(lineaTimer,2,length(lineatimer)-3);
-    end
-    else
-      lin:=LineaTimer;
-    LineaTimer:='';
-    if lin='' then
-      exit;
-    if SwComandoN then begin
-      if ContEsperaN>0 then
-        dec(ContEsperaN)
-      else begin
-        SwComandoN:=false;
-        if (WayneFusion='No')or(MapeoFusion='Si') then begin
-          ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
-        end;
-      end;
-    end;
-    case lin[1] of
-     'l':begin
-           if lin[2]='1' then
-             Timer1.Enabled:=true
-           else raise Exception.Create('Error en comunicacion con CONSOLA');
-         end;
-     'B':begin
-           SwComandoB:=true;
-           NumPaso:=1; // then begin // pide estatus de todas las bombas
-           UltimaLineaTimer:=saux;
-           ContEspera:=0;
-           ss:=copy(lin,4,length(lin)-3);
-           contstop:=0;
-           contact:=0;
-           if PreciosInicio then
-             IniciarPrecios;
-           lin:='';xestado:='';xmodo:='';
-           for xpos:=1 to length(ss) do if xpos in [1..maxposcarga] then begin
-             with TPosCarga[xpos] do begin
-               SwCmndB:=true;
-               if estatusant<>estatus then begin
-                 SwDesp:=false;
-                 mensaje:=mensaje+inttostr(estatus);
-                 while length(mensaje)>10 do
-                   delete(mensaje,1,1);
-               end;
-               estatusant:=estatus;
-               estatus:=StrToIntDef(ss[xpos],0);
-               ActualizaCampoJSON(xpos,'Estatus',estatus);
-               if estatus=2 then begin
-                 if not swcargando then
-                   importeant:=0;
-                 swcargando:=true;
-                 SwPidiendoTotales:=False;
-               end;
-               if (estatus=0)and(SwActivo) then begin
-                 if (estatusant in [1..10]) then
-                   ContDA:=0
-                 else
-                   inc(ContDA);
-                 if ContDA=5 then begin
-                   SwActivo:=false;
-                 end;
-               end
-               else if (estatus in [1..10])and(not SwActivo) then begin
-                 SwActivo:=true;
-               end;
-               if TPosCarga[xpos].ModoOpera<>'Normal' then begin
-                 if (estatus=1)and(estatusant=2) then begin
-                   sw3virtual:=true;
-                   horasw3:=now;
-                   estatus:=3;
-                 end;
-                 if (estatus=1)and(sw3virtual) then begin
-                   estatus:=3;
-                 end;
-               end;
-               if not (estatus in [2,8]) then
-                 swarosmag_stop:=false;
-               if SwFINV then begin
-                 if estatus=3 then begin
-                   ComandoConsolaBuff('R'+IntToClaveNum(xpos,2)+'0');
-                 end
-                 else SwFinv:=false;
-               end;
-               case estatus of
-                 0:begin
-                     if estatusant<>0 then begin
-                       for xcomb:=1 to nocomb do
-                         AgregaLog('Desconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
-                     end;
-                   end;
-                 1:begin
-                     SwParado:=false;
-                     if swprec then
-                       swprec:=false;
-                     if estatusant<>1 then begin
-                       tag:=1;
-                       SwArosMag:=false;
-                       FinVenta:=0;
-                       TipoPago:=0;
-                       SwOcc:=false;
-                       ContOcc:=0;
-                     end;
-                     if estatusant=0 then begin
-                       for xcomb:=1 to nocomb do
-                         AgregaLog('Reconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
-                     end;
-                   end;
-                 2:SwPidiendoTotales:=False;
-                 8:begin
-                     if estatusant<>8 then
-                       ContDetenido:=0;
-                     if (not SwParado) then begin
-                       inc(ContDetenido);
-                       if ContDetenido<6 then begin
-                         if i<3 then
-                           ComandoConsolaBuff('G'+inttoclavenum(xpos,2))
-                         else
-                           ComandoConsolaBuff('R'+inttoclavenum(xpos,2));
-                       end;
-                     end;
-                   end;
-                 9:begin
-                     swcargando:=false;
-                     importeant:=0;
-                     if estatusant=2 then begin
-                       ss:='E'+IntToClaveNum(xpos,2); // STOP
-                       ComandoConsolaBuff(ss);
-                     end;
-                   end;
-               end;
-               if estatus in [1,2,3,5,9] then
-                 inc(contact)
-               else if estatus=8 then
-                 inc(contstop);
-
-               if not SwDesHabilitado then begin
-                 case estatus of
-                   0:xestado:=xestado+'0'; // Sin Comunicacion
-                   1:xestado:=xestado+'1'; // Inactivo (Idle)
-                   2:xestado:=xestado+'2'; // Cargando (In Use)
-                   3:if not swcargando then
-                       xestado:=xestado+'3' // Fin de Carga (Used)
-                     else
-                       xestado:=xestado+'2';
-                   5:xestado:=xestado+'5'; // Llamando (Calling)
-                   9:xestado:=xestado+'9'; // Autorizado (Calling)
-                   8:xestado:=xestado+'8'; // Detenido (Stoped)
-                   else xestado:=xestado+'0';
-                 end;
-               end
-               else xestado:=xestado+'7'; // Deshabilitado
-               if estatus=2 then
-                 horaDespacho:=Now;
-             end;
-           end;
-           LinEstadoGen:=xestado;
-           if (contstop>0)and(contact=0) then begin
-             if (WayneFusion='No')or(MapeoFusion='Si') then begin
-               ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
-             end;
-           end;
-           // ENLLAVA O DESENLLAVA DISPENSARIOS
-           for xpos:=1 to length(ss) do if xpos in [1..MaxPosCarga] then begin
-             with TPosCarga[xpos] do if Estatus=1 then begin
-               PosProceso:=xpos;
-               if RefrescaEnllavados then begin
-                 RefrescaEnllavados:=false;
-                 SwReinicio:=true;  // Nuevo
-                 if (WayneFusion='No')or(MapeoFusion='Si') then begin
-                   ss:='h'+IntToClaveNum(xpos,2)+'00';
-                   ComandoConsolaBuff(ss);
-                   ss:='k'+IntToClaveNum(xpos,2)+'00';
-                   ComandoConsolaBuff(ss);
-                   MapeaPosicion(xpos);
-                   exit;
-                 end;
-               end;
-             end;
-           end;
-           SwReinicio:=false;
-           NumPaso:=2;
-           if PosicionCargaActual>=MaxPosCarga then
-             PosicionCargaActual:=0;
-         end;
-     'A':begin // pide estatus de una bomba
-           xpos:=StrToIntDef(copy(lin,2,2),0);
-           if xpos in [1..MaxPosCarga] then begin
-             ContEsperaPaso2:=0;
-             with TPosCarga[xpos] do begin
-               try
-                 if estatus<>9 then begin
-                   xpda:=StrToIntDef(lin[4],0);
-                   if (xpda>0)and(xpda<=4) then
-                     PosDispActual:=xpda
-                   else if PosDispActual=0 then
-                     PosDispActual:=1;
-                   xvolumen:=StrToFloat(copy(lin,6,8))/1000;
-                   simp:=copy(lin,14+Tdiga[1],8);
-                   spre:=copy(lin,22+Tdiga[1],5-Tdiga[1]);
-                   while length(spre)<5 do
-                     spre:=spre+'0';
-                   ximporte:=StrToFloat(simp)/1000;
-                   if WayneAjusteImporte='Si' then
-                     ximporte:=10*ximporte;
-                   xprecio:=StrToFloat(spre)/1000;
-                   if (2*xvolumen*xprecio<ximporte) then // ajuste por error en digitos
-                     ximporte:=ximporte/10;
-                   if AjusteWayne='Si' then begin
-                     ximporte:=AjustaFloat(xvolumen*xprecio,2);
-                     AgregaLog('Calcula importe 1');
-                   end
-                   else if (AjusteWayne2='Si')and(abs(xvolumen-trunc(xvolumen))<0.0001) then
-                     ximporte:=AjustaFloat(xvolumen*xprecio,2)
-                   else if (AjusteWayne='No') and (AjusteWayne3='Si') then begin
-                     if AjusteWayne3='Si' then begin
-                       ximpo:=Trunc(ximporte);
-                       centavos:=Round(Frac(ximporte) * 100);
-                       if centavos >= 95 then
-                         ximporte:=ximpo+1
-                       else if centavos <= 5 then
-                         ximporte:=ximpo;
-                     end;
-                     if (importe<(volumen*precio*0.9)) then
-                       ximporte:=trunc(volumen*precio*100)/100
-                     else begin
-                       xvol:=ajustafloat(dividefloat(importe,precio),3);
-                       if abs(volumen-xvol)<0.02 then
-                         xvolumen:=xvol;
-                     end;
-                   end
-                   else begin
-                     if (ximporte<(xvolumen*xprecio*0.9)) then begin
-                       ximporte:=trunc(xvolumen*xprecio*100)/100;
-                       AgregaLog('Calcula importe 2');
-                     end
-                     else begin
-                       xvolumen:=ajustafloat(dividefloat(ximporte,xprecio),3);
-                     end;
-                   end;
-                   if swcargando then begin
-                     if WayneValidaImporteDespacho<>'Si' then begin
-                       importe:=ximporte;
-                       volumen:=xvolumen;
-                       precio:=xprecio;
-                     end
-                     else if (ximporte>=importeant-0.5) then begin
-                       importe:=ximporte;
-                       volumen:=xvolumen;
-                       precio:=xprecio;
-                     end;
-                   end
-                   else begin
-                     importe:=ximporte;
-                     volumen:=xvolumen;
-                     precio:=xprecio;
-                   end;
-
-                   
-                   if (not swAvanzoVenta) and (SwCargando) then begin
-                     swAvanzoVenta:=(importe<>importeant) and (SwCargando) and (importe>0) and ((importeant>0) or (importe-importeant<IfThen(xcomb=3,80,40)));
-                     AgregaLog(ifthen(swAvanzoVenta,'swAvanzoVenta','NOT')+' Estatus='+IntToStr(Estatus)+' ImporteAnt: '+FloatToStr(importeant)+' Importe: '+FloatToStr(importe));
-                   end;
-
-                   if estatus<>2 then
-                     SwCargando:=false;                   
-
-                   if (swAvanzoVenta) and (Estatus in [1,3,5,9]) then begin// EOT
-                     swAvanzoVenta:=False;
-                     swdesp:=true;
-                     SwPidiendoTotales:=True;
-                     SwCargaTotales[PosDispActual]:=True;    
-                   end;
-
-                   if (TPosCarga[xpos].finventa=0) then begin
-                     if (Estatus=3) then begin // FIN DE CARGA
-//                       ComandoConsola('R'+inttoclavenum(xpos,2)+'0');
-//                       esperamiliseg(100);
-                       if sw3virtual then begin
-                         sw3virtual:=false;
-                         finventa:=0;
-                         estatus:=1;
-                         estatusant:=1;
-                       end;
-                     end;
-                   end;
-                   importeant:=importe;
-                   CombActual:=CombustibleEnPosicion(xpos,PosDispActual);
-                   MangActual:=MangueraEnPosicion(xpos,PosDispActual);
-                   ActualizaCampoJSON(xpos,'Combustible',CombActual);
-                   ActualizaCampoJSON(xpos,'Manguera',MangActual);
-                   ActualizaCampoJSON(xpos,'Volumen',volumen);
-                   ActualizaCampoJSON(xpos,'Importe',importe);
-                   ActualizaCampoJSON(xpos,'Precio',precio);
-                 end;
-               except
-                 if estatus<>2 then
-                   SwCargando:=false;
-               end;
-             end;
-           end;
-         end;
-     'C':begin // TOTALES
-           ContEsperaPaso5:=0;
-           xpos:=StrToIntDef(copy(lin,2,2),0);
-           if xpos in [1..MaxPosCarga] then begin
-             i:=StrToIntDef(copy(lin,4,1),0);
-             with TPosCarga[xpos] do if (i>0)and(i<=nocomb) then begin
-               try
-                 for xpr:=1 to nocomb do
-                   if TPos[xpr]=i then begin
-                     TotalLitros[xpr]:=StrToFloat(copy(lin,6,9))/100;
-                     if WayneFusion='Si' then
-                       if TDigvol[xpr]=1 then
-                         TotalLitros[xpr]:=StrToFloat(copy(lin,6,9))/10;
-                     SwCargaTotales[i]:=false;
-                   end;
-                 ApplyTotalLitrosToJSON(xpos,TotalLitros);
-               except
-                 on e:Exception do begin
-                   AgregaLog('Error ProcesaLineaTotales: '+e.Message);
-                   GuardarLog(0);
-                 end;
-               end;
-             end;
-           end;
-         end;
-    end;
-    if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
-      ss:=ListaCmnd[0];
-      ListaCmnd.Delete(0);
-      ComandoConsolaBuff(ss);
-      exit;
-    end;
-    if NumPaso=2 then begin  // Checa carga de lecturas
-      if PosicionCargaActual<MaxPosCarga then begin
-        repeat
-          Inc(PosicionCargaActual);
-          with TPosCarga[PosicionCargaActual] do if NoComb>0 then begin
-            if (estatus<>9)and((estatusant<>estatus)or(estatus in [2,3])or(swcargando)or(SwCargaLectura)) then begin
-              SwCargaLectura:=false;
-              ComandoConsolaBuff('A'+IntToClaveNum(PosicionCargaActual,2)+'00');
-              exit;
-            end;
-          end;
-        until (PosicionCargaActual>=MaxPosCarga);
-        for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do if SwMapea then begin
-          SwMapea:=false;
-          ComandoConsola(ValorMapeo);
-          EsperaMiliSeg(1000);
-          exit;
-        end;
-        NumPaso:=3;StEsperaPaso3:=0; ContPaso3:=0;
+    try
+      if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+        horaLog:=Now;
+        GuardarLog(0);
+      end;    
+      saux:=LineaTimer;
+      if LineaTimer='' then
+        exit;
+      if length(LineaTimer)>3 then begin
+        lin:=copy(lineaTimer,2,length(lineatimer)-3);
       end
-      else begin
-        NumPaso:=3;StEsperaPaso3:=0; ContPaso3:=0;
-      end;
-    end;
-    if (NumPaso=3) then begin
-      NumPaso:=4;
-      if PosicionCargaActual2>=MaxPosCarga then
-        PosicionCargaActual2:=0;
-    end;
-    if NumPaso=4 then begin // TOTALES
-      if PosicionCargaActual2<=MaxPosCarga then begin
-        PosicionCargaActual2:=0;
-        repeat
-          if PosicionCargaActual2=0 then begin
-            PosicionCargaActual2:=1;
-            PosicionDispenActual:=1;
-          end
-          else if PosicionDispenActual<TPosCarga[PosicionCargaActual2].NoComb then
-            inc(PosicionDispenActual)
-          else begin
-            Inc(PosicionCargaActual2);
-            PosicionDispenActual:=1;
+      else
+        lin:=LineaTimer;
+      LineaTimer:='';
+      if lin='' then
+        exit;
+      if SwComandoN then begin
+        if ContEsperaN>0 then
+          dec(ContEsperaN)
+        else begin
+          SwComandoN:=false;
+          if (WayneFusion='No')or(MapeoFusion='Si') then begin
+            ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
           end;
-          if PosicionCargaActual2<=MaxPosCarga then begin
-            if PosicionCargaActual2<1 then
-              PosicionCargaActual2:=1;
-            with TPosCarga[PosicionCargaActual2] do begin
-              if SwCargaTotales[PosicionDispenActual] then begin
-                ContEsperaPaso5:=0;
-                ComandoConsolaBuff('C'+IntToClaveNum(PosicionCargaActual2,2)+IntToStr(PosicionDispenActual)+'0');
+        end;
+      end;
+      case lin[1] of
+       'l':begin
+             if lin[2]='1' then
+               Timer1.Enabled:=true
+             else raise Exception.Create('Error en comunicacion con CONSOLA');
+           end;
+       'B':begin
+             SwComandoB:=true;
+             NumPaso:=1; // then begin // pide estatus de todas las bombas
+             UltimaLineaTimer:=saux;
+             ContEspera:=0;
+             ss:=copy(lin,4,length(lin)-3);
+             contstop:=0;
+             contact:=0;
+             if PreciosInicio then
+               IniciarPrecios;
+             lin:='';xestado:='';xmodo:='';
+             for xpos:=1 to length(ss) do if xpos in [1..maxposcarga] then begin
+               with TPosCarga[xpos] do begin
+                 SwCmndB:=true;
+                 if estatusant<>estatus then begin
+                   SwDesp:=false;
+                   mensaje:=mensaje+inttostr(estatus);
+                   while length(mensaje)>10 do
+                     delete(mensaje,1,1);
+                 end;
+                 estatusant:=estatus;
+                 estatus:=StrToIntDef(ss[xpos],0);
+                 ActualizaCampoJSON(xpos,'Estatus',estatus);
+                 if estatus=2 then begin
+                   if not swcargando then
+                     importeant:=0;
+                   swcargando:=true;
+                   SwPidiendoTotales:=False;
+                 end;
+                 if (estatus=0)and(SwActivo) then begin
+                   if (estatusant in [1..10]) then
+                     ContDA:=0
+                   else
+                     inc(ContDA);
+                   if ContDA=5 then begin
+                     SwActivo:=false;
+                   end;
+                 end
+                 else if (estatus in [1..10])and(not SwActivo) then begin
+                   SwActivo:=true;
+                 end;
+                 if TPosCarga[xpos].ModoOpera<>'Normal' then begin
+                   if (estatus=1)and(estatusant=2) then begin
+                     sw3virtual:=true;
+                     horasw3:=now;
+                     estatus:=3;
+                   end;
+                   if (estatus=1)and(sw3virtual) then begin
+                     estatus:=3;
+                   end;
+                 end;
+                 if not (estatus in [2,8]) then
+                   swarosmag_stop:=false;
+                 if SwFINV then begin
+                   if estatus=3 then begin
+                     ComandoConsolaBuff('R'+IntToClaveNum(xpos,2)+'0');
+                   end
+                   else SwFinv:=false;
+                 end;
+                 case estatus of
+                   0:begin
+                       if estatusant<>0 then begin
+                         for xcomb:=1 to nocomb do
+                           AgregaLog('Desconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
+                       end;
+                     end;
+                   1:begin
+                       SwParado:=false;
+                       if swprec then
+                         swprec:=false;
+                       if estatusant<>1 then begin
+                         tag:=1;
+                         SwArosMag:=false;
+                         FinVenta:=0;
+                         TipoPago:=0;
+                         SwOcc:=false;
+                         ContOcc:=0;
+                       end;
+                       if estatusant=0 then begin
+                         for xcomb:=1 to nocomb do
+                           AgregaLog('Reconexion de Manguera Pos Carga '+inttostr(xpos)+' / Combustible '+IntToStr(xcomb));
+                       end;
+                     end;
+                   2:SwPidiendoTotales:=False;
+                   8:begin
+                       if estatusant<>8 then
+                         ContDetenido:=0;
+                       if (not SwParado) then begin
+                         inc(ContDetenido);
+                         if ContDetenido<6 then begin
+                           if i<3 then
+                             ComandoConsolaBuff('G'+inttoclavenum(xpos,2))
+                           else
+                             ComandoConsolaBuff('R'+inttoclavenum(xpos,2));
+                         end;
+                       end;
+                     end;
+                   9:begin
+                       swcargando:=false;
+                       importeant:=0;
+                       if estatusant=2 then begin
+                         ss:='E'+IntToClaveNum(xpos,2); // STOP
+                         ComandoConsolaBuff(ss);
+                       end;
+                     end;
+                 end;
+                 if estatus in [1,2,3,5,9] then
+                   inc(contact)
+                 else if estatus=8 then
+                   inc(contstop);
+
+                 if not SwDesHabilitado then begin
+                   case estatus of
+                     0:xestado:=xestado+'0'; // Sin Comunicacion
+                     1:xestado:=xestado+'1'; // Inactivo (Idle)
+                     2:xestado:=xestado+'2'; // Cargando (In Use)
+                     3:if not swcargando then
+                         xestado:=xestado+'3' // Fin de Carga (Used)
+                       else
+                         xestado:=xestado+'2';
+                     5:xestado:=xestado+'5'; // Llamando (Calling)
+                     9:xestado:=xestado+'9'; // Autorizado (Calling)
+                     8:xestado:=xestado+'8'; // Detenido (Stoped)
+                     else xestado:=xestado+'0';
+                   end;
+                 end
+                 else xestado:=xestado+'7'; // Deshabilitado
+                 if estatus=2 then
+                   horaDespacho:=Now;
+               end;
+             end;
+             LinEstadoGen:=xestado;
+             if (contstop>0)and(contact=0) then begin
+               if (WayneFusion='No')or(MapeoFusion='Si') then begin
+                 ComandoConsolaBuff('N'+inttoclavenum(MaxPosCarga,2)+ModoPrecioWayne);
+               end;
+             end;
+             // ENLLAVA O DESENLLAVA DISPENSARIOS
+             for xpos:=1 to length(ss) do if xpos in [1..MaxPosCarga] then begin
+               with TPosCarga[xpos] do if Estatus=1 then begin
+                 PosProceso:=xpos;
+                 if RefrescaEnllavados then begin
+                   RefrescaEnllavados:=false;
+                   SwReinicio:=true;  // Nuevo
+                   if (WayneFusion='No')or(MapeoFusion='Si') then begin
+                     ss:='h'+IntToClaveNum(xpos,2)+'00';
+                     ComandoConsolaBuff(ss);
+                     ss:='k'+IntToClaveNum(xpos,2)+'00';
+                     ComandoConsolaBuff(ss);
+                     MapeaPosicion(xpos);
+                     exit;
+                   end;
+                 end;
+               end;
+             end;
+             SwReinicio:=false;
+             NumPaso:=2;
+             if PosicionCargaActual>=MaxPosCarga then
+               PosicionCargaActual:=0;
+           end;
+       'A':begin // pide estatus de una bomba
+             xpos:=StrToIntDef(copy(lin,2,2),0);
+             if xpos in [1..MaxPosCarga] then begin
+               ContEsperaPaso2:=0;
+               with TPosCarga[xpos] do begin
+                 try
+                   if estatus<>9 then begin
+                     xpda:=StrToIntDef(lin[4],0);
+                     if (xpda>0)and(xpda<=4) then
+                       PosDispActual:=xpda
+                     else if PosDispActual=0 then
+                       PosDispActual:=1;
+                     xvolumen:=StrToFloat(copy(lin,6,8))/1000;
+                     simp:=copy(lin,14+Tdiga[1],8);
+                     spre:=copy(lin,22+Tdiga[1],5-Tdiga[1]);
+                     while length(spre)<5 do
+                       spre:=spre+'0';
+                     ximporte:=StrToFloat(simp)/1000;
+                     if WayneAjusteImporte='Si' then
+                       ximporte:=10*ximporte;
+                     xprecio:=StrToFloat(spre)/1000;
+                     if (2*xvolumen*xprecio<ximporte) then // ajuste por error en digitos
+                       ximporte:=ximporte/10;
+                     if AjusteWayne='Si' then begin
+                       ximporte:=AjustaFloat(xvolumen*xprecio,2);
+                       AgregaLog('Calcula importe 1');
+                     end
+                     else if (AjusteWayne2='Si')and(abs(xvolumen-trunc(xvolumen))<0.0001) then
+                       ximporte:=AjustaFloat(xvolumen*xprecio,2)
+                     else if (AjusteWayne='No') and (AjusteWayne3='Si') then begin
+                       if AjusteWayne3='Si' then begin
+                         ximpo:=Trunc(ximporte);
+                         centavos:=Round(Frac(ximporte) * 100);
+                         if centavos >= 95 then
+                           ximporte:=ximpo+1
+                         else if centavos <= 5 then
+                           ximporte:=ximpo;
+                       end;
+                       if (importe<(volumen*precio*0.9)) then
+                         ximporte:=trunc(volumen*precio*100)/100
+                       else begin
+                         xvol:=ajustafloat(dividefloat(importe,precio),3);
+                         if abs(volumen-xvol)<0.02 then
+                           xvolumen:=xvol;
+                       end;
+                     end
+                     else begin
+                       if (ximporte<(xvolumen*xprecio*0.9)) then begin
+                         ximporte:=trunc(xvolumen*xprecio*100)/100;
+                         AgregaLog('Calcula importe 2');
+                       end
+                       else begin
+                         xvolumen:=ajustafloat(dividefloat(ximporte,xprecio),3);
+                       end;
+                     end;
+                     if swcargando then begin
+                       if WayneValidaImporteDespacho<>'Si' then begin
+                         importe:=ximporte;
+                         volumen:=xvolumen;
+                         precio:=xprecio;
+                       end
+                       else if (ximporte>=importeant-0.5) then begin
+                         importe:=ximporte;
+                         volumen:=xvolumen;
+                         precio:=xprecio;
+                       end;
+                     end
+                     else begin
+                       importe:=ximporte;
+                       volumen:=xvolumen;
+                       precio:=xprecio;
+                     end;
+
+
+                     if (not swAvanzoVenta) and (SwCargando) then begin
+                       swAvanzoVenta:=(importe<>importeant) and (SwCargando) and (importe>0) and ((importeant>0) or (importe-importeant<IfThen(xcomb=3,80,40)));
+                       AgregaLog(ifthen(swAvanzoVenta,'swAvanzoVenta','NOT')+' Estatus='+IntToStr(Estatus)+' ImporteAnt: '+FloatToStr(importeant)+' Importe: '+FloatToStr(importe));
+                     end;
+
+                     if estatus<>2 then
+                       SwCargando:=false;                   
+
+                     if (swAvanzoVenta) and (Estatus in [1,3,5,9]) then begin// EOT
+                       swAvanzoVenta:=False;
+                       swdesp:=true;
+                       SwPidiendoTotales:=True;
+                       SwCargaTotales[PosDispActual]:=True;    
+                     end;
+
+                     if (TPosCarga[xpos].finventa=0) then begin
+                       if (Estatus=3) then begin // FIN DE CARGA
+  //                       ComandoConsola('R'+inttoclavenum(xpos,2)+'0');
+  //                       esperamiliseg(100);
+                         if sw3virtual then begin
+                           sw3virtual:=false;
+                           finventa:=0;
+                           estatus:=1;
+                           estatusant:=1;
+                         end;
+                       end;
+                     end;
+                     importeant:=importe;
+                     CombActual:=CombustibleEnPosicion(xpos,PosDispActual);
+                     MangActual:=MangueraEnPosicion(xpos,PosDispActual);
+                     ActualizaCampoJSON(xpos,'Combustible',CombActual);
+                     ActualizaCampoJSON(xpos,'Manguera',MangActual);
+                     ActualizaCampoJSON(xpos,'Volumen',volumen);
+                     ActualizaCampoJSON(xpos,'Importe',importe);
+                     ActualizaCampoJSON(xpos,'Precio',precio);
+                   end;
+                 except
+                   if estatus<>2 then
+                     SwCargando:=false;
+                 end;
+               end;
+             end;
+           end;
+       'C':begin // TOTALES
+             ContEsperaPaso5:=0;
+             xpos:=StrToIntDef(copy(lin,2,2),0);
+             if xpos in [1..MaxPosCarga] then begin
+               i:=StrToIntDef(copy(lin,4,1),0);
+               with TPosCarga[xpos] do if (i>0)and(i<=nocomb) then begin
+                 try
+                   for xpr:=1 to nocomb do
+                     if TPos[xpr]=i then begin
+                       TotalLitros[xpr]:=StrToFloat(copy(lin,6,9))/100;
+                       if WayneFusion='Si' then
+                         if TDigvol[xpr]=1 then
+                           TotalLitros[xpr]:=StrToFloat(copy(lin,6,9))/10;
+                       SwCargaTotales[i]:=false;
+                     end;
+                   ApplyTotalLitrosToJSON(xpos,TotalLitros);
+                 except
+                   on e:Exception do begin
+                     AgregaLog('Error ProcesaLineaTotales: '+e.Message);
+                     GuardarLog(0);
+                   end;
+                 end;
+               end;
+             end;
+           end;
+      end;
+      if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
+        ss:=ListaCmnd[0];
+        ListaCmnd.Delete(0);
+        ComandoConsola(ss);
+        exit;
+      end;
+      if NumPaso=2 then begin  // Checa carga de lecturas
+        if PosicionCargaActual<MaxPosCarga then begin
+          repeat
+            Inc(PosicionCargaActual);
+            with TPosCarga[PosicionCargaActual] do if NoComb>0 then begin
+              if (estatus<>9)and((estatusant<>estatus)or(estatus in [2,3])or(swcargando)or(SwCargaLectura)) then begin
+                SwCargaLectura:=false;
+                ComandoConsolaBuff('A'+IntToClaveNum(PosicionCargaActual,2)+'00');
                 exit;
               end;
             end;
-          end
-          else begin
-            NumPaso:=5;
-            PrecioCombActual:=0;
+          until (PosicionCargaActual>=MaxPosCarga);
+          for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do if SwMapea then begin
+            SwMapea:=false;
+            ComandoConsola(ValorMapeo);
+            EsperaMiliSeg(1000);
+            exit;
           end;
-        until (PosicionCargaActual2>MaxPosCarga);
-        NumPaso:=0;
-        PrecioCombActual:=0;
-      end
-      else begin
-        NumPaso:=0;
-        PrecioCombActual:=0;
+          NumPaso:=3;StEsperaPaso3:=0; ContPaso3:=0;
+        end
+        else begin
+          NumPaso:=3;StEsperaPaso3:=0; ContPaso3:=0;
+        end;
+      end;
+      if (NumPaso=3) then begin
+        NumPaso:=4;
+        if PosicionCargaActual2>=MaxPosCarga then
+          PosicionCargaActual2:=0;
+      end;
+      if NumPaso=4 then begin // TOTALES
+        if PosicionCargaActual2<=MaxPosCarga then begin
+          PosicionCargaActual2:=0;
+          repeat
+            if PosicionCargaActual2=0 then begin
+              PosicionCargaActual2:=1;
+              PosicionDispenActual:=1;
+            end
+            else if PosicionDispenActual<TPosCarga[PosicionCargaActual2].NoComb then
+              inc(PosicionDispenActual)
+            else begin
+              Inc(PosicionCargaActual2);
+              PosicionDispenActual:=1;
+            end;
+            if PosicionCargaActual2<=MaxPosCarga then begin
+              if PosicionCargaActual2<1 then
+                PosicionCargaActual2:=1;
+              with TPosCarga[PosicionCargaActual2] do begin
+                if SwCargaTotales[PosicionDispenActual] then begin
+                  ContEsperaPaso5:=0;
+                  ComandoConsolaBuff('C'+IntToClaveNum(PosicionCargaActual2,2)+IntToStr(PosicionDispenActual)+'0');
+                  exit;
+                end;
+              end;
+            end
+            else begin
+              NumPaso:=5;
+              PrecioCombActual:=0;
+            end;
+          until (PosicionCargaActual2>MaxPosCarga);
+          NumPaso:=0;
+          PrecioCombActual:=0;
+        end
+        else begin
+          NumPaso:=0;
+          PrecioCombActual:=0;
+        end;
+      end;
+    except
+      on e:Exception do begin
+        AgregaLog('Error ProcesaLinea: '+e.Message);
+        GuardarLog(0);
       end;
     end;
-  except
-    on e:Exception do begin
-      AgregaLog('Error ProcesaLinea: '+e.Message);
-      GuardarLog(0);
-    end;
+  finally
+    Responder(TlkJSON.GenerateText(rootJSON));
   end;
 end;
 
@@ -1348,6 +1351,7 @@ begin
     end;
     ContadorAlarma:=0;
     Timer1.Enabled:=false;
+    SwEsperaRsp:=false;
     try
       for I := 1 to Count do begin
         C:=pSerial.GetChar;
@@ -1804,7 +1808,6 @@ begin
     end;
   finally
     Timer1.Enabled:=True;
-    Responder(TlkJSON.GenerateText(rootJSON));
   end;
 end;
 
@@ -2025,6 +2028,10 @@ end;
 
 procedure Togcvdispensarios_wayne.ComandoConsolaBuff(ss: string);
 begin
+  if SecondsBetween(HoraEnvioPuerto,Now)>2 then begin
+    ListaCmnd.Clear;
+    SwEsperaRsp:=False;
+  end;
   if (ListaCmnd.Count=0)and(not SwEsperaRsp) then
     ComandoConsola(ss)
   else
@@ -2322,6 +2329,7 @@ begin
     if not detenido then begin
       pSerial.Open:=False;
       Timer1.Enabled:=False;
+      Timer2.Enabled:=True;
       detenido:=True;
       estado:=0;
       SetEstadoJSON(estado);
@@ -2423,6 +2431,7 @@ begin
     detenido:=False;
     estado:=1;
     Timer1.Enabled:=True;
+    Timer2.Enabled:=False;
     numPaso:=0;
     SetEstadoJSON(estado);
     AddPeticionJSON(folio, 'True|');
@@ -2624,6 +2633,14 @@ procedure Togcvdispensarios_wayne.ClientSocket1Read(Sender: TObject;
 begin
   try
     mensaje:=Socket.ReceiveText;
+
+    if (Length(ExtraeElemStrSep(mensaje,2,'|'))=1) and (StrToIntDef(ExtraeElemStrSep(mensaje,2,'|'),-99) in [0,1]) then begin
+      pSerial.Open:=mensaje='1';
+      AddPeticionJSON(StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0),'1');
+      Responder(TlkJSON.GenerateText(rootJSON));
+      Exit;
+    end;
+
     if mensaje<>'' then begin
       AgregaLogPetRes('R '+mensaje);
 
@@ -2769,7 +2786,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled:=True;
+    Timer2.Enabled := estado<=0;
   end;
 end;
 
