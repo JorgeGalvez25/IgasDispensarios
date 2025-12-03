@@ -13,14 +13,17 @@ uses
 
 type
   Togcvdispensarios_bennett = class(TService)
-    ServerSocket1: TServerSocket;
     pSerial: TApdComPort;
     Timer1: TTimer;
+    ClientSocket1: TClientSocket;
+    Timer2: TTimer;
     procedure ServiceExecute(Sender: TService);
-    procedure ServerSocket1ClientRead(Sender: TObject;
-      Socket: TCustomWinSocket);
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
     procedure Timer1Timer(Sender: TObject);
+    procedure ClientSocket1Connect(Sender: TObject; Socket: TCustomWinSocket);
+    procedure ClientSocket1Disconnect(Sender: TObject; Socket: TCustomWinSocket);
+    procedure ClientSocket1Read(Sender: TObject; Socket: TCustomWinSocket);
+    procedure Timer2Timer(Sender: TObject);
   private
     { Private declarations }
     ContadorAlarma:integer;
@@ -46,6 +49,10 @@ type
     MaxPosCargaActiva:integer;
     SegundosFinv:Integer;
     MapCombs:string;
+    // JSON & Socket Variables
+    conectado, respJson:Boolean;
+    rootJSON : TlkJSONbase;
+    socketResponse : TCustomWinSocket;
   public
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
@@ -64,12 +71,14 @@ type
     horaLog:TDateTime;
     minutosLog:Integer;
     version:String;
+    xTurnoSocket:Integer;
+
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
-    function  IniciaPrecios(msj:string):string;
+    procedure IniciaPrecios(folio:Integer; msj:string);
     function AgregaPosCarga(posiciones: TlkJSONbase):string;
-    procedure Responder(socket:TCustomWinSocket;resp:string);
+    procedure Responder(resp:string);
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     procedure ComandoConsola(ss:string);
     procedure ComandoConsolaBuff(ss:string;swinicio:boolean);
@@ -85,37 +94,45 @@ type
     function ResultadoComando(xFolio:integer):string;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
-    function Inicializar(msj:string): string;
-    function Parametros(json:string): string;
-    function Login(mensaje:string): string;
-    function Logout: string;
-    function Iniciar: string;
-    function Detener: string;
+    
+    // Updated Signatures for JSON/ClientSocket operation
+    procedure Inicializar(folio:Integer; msj:string);
+    procedure Parametros(folio:Integer; json:string);
+    procedure Login(folio:Integer; mensaje:string);
+    procedure Logout(folio:Integer);
+    procedure Iniciar(folio:Integer);
+    procedure Detener(folio:Integer);
     function ObtenerEstado: string;
-    function GuardarLog: string;
-    function GuardarLogPetRes: string;
-    function ObtenerLog(r:Integer): string;
-    function ObtenerLogPetRes(r:Integer): string;
-    function AutorizarVenta(msj:string): string;
-    function RespuestaComando(msj:string): string;
-    function DetenerVenta(msj:string): string;
-    function ReanudarVenta(msj:string): string;
-    function ActivaModoPrepago(msj:string): string;
-    function Bloquear(msj:string): string;
-    function Desbloquear(msj:string): string;
-    function DesactivaModoPrepago(msj:string): string;
-    function FinVenta(msj:string): string;
+    procedure GuardarLog(folio:Integer);
+    procedure GuardarLogPetRes(folio:Integer);
+    procedure ObtenerLog(folio:Integer; r:Integer);
+    procedure ObtenerLogPetRes(folio:Integer; r:Integer);
+    procedure AutorizarVenta(folio:Integer; msj:string);
+    procedure RespuestaComando(folio:Integer; msj:string);
+    procedure DetenerVenta(folio:Integer; msj:string);
+    procedure ReanudarVenta(folio:Integer; msj:string);
+    procedure ActivaModoPrepago(folio:Integer; msj:string);
+    procedure Bloquear(folio:Integer; msj:string);
+    procedure Desbloquear(folio:Integer; msj:string);
+    procedure DesactivaModoPrepago(folio:Integer; msj:string);
+    procedure FinVenta(folio:Integer; msj:string);
     function TransaccionPosCarga(msj:string): string;
     function IniciaPSerial(datosPuerto:string):string;
     function EstadoPosiciones(msj: string):string;
-    function TotalesBomba(msj: string):string;
-    function Shutdown:string;
-    function Terminar:string;
+    procedure TotalesBomba(folio:Integer; msj: string);
+    procedure Shutdown(folio:Integer);
+    procedure Terminar(folio:Integer);
     procedure GuardaLogComandos;
     function Encrypt(data,key3DES:string):string;
     function Decrypt(data,key3DES:string):string;
     function NoElemStrEnter(xstr:string):word;
-    function ExtraeElemStrEnter(xstr:string;ind:word):string;    
+    function ExtraeElemStrEnter(xstr:string;ind:word):string;   
+    
+    // Helper JSON methods
+    procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
+    procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
+    procedure SetEstadoJSON(const AEstado: Integer);
+    
     { Public declarations }
   end;
 
@@ -137,7 +154,8 @@ type
        TMang    :array[1..MCxP] of integer;
        SwDesp,SwA,SwPrec   :boolean;
        HoraFinv,
-       Hora         :TDateTime;
+       Hora,
+       HoraOcc      :TDateTime; // Added HoraOcc here
        SwInicio,
        SwInicio2    :boolean;
        SwCargaTotales:boolean;
@@ -238,19 +256,26 @@ end;
 procedure Togcvdispensarios_bennett.ServiceExecute(Sender: TService);
 var
   config:TIniFile;
-  lic:string;
 begin
   try
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
-    ServerSocket1.Port:=config.ReadInteger('CONF','Puerto',8585);
+    
+    // Changed to match Wayne's socket config
+    ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
+    ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
+    
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     MapCombs:=config.ReadString('CONF','MapeoCombustibles','');
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     SwEsperaRsp:=false;
-    ServerSocket1.Active:=True;
+    
+    // Socket initialization
+    conectado:=False;
+    ClientSocket1.Active:=True;
+    
     detenido:=True;
     estado:=-1;
     SegundosFinv:=30;
@@ -258,153 +283,296 @@ begin
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
+    
+    // JSON Initialization
+    rootJSON:=TlkJSONObject.Create;
+    SetEstadoJSON(estado);
 
     while not Terminated do
       ServiceThread.ProcessRequests(True);
-    ServerSocket1.Active := False;
+    ClientSocket1.Active := False;
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      GuardarLog;
+      GuardarLog(0);
       if ListaLogPetRes.Count>0 then
-        GuardarLogPetRes;      
+        GuardarLogPetRes(0);      
     end;
   end;
 end;
 
-procedure Togcvdispensarios_bennett.ServerSocket1ClientRead(Sender: TObject;
+// =============================================================================
+// SOCKET AND JSON HANDLING (NEW)
+// =============================================================================
+
+procedure Togcvdispensarios_bennett.ClientSocket1Connect(Sender: TObject;
   Socket: TCustomWinSocket);
-  var
-    mensaje,comando,checksum,parametro:string;
-    i:Integer;
-    chks_valido:Boolean;
-    metodoEnum:TMetodos;
+begin
+  conectado:=True;
+end;
+
+procedure Togcvdispensarios_bennett.ClientSocket1Disconnect(Sender: TObject;
+  Socket: TCustomWinSocket);
+begin
+  conectado:=False;
+  Timer1.Enabled:=False;
+  Timer2.Enabled:=True;
+end;
+
+procedure Togcvdispensarios_bennett.ClientSocket1Read(Sender: TObject;
+  Socket: TCustomWinSocket);
+var
+  mensaje,comando,parametro:string;
+  i,folio:Integer;
+  metodoEnum:TMetodos;
 begin
   try
     mensaje:=Socket.ReceiveText;
-    if (Length(mensaje)=1) and (StrToIntDef(mensaje,-99) in [0,1]) then begin
-      pSerial.Open:=mensaje='1';
-      Socket.SendText('1');
-      Exit;
-    end;
-    AgregaLogPetRes('R '+mensaje);
-    for i:=1 to Length(mensaje) do begin
-      if mensaje[i]=#2 then begin
-        mensaje:=Copy(mensaje,i+1,Length(mensaje)-i);
-        Break;
-      end;
-    end;
-    for i:=Length(mensaje) downto 1 do begin              
-      if mensaje[i]=#3 then begin
-        checksum:=Copy(mensaje,i+1,4);
-        mensaje:=Copy(mensaje,1,i-1);
-        Break;                
-      end;
-    end;
-    chks_valido:=checksum=CRC16(mensaje);
-    if mensaje[1]='|' then
-      Delete(mensaje,1,1);
-    if mensaje[Length(mensaje)]='|' then
-      Delete(mensaje,Length(mensaje),1);
-    if NoElemStrSep(mensaje,'|')>=2 then begin  
-      if UpperCase(ExtraeElemStrSep(mensaje,1,'|'))<>'DISPENSERS' then begin
-        Responder(Socket,'DISPENSERS|False|Este servicio solo procesa solicitudes de dispensarios|');
-        Exit;
-      end;
+    if mensaje<>'' then begin
+      AgregaLogPetRes('R '+mensaje);
 
-      comando:=UpperCase(ExtraeElemStrSep(mensaje,2,'|'));
+      folio:=StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0);
+      comando:=UpperCase(ExtraeElemStrSep(mensaje,3,'|'));
 
-      if not chks_valido then begin
-        Responder(Socket,'DISPENSERS|'+comando+'|False|Checksum invalido|');
-        Exit;
-      end;
-
-      if NoElemStrSep(mensaje,'|')>2 then begin
-        for i:=3 to NoElemStrSep(mensaje,'|') do
+      if NoElemStrSep(mensaje,'|')>3 then begin
+        for i:=4 to NoElemStrSep(mensaje,'|') do
           parametro:=parametro+ExtraeElemStrSep(mensaje,i,'|')+'|';
 
         if parametro[Length(parametro)]='|' then
           Delete(parametro,Length(parametro),1);
       end;
 
+      if UpperCase(ExtraeElemStrSep(mensaje,2,'|'))<>'DISPENSERS' then begin
+        AddPeticionJSON(folio, 'False|Este servicio solo procesa solicitudes de dispensarios|');
+        Exit;
+      end;
+
       metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
 
       case metodoEnum of
         NOTHING_e:
-          Responder(Socket, 'DISPENSERS|NOTHING|True|');
+          AddPeticionJSON(folio, 'True|');
         INITIALIZE_e:
-          Responder(Socket, 'DISPENSERS|INITIALIZE|'+Inicializar(parametro));
+          Inicializar(folio, parametro);
         PARAMETERS_e:
-          Responder(Socket, 'DISPENSERS|PARAMETERS|'+Parametros(parametro));
+          Parametros(folio, parametro);
         LOGIN_e:
-          Responder(Socket, 'DISPENSERS|LOGIN|'+Login(parametro));
+          Login(folio, parametro);
         LOGOUT_e:
-          Responder(Socket, 'DISPENSERS|LOGOUT|'+Logout);
+          Logout(folio);
         PRICES_e:
-          Responder(Socket, 'DISPENSERS|PRICES|'+IniciaPrecios(parametro));
+          IniciaPrecios(folio, parametro);
         AUTHORIZE_e:
-          Responder(Socket, 'DISPENSERS|AUTHORIZE|'+AutorizarVenta(parametro));
+          AutorizarVenta(folio, parametro);
         STOP_e:
-          Responder(Socket, 'DISPENSERS|STOP|'+DetenerVenta(parametro));
+          DetenerVenta(folio, parametro);
         START_e:
-          Responder(Socket, 'DISPENSERS|START|'+ReanudarVenta(parametro));
+          ReanudarVenta(folio, parametro);
         SELFSERVICE_e:
-          Responder(Socket, 'DISPENSERS|SELFSERVICE|'+ActivaModoPrepago(parametro));
+          ActivaModoPrepago(folio, parametro);
         FULLSERVICE_e:
-          Responder(Socket, 'DISPENSERS|FULLSERVICE|'+DesactivaModoPrepago(parametro));
+          DesactivaModoPrepago(folio, parametro);
         BLOCK_e:
-          Responder(Socket, 'DISPENSERS|BLOCK|'+Bloquear(parametro));
+          Bloquear(folio, parametro);
         UNBLOCK_e:
-          Responder(Socket, 'DISPENSERS|UNBLOCK|'+Desbloquear(parametro));
+          Desbloquear(folio, parametro);
         PAYMENT_e:
-          Responder(Socket, 'DISPENSERS|PAYMENT|'+FinVenta(parametro));
+          FinVenta(folio, parametro);
         TRANSACTION_e:
-          Responder(Socket, 'DISPENSERS|TRANSACTION|'+TransaccionPosCarga(parametro));
+          AddPeticionJSON(folio, TransaccionPosCarga(parametro));
         STATUS_e:
-          Responder(Socket, 'DISPENSERS|STATUS|'+EstadoPosiciones(parametro));
+          AddPeticionJSON(folio, EstadoPosiciones(parametro));
         TOTALS_e:
-          Responder(Socket, 'DISPENSERS|TOTALS|'+TotalesBomba(parametro));
+          TotalesBomba(folio, parametro);
         HALT_e:
-          Responder(Socket, 'DISPENSERS|HALT|'+Detener);
+          Detener(folio);
         RUN_e:
-          Responder(Socket, 'DISPENSERS|RUN|'+Iniciar);
+          Iniciar(folio);
         SHUTDOWN_e:
-          Responder(Socket, 'DISPENSERS|SHUTDOWN|'+Shutdown);
+          Shutdown(folio);
         TERMINATE_e:
-          Responder(Socket, 'DISPENSERS|TERMINATE|'+Terminar);
+          Terminar(folio);
         STATE_e:
-          Responder(Socket, 'DISPENSERS|STATE|'+ObtenerEstado);
+          AddPeticionJSON(folio, ObtenerEstado);
         TRACE_e:
-          Responder(Socket, 'DISPENSERS|TRACE|'+GuardarLog);
+          GuardarLog(folio);
         SAVELOGREQ_e:
-          Responder(Socket, 'DISPENSERS|SAVELOGREQ|'+GuardarLogPetRes);
+          GuardarLogPetRes(folio);
         RESPCMND_e:
-          Responder(Socket, 'DISPENSERS|RESPCMND|'+RespuestaComando(parametro));
+          RespuestaComando(folio, parametro);
         LOG_e:
-          Socket.SendText('DISPENSERS|LOG|'+ObtenerLog(StrToIntDef(parametro, 0)));
+          ObtenerLog(folio, StrToIntDef(parametro, 0));
         LOGREQ_e:
-          Socket.SendText('DISPENSERS|LOGREQ|'+ObtenerLogPetRes(StrToIntDef(parametro, 0)));
+          ObtenerLogPetRes(folio, StrToIntDef(parametro, 0));
       else
-        Responder(Socket, 'DISPENSERS|'+comando+'|False|Comando desconocido|');
+        AddPeticionJSON(folio, 'False|Comando desconocido|');
       end;
-    end
-    else
-      Responder(Socket,'DISPENSERS|'+mensaje+'|False|Comando desconocido|');
+      
+      socketResponse:=Socket;
+    end;
   except
     on e:Exception do begin
-      AgregaLogPetRes('Error: '+e.Message);
-      GuardarLogPetRes;
-      Responder(Socket,'DISPENSERS|'+comando+'|False|'+e.Message+'|');
+      AgregaLogPetRes('Error ClientSocket1Read: '+e.Message);
+      GuardarLog(0);
     end;
   end;
 end;
 
-procedure Togcvdispensarios_bennett.Responder(socket:TCustomWinSocket;resp:string);
+procedure Togcvdispensarios_bennett.Responder(resp:string);
 begin
-  socket.SendText(#1#2+resp+#3+CRC16(resp)+#23);
-  AgregaLogPetRes('E '+#1#2+resp+#3+CRC16(resp)+#23);
+  try
+    if Assigned(socketResponse) then begin
+      socketResponse.SendText(resp);
+      socketResponse:=nil;
+    end
+    else
+      ClientSocket1.Socket.SendText(resp);
+
+    AgregaLogPetRes('E '+resp);
+  except
+    on e:Exception do begin
+      AgregaLogPetRes('False|Excepcion: '+e.Message+'|');
+      GuardarLogPetRes(0);
+    end;
+  end;
 end;
+
+procedure Togcvdispensarios_bennett.AddPeticionJSON(const aFolio: Integer;
+  const aResultado: string);
+var
+  petArr : TlkJSONlist;
+  petObj : TlkJSONObject;
+begin
+  try
+    if rootJSON = nil then
+      AgregaLog('rootObj es nulo');
+
+    petArr := TlkJSONlist(rootJSON.Field['Peticiones']);
+
+    if petArr = nil then
+    begin
+      petArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('Peticiones', petArr);
+    end;
+
+    while petArr.Count >= 2 do
+      petArr.Delete(0);
+
+    petObj := TlkJSONObject.Create;
+    petObj.Add('Folio',     aFolio);
+    petObj.Add('Resultado', aResultado);
+
+    petArr.Add(petObj);
+    respJson:=True;
+  except
+    on e:Exception do begin
+      AgregaLog('Error AddPeticionJSON: '+e.Message+'|');
+      GuardarLog(0);
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_bennett.ActualizaCampoJSON(xpos: Integer;
+  campo: string; valor: Variant);
+var
+  posArr : TlkJSONlist;
+  posObj : TlkJSONObject;
+  field  : TlkJSONbase;
+  i      : Integer;
+begin
+  try
+    if rootJSON = nil then
+      AgregaLog('rootJSON is nulo');
+
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then
+      AgregaLog('No se encontro "PosCarga" en rootJSON.');
+
+    for i := 0 to posArr.Count - 1 do
+    begin
+      posObj := TlkJSONObject(posArr.Child[i]);
+      if posObj = nil then
+        Continue;
+
+      if (posObj.Field['DispenserId'] <> nil) and
+         (posObj.Field['DispenserId'].Value = xpos) then
+      begin
+      end
+      else if (posObj.Field['DispenserId'] = nil) and (i + 1 = xpos) then
+      begin
+      end
+      else
+        Continue;
+
+      field := posObj.Field[campo];
+
+      if field <> nil then
+        field.Value := valor;
+
+      Exit;
+    end;
+
+    // AgregaLog('DispenserId no encontrado en PosCarga.'); // Optional logging
+  except
+    on e:Exception do begin
+      AgregaLog('Error ActualizaCampoJSON: '+e.Message+'|');
+      GuardarLog(0);
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_bennett.SetEstadoJSON(const AEstado: Integer);
+var
+  estadoNode: TlkJSONbase;
+begin
+  estadoNode := rootJSON.Field['Estado'];
+
+  if Assigned(estadoNode) then
+    estadoNode.Value := AEstado
+  else
+    TlkJSONObject(rootJSON).Add('Estado', TlkJSONnumber.Generate(AEstado));
+end;
+
+procedure Togcvdispensarios_bennett.Timer2Timer(Sender: TObject);
+var
+  i:Integer;
+begin
+  try
+    try
+      Timer2.Enabled:=False;
+      if not conectado then begin
+        ClientSocket1.Active:=True;
+        for i:=0 to 100 do begin
+          Sleep(10);
+          if conectado then Break;
+        end;
+        if not conectado then Exit;
+      end;
+
+      if not respJson then
+        Responder('PING')
+      else
+        Responder(TlkJSON.GenerateText(rootJSON));
+
+      if estado>0 then begin
+        Timer2.Enabled:=False;
+        Timer1.Enabled:=True;
+      end;
+    except
+      on e:Exception do begin
+        AgregaLog('Error Timer2Timer: '+e.Message);
+        GuardarLog(0);
+      end;
+    end;
+  finally
+    Timer2.Enabled := estado<=0;
+  end;
+end;
+
+// =============================================================================
+// ORIGINAL BENNETT LOGIC (Modified for JSON updates)
+// =============================================================================
 
 procedure Togcvdispensarios_bennett.AgregaLog(lin: string);
 var lin2:string;
@@ -516,7 +684,7 @@ begin
   end;
 end;
 
-function Togcvdispensarios_bennett.IniciaPrecios(msj: string): string;
+procedure Togcvdispensarios_bennett.IniciaPrecios(folio:Integer; msj: string);
 var
   ss:string;
   precioComb:Double;
@@ -528,7 +696,7 @@ begin
         for i:=1 to NoComb do begin
           precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,TComb[i],'|'),-1);
           if precioComb=-1 then begin
-            Result:='False|El precio '+IntToStr(i)+' es incorrecto|';
+            AddPeticionJSON(folio, 'False|El precio '+IntToStr(i)+' es incorrecto|');
             Exit;
           end;
           if precioComb<=0 then
@@ -543,10 +711,10 @@ begin
         end;
       end;
     end;
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
@@ -555,6 +723,10 @@ var
   i,j,k,xpos,xcomb:integer;
   existe:boolean;
   mangueras:TlkJSONbase;
+  posArr  : TlkJSONlist;
+  posObj      : TlkJSONObject;
+  hosesArr    : TlkJSONlist;
+  hoseObj     : TlkJSONObject;
 begin
   try
     if not detenido then begin
@@ -562,6 +734,8 @@ begin
       Exit;
     end;
     MaxPosCarga:=0;
+    
+    // Initialize Internal Arrays
     for i:=1 to 100 do with TPosCarga[i] do begin
       estatus:=-1;
       estatusant:=-1;
@@ -592,18 +766,36 @@ begin
       PresetComb:=0;
       SwPresetHora:=false;
       HoraTotales:=0;
+      HoraOcc:=0; // Initialized HoraOcc
     end;
+
+    // Build JSON Structure
+    posArr := TlkJSONlist.Create;
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
       if xpos>MaxPosCarga then
         MaxPosCarga:=xpos;
+        
       with TPosCarga[xpos] do begin
         SwDesp:=false;
         SwA:=false;
         SwPrec:=false;
         existe:=false;
         ModoOpera:='Prepago';
+        
+        // JSON Object Creation
+        posObj := TlkJSONObject.Create;
+        posObj.Add('DispenserId', xpos);
+        posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
+        posObj.Add('Manguera', 0);
+        posObj.Add('Combustible', 0);
+        posObj.Add('Estatus', 0);
+        posObj.Add('Importe', 0);
+        posObj.Add('Volumen', 0);
+        posObj.Add('Precio', 0);
+        
+        hosesArr := TlkJSONlist.Create;
 
         mangueras:=posiciones.Child[i].Field['Hoses'];
         for j:=0 to mangueras.Count-1 do begin
@@ -626,10 +818,21 @@ begin
               TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
               TPos[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
             end;
+            
+            // JSON Hose Object
+            hoseObj := TlkJSONObject.Create;
+            hoseObj.Add('HoseId',TMang[NoComb]);
+            hoseObj.Add('ProductId', xcomb);
+            hoseObj.Add('Total', 0);
+            hosesArr.Add(hoseObj);
           end;
         end;
+        posObj.Add('Hoses', hosesArr);
       end;
+      posArr.Add(posObj);
     end;
+    TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -750,447 +953,403 @@ var lin,ss,ss2,rsp,rsp2,
     swerr           :boolean;
     totlts:array[1..4] of real;
 begin
-  if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
-    horaLog:=Now;
-    GuardarLog;
-  end;
-  if (LineaTimer='') then
-    exit;
-  SwEsperaRsp:=false;
-  ContEsperaRsp:=0;
-  if length(LineaTimer)>2 then begin
-    while (LineaTimer[1]<>idSTX)and(length(LineaTimer)>2) do
-      delete(LineaTimer,1,1);
-    lin:=copy(lineaTimer,2,length(lineatimer)-2);
-  end
-  else
-    lin:=LineaTimer;
-  LineaTimer:='';
-  if lin='' then
-    exit;
-  case lin[1] of
-   'B':begin // pide estatus de todas las bombas
-         NumPaso:=1;
-         ContEspera:=0;
-         UltimoStatus:=LineaTimer;
-         sslin:=copy(lin,4,length(lin)-3);
-         MaxPosCargaActiva:=(length(sslin))div(2);
-         if MaxPosCargaActiva>MaxPosCarga then
-           MaxPosCargaActiva:=MaxPosCarga;
-         if PreciosInicio then
-           IniciarPrecios;           
-         for xpos:=1 to MaxPosCargaActiva do begin
-           with TPosCarga[xpos] do begin
-             SwCmndB:=true;
-             PosActual:=StrToIntDef(sslin[xpos*2-1],0);
-             if PosActual=0 then
-               PosActual:=1;
-             if estatusant<>estatus then begin
-               //SwPreset:=false;
-               SwA:=true; //CAMBIO
-             end;
-             estatusant:=estatus;
-             estatus:=StrToIntDef(sslin[xpos*2],0);
-             if (estatus=0)and(stcero<=3) then begin
-               inc(stcero);
-               estatus:=estatusant;
-             end
-             else stcero:=0;
-             //Mensaje:='Pos = '+inttostr(posactual);
-             if (estatus=0)and(SwActivo) then begin
-               if (estatusant in [1..10]) then
-                 ContDA:=0
-               else
-                 inc(ContDA);
-               if ContDA=5 then begin
-                 SwActivo:=false;
+  try
+    Inc(xTurnoSocket);
+    if xTurnoSocket>3 then
+      xTurnoSocket:=1;
+      
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog(0);
+    end;
+    if (LineaTimer='') then
+      exit;
+    SwEsperaRsp:=false;
+    ContEsperaRsp:=0;
+    if length(LineaTimer)>2 then begin
+      while (LineaTimer[1]<>idSTX)and(length(LineaTimer)>2) do
+        delete(LineaTimer,1,1);
+      lin:=copy(lineaTimer,2,length(lineatimer)-2);
+    end
+    else
+      lin:=LineaTimer;
+    LineaTimer:='';
+    if lin='' then
+      exit;
+    case lin[1] of
+     'B':begin // pide estatus de todas las bombas
+           NumPaso:=1;
+           ContEspera:=0;
+           UltimoStatus:=LineaTimer;
+           sslin:=copy(lin,4,length(lin)-3);
+           MaxPosCargaActiva:=(length(sslin))div(2);
+           if MaxPosCargaActiva>MaxPosCarga then
+             MaxPosCargaActiva:=MaxPosCarga;
+           if PreciosInicio then
+             IniciarPrecios;           
+           for xpos:=1 to MaxPosCargaActiva do begin
+             with TPosCarga[xpos] do begin
+               SwCmndB:=true;
+               PosActual:=StrToIntDef(sslin[xpos*2-1],0);
+               if PosActual=0 then
+                 PosActual:=1;
+               if estatusant<>estatus then begin
+                 //SwPreset:=false;
+                 SwA:=true; //CAMBIO
                end;
-             end
-             else if (estatus in [1..10])and(not SwActivo) then begin
-               SwActivo:=true;
-             end;
-             case estatus of
-               0:begin
-                   descestat:='---';
+               estatusant:=estatus;
+               estatus:=StrToIntDef(sslin[xpos*2],0);
+               
+               // *** JSON UPDATE ***
+               ActualizaCampoJSON(xpos, 'Estatus', estatus);
+               // *******************
+               
+               if (estatus=0)and(stcero<=3) then begin
+                 inc(stcero);
+                 estatus:=estatusant;
+               end
+               else stcero:=0;
+               //Mensaje:='Pos = '+inttostr(posactual);
+               if (estatus=0)and(SwActivo) then begin
+                 if (estatusant in [1..10]) then
+                   ContDA:=0
+                 else
+                   inc(ContDA);
+                 if ContDA=5 then begin
+                   SwActivo:=false;
                  end;
-               1:begin
-                   descestat:='Inactivo';
-                   swcargando:=false;
-                   if swprec then
-                     swprec:=false;
-                   if estatusant<>1 then begin
-                     SwPresetHora:=false;
-                     //SwArosMag:=false;
-                     //PosAutorizada:=0;
-                     FinVenta:=0;
-                     TipoPago:=0;
-                     SwOcc:=false;
-                     ContOcc:=0;
-                     PresetImpo:=0;
-                     PresetImpoN:=0;
-                     if SwCmndF then begin
-                       ss:='F'+IntToClaveNum(xpos,2)+'9999';
-                       ComandoConsolaBuff(ss,false);
-                       SwCmndF:=false;
+               end
+               else if (estatus in [1..10])and(not SwActivo) then begin
+                 SwActivo:=true;
+               end;
+               case estatus of
+                 0:begin
+                     descestat:='---';
+                   end;
+                 1:begin
+                     descestat:='Inactivo';
+                     swcargando:=false;
+                     if swprec then
+                       swprec:=false;
+                     if estatusant<>1 then begin
+                       SwPresetHora:=false;
+                       //SwArosMag:=false;
+                       //PosAutorizada:=0;
+                       FinVenta:=0;
+                       TipoPago:=0;
+                       SwOcc:=false;
+                       ContOcc:=0;
+                       PresetImpo:=0;
+                       PresetImpoN:=0;
+                       if SwCmndF then begin
+                         ss:='F'+IntToClaveNum(xpos,2)+'9999';
+                         ComandoConsolaBuff(ss,false);
+                         SwCmndF:=false;
+                       end;
                      end;
                    end;
-                 end;
-               2:begin
-                   descestat:='Autorizado';
-                 end;
-               3:begin
-                   swcargando:=false;
-                   descestat:='Pistola Levantada';
-                   if (estatusant=4)and(PresetImpo>=0.01) then begin  // vuelve a autorizar
-                     SnPosCarga:=xpos;
-                     SnImporte:=PresetImpo;
-                     inc(PresetImpoN);
-                     if PresetImpoN<=3 then
-                       estatus:=estatusant;
-                     EnviaPreset(rsp,PresetComb);
+                 2:begin
+                     descestat:='Autorizado';
                    end;
-                 end;
-               4:begin
-                   descestat:='Listo para Despachar';
-                 end;
-               5:begin
-                   descestat:='Despachando';
-                   swcargando:=true;
-                 end;
-               6:begin
-                   descestat:='Detenido';
-                 end;
-               7:begin
-                   descestat:='Fin de Venta';
-                   if Estatus<>Estatusant then
-                     HoraFinv:=Now;
-                   if (Now-HoraFinv)>=(SegundosFinv*tmSegundo) then
-                     ComandoConsolaBuff('J'+IntToClaveNum(xpos,2),false);
-                 end;
-               8:descestat:='Venta Pendiente';
-               9:descestat:='Error';
+                 3:begin
+                     swcargando:=false;
+                     descestat:='Pistola Levantada';
+                     if (estatusant=4)and(PresetImpo>=0.01) then begin  // vuelve a autorizar
+                       SnPosCarga:=xpos;
+                       SnImporte:=PresetImpo;
+                       inc(PresetImpoN);
+                       if PresetImpoN<=3 then
+                         estatus:=estatusant;
+                       EnviaPreset(rsp,PresetComb);
+                     end;
+                   end;
+                 4:begin
+                     descestat:='Listo para Despachar';
+                   end;
+                 5:begin
+                     descestat:='Despachando';
+                     swcargando:=true;
+                   end;
+                 6:begin
+                     descestat:='Detenido';
+                   end;
+                 7:begin
+                     descestat:='Fin de Venta';
+                     if Estatus<>Estatusant then
+                       HoraFinv:=Now;
+                     if (Now-HoraFinv)>=(SegundosFinv*tmSegundo) then
+                       ComandoConsolaBuff('J'+IntToClaveNum(xpos,2),false);
+                   end;
+                 8:descestat:='Venta Pendiente';
+                 9:descestat:='Error';
+               end;
              end;
            end;
-         end;
-         // Checa las posiciones que estan solicitando autorizacion
-         for xpos:=1 to MaxPosCargaActiva do begin
-           with TPosCarga[xpos] do if xpos<=MaximoDePosiciones then begin
-             if contpreset>0 then
-               dec(contpreset);
-             case Estatus of
-               1:if SwInicio then begin
-                   ss:='K'+IntToClaveNum(xpos,2)+'1'; // Postpago
-                   ComandoConsolaBuff(ss,false);
-                   ss:='L'+IntToClaveNum(xpos,2)+NivelPrecioContado; // Nivel de Precios
-                   ComandoConsolaBuff(ss,false);
-                   ss:='E'+IntToClaveNum(xpos,2); // Desautorizar
-                   ComandoConsolaBuff(ss,false);
-                   SwInicio:=false;
-                   //SwPrepago:=false;
-                   //SwPreset:=false;
-                 end;
-               3:if (not SwDesHabilitado)and(ModoOpera='Normal') then begin
-                   if ContPreset<=0 then begin
-                     FinVenta:=0;
-                     ss:='S'+IntToClaveNum(xpos,2); // Autorizar
+           // Checa las posiciones que estan solicitando autorizacion
+           for xpos:=1 to MaxPosCargaActiva do begin
+             with TPosCarga[xpos] do if xpos<=MaximoDePosiciones then begin
+               if contpreset>0 then
+                 dec(contpreset);
+               case Estatus of
+                 1:if SwInicio then begin
+                     ss:='K'+IntToClaveNum(xpos,2)+'1'; // Postpago
                      ComandoConsolaBuff(ss,false);
-                     presetimpo:=0;presetimpon:=0;
+                     ss:='L'+IntToClaveNum(xpos,2)+NivelPrecioContado; // Nivel de Precios
+                     ComandoConsolaBuff(ss,false);
+                     ss:='E'+IntToClaveNum(xpos,2); // Desautorizar
+                     ComandoConsolaBuff(ss,false);
                      SwInicio:=false;
+                     //SwPrepago:=false;
+                     //SwPreset:=false;
+                   end;
+                 3:if (not SwDesHabilitado)and(ModoOpera='Normal') then begin
+                     if ContPreset<=0 then begin
+                       FinVenta:=0;
+                       ss:='S'+IntToClaveNum(xpos,2); // Autorizar
+                       ComandoConsolaBuff(ss,false);
+                       presetimpo:=0;presetimpon:=0;
+                       SwInicio:=false;
+                     end;
+                   end;
+               end;
+             end;
+           end;
+         end;
+     'A':begin // pide estatus de una bomba
+           NumPaso:=2;
+           xpos:=StrToIntDef(copy(lin,2,2),0);
+           if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
+             ContEsperaPaso2:=0;
+             with TPosCarga[xpos] do begin
+               try
+                 swinicio2:=false;
+                 volumen:=StrToFloat(copy(lin,5,6))/100;
+                 simp:=copy(lin,11,6);
+                 spre:=copy(lin,17,4);
+                 importe:=StrToFloat(simp)/100;
+                 precio:=StrToFloat(spre)/100;
+
+                 // valida ventas mayores a 10000 pesos
+                 ximpo:=volumen*precio;
+                 xdif:=abs(ximpo-importe);
+                 if xdif>=900 then begin
+                   importe:=AjustaFloat(ximpo,2);
+                 end;
+                 // fin
+
+                 xvol:=ajustafloat(dividefloat(importe,precio),3);
+                 if abs(volumen-xvol)<0.05 then
+                   volumen:=xvol;
+                 if (Estatus in [7,8])and(swcargando) then begin
+                   swcargando:=false;
+                   swdesp:=true;
+                 end;
+                 
+                 // *** JSON UPDATE ***
+                 ActualizaCampoJSON(xpos, 'Volumen', volumen);
+                 ActualizaCampoJSON(xpos, 'Importe', importe);
+                 ActualizaCampoJSON(xpos, 'Precio', precio);
+                 // *******************
+               except
+               end;
+             end;
+           end;
+         end;
+     '1':begin // pide estatus de una bomba
+           NumPaso:=2;
+           xpos:=StrToIntDef(copy(lin,2,2),0);
+           if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
+             ContEsperaPaso2:=0;
+             with TPosCarga[xpos] do begin
+               try
+                 swinicio2:=false;
+                 volumen:=StrToFloat(copy(lin,5,8))/100;
+                 simp:=copy(lin,13,8);
+                 spre:=copy(lin,21,5);
+                 importe:=StrToFloat(simp)/100;
+                 precio:=StrToFloat(spre)/100;
+                 xvol:=ajustafloat(dividefloat(importe,precio),3);
+                 if abs(volumen-xvol)<0.05 then
+                   volumen:=xvol;
+                 if (Estatus in [7,8])and(swcargando) then begin
+                   swcargando:=false;
+                   swdesp:=true;
+                   AgregaLog('GUARDA VENTA Pos:'+inttostr(xpos)+' Estatus:'+inttostr(estatus)+' - ant:'+inttostr(estatusant));
+                 end;
+                 if (TPosCarga[xpos].finventa=0) then begin
+                   if Estatus in [7,8] then begin
+                     ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
+                     ComandoConsola(ss);
                    end;
                  end;
+                 
+                 // *** JSON UPDATE ***
+                 ActualizaCampoJSON(xpos, 'Volumen', volumen);
+                 ActualizaCampoJSON(xpos, 'Importe', importe);
+                 ActualizaCampoJSON(xpos, 'Precio', precio);
+                 // *******************
+               except
+               end;
              end;
            end;
          end;
-       end;
-   'A':begin // pide estatus de una bomba
-         NumPaso:=2;
-         xpos:=StrToIntDef(copy(lin,2,2),0);
-         if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
-           ContEsperaPaso2:=0;
-           with TPosCarga[xpos] do begin
-             try
-               swinicio2:=false;
-               volumen:=StrToFloat(copy(lin,5,6))/100;
-               simp:=copy(lin,11,6);
-               spre:=copy(lin,17,4);
-               importe:=StrToFloat(simp)/100;
-               precio:=StrToFloat(spre)/100;
-
-               // valida ventas mayores a 10000 pesos
-               ximpo:=volumen*precio;
-               xdif:=abs(ximpo-importe);
-               if xdif>=900 then begin
-                 importe:=AjustaFloat(ximpo,2);
-               end;
-               // fin
-
-               xvol:=ajustafloat(dividefloat(importe,precio),3);
-               if abs(volumen-xvol)<0.05 then
-                 volumen:=xvol;
-               if (Estatus in [7,8])and(swcargando) then begin
-                 swcargando:=false;
-                 swdesp:=true;
-               end;
-             except
+     'N':begin // totales de la bomba
+           NumPaso:=3;
+           xpos:=StrToIntDef(copy(lin,2,2),0);
+           if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
+             ContEsperaPaso3:=0;
+             with TPosCarga[xpos] do begin
+               SwCargaTotales:=false;
+               IntentosTotales:=0;
+               Totlts[1]:=StrToFloat(copy(lin,4,10))/1000;
+               Totlts[2]:=StrToFloat(copy(lin,14,10))/1000;
+               Totlts[3]:=StrToFloat(copy(lin,24,10))/1000;
+               Totlts[4]:=StrToFloat(copy(lin,34,10))/1000;
+               for j:=1 to MCxP do
+                 if TPos[j] in [1..4] then
+                   TotalLitros[j]:=TotLts[TPos[j]];
+               HoraTotales:=Now;
              end;
            end;
          end;
-       end;
-   '1':begin // pide estatus de una bomba
-         NumPaso:=2;
-         xpos:=StrToIntDef(copy(lin,2,2),0);
-         if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
-           ContEsperaPaso2:=0;
-           with TPosCarga[xpos] do begin
-             try
-               swinicio2:=false;
-               volumen:=StrToFloat(copy(lin,5,8))/100;
-               simp:=copy(lin,13,8);
-               spre:=copy(lin,21,5);
-               importe:=StrToFloat(simp)/100;
-               precio:=StrToFloat(spre)/100;
-               xvol:=ajustafloat(dividefloat(importe,precio),3);
-               if abs(volumen-xvol)<0.05 then
-                 volumen:=xvol;
-               if (Estatus in [7,8])and(swcargando) then begin
-                 swcargando:=false;
-                 swdesp:=true;
-                 AgregaLog('GUARDA VENTA Pos:'+inttostr(xpos)+' Estatus:'+inttostr(estatus)+' - ant:'+inttostr(estatusant));
-               end;
-               if (TPosCarga[xpos].finventa=0) then begin
-                 if Estatus in [7,8] then begin
-                   ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
-                   ComandoConsola(ss);
-                 end;
-               end;
-             except
-             end;
-           end;
-         end;
-       end;
-   'N':begin // totales de la bomba
-         NumPaso:=3;
-         xpos:=StrToIntDef(copy(lin,2,2),0);
-         if (xpos>=1)and(xpos<=MaximoDePosiciones) then begin
-           ContEsperaPaso3:=0;
-           with TPosCarga[xpos] do begin
-             SwCargaTotales:=false;
-             IntentosTotales:=0;
-             Totlts[1]:=StrToFloat(copy(lin,4,10))/1000;
-             Totlts[2]:=StrToFloat(copy(lin,14,10))/1000;
-             Totlts[3]:=StrToFloat(copy(lin,24,10))/1000;
-             Totlts[4]:=StrToFloat(copy(lin,34,10))/1000;
-             for j:=1 to MCxP do
-               if TPos[j] in [1..4] then
-                 TotalLitros[j]:=TotLts[TPos[j]];
-             HoraTotales:=Now;
-           end;
-         end;
-       end;
-  end;
-  if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
-    ss:=ListaCmnd[0];
-    ListaCmnd.Delete(0);
-    ComandoConsola(ss);
-    exit;
-  end
-  else begin
-    inc(NumPaso);
-    PosicionActual:=0;
-  end;
-  // checa lecturas de dispensarios
-  if NumPaso=2 then begin
-    if PosicionActual<MaxPosCargaActiva then begin
-      repeat
-        Inc(PosicionActual);
-        with TPosCarga[PosicionActual] do if NoComb>0 then begin
-          if (estatus<>9)and(estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
-            SwA:=false;
-            if Bennett8Digitos<>'Si' then
-              ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2),false)
-            else
-              ComandoConsolaBuff('1'+IntToClaveNum(PosicionActual,2),false);
-          end;
-        end;
-      until (PosicionActual>=MaxPosCargaActiva);
     end;
-    if not SwEsperaRsp then begin
-      NumPaso:=3;
+    if (ListaCmnd.Count>0)and(not SwEsperaRsp) then begin
+      ss:=ListaCmnd[0];
+      ListaCmnd.Delete(0);
+      ComandoConsola(ss);
+      exit;
+    end
+    else begin
+      inc(NumPaso);
       PosicionActual:=0;
     end;
-  end;
-  // Lee Totales
-  if NumPaso=3 then begin
-    // GUARDA VALORES DE DISPENSARIOS CARGANDO
-    try
-      xestado2:='';xdisp2:='';xmodo2:='';
-      try
-        if MaximoDePosiciones<24 then begin
-          xdisp2:=LinEstado;
-
-          // leo modo de operacion al final de la linea
-          xmodo2:=ExtraeElemStrSep(xdisp2,2,'&');
-          if length(xmodo2)>MaximoDePosiciones then
-            delete(xmodo2,1,MaximoDePosiciones)
-          else xmodo2:='';
-
-          // leo estados al principio de la linea
-          ss:=ExtraeElemStrSep(xdisp2,1,'&');
-          xestado2:=ExtraeElemStrSep(ss,1,'#');
-          if xestado2<>'' then
-            if xestado2[1]='D' then
-              delete(xestado2,1,1);
-          if length(xestado2)>MaximoDePosiciones then
-            delete(xestado2,1,MaximoDePosiciones)
-          else xestado2:='';
-
-          // saco lecturas de cada posicion
-          ii:=NoElemStrSep(ss,'#');
-          xdisp2:='';
-          for i:=2 to ii do begin
-            ss2:=ExtraeElemStrSep(ss,i,'#');
-            rsp:=ExtraeElemStrSep(ss2,1,'/');
-            xpos:=strtointdef(rsp,0);
-            if xpos>MaximoDePosiciones then
-              xdisp2:=xdisp2+'#'+ss2;
+    // checa lecturas de dispensarios
+    if NumPaso=2 then begin
+      if PosicionActual<MaxPosCargaActiva then begin
+        repeat
+          Inc(PosicionActual);
+          with TPosCarga[PosicionActual] do if NoComb>0 then begin
+            if (estatus<>9)and(estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
+              SwA:=false;
+              if Bennett8Digitos<>'Si' then
+                ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2),false)
+              else
+                ComandoConsolaBuff('1'+IntToClaveNum(PosicionActual,2),false);
+            end;
           end;
+        until (PosicionActual>=MaxPosCargaActiva);
+      end;
+      if not SwEsperaRsp then begin
+        NumPaso:=3;
+        PosicionActual:=0;
+      end;
+    end;
+    // Lee Totales
+    if NumPaso=3 then begin
+      // GUARDA VALORES DE DISPENSARIOS CARGANDO
+      try
+        xestado2:='';xdisp2:='';xmodo2:='';
+        try
+          if MaximoDePosiciones<24 then begin
+            xdisp2:=LinEstado;
+
+            // leo modo de operacion al final de la linea
+            xmodo2:=ExtraeElemStrSep(xdisp2,2,'&');
+            if length(xmodo2)>MaximoDePosiciones then
+              delete(xmodo2,1,MaximoDePosiciones)
+            else xmodo2:='';
+
+            // leo estados al principio de la linea
+            ss:=ExtraeElemStrSep(xdisp2,1,'&');
+            xestado2:=ExtraeElemStrSep(ss,1,'#');
+            if xestado2<>'' then
+              if xestado2[1]='D' then
+                delete(xestado2,1,1);
+            if length(xestado2)>MaximoDePosiciones then
+              delete(xestado2,1,MaximoDePosiciones)
+            else xestado2:='';
+
+            // saco lecturas de cada posicion
+            ii:=NoElemStrSep(ss,'#');
+            xdisp2:='';
+            for i:=2 to ii do begin
+              ss2:=ExtraeElemStrSep(ss,i,'#');
+              rsp:=ExtraeElemStrSep(ss2,1,'/');
+              xpos:=strtointdef(rsp,0);
+              if xpos>MaximoDePosiciones then
+                xdisp2:=xdisp2+'#'+ss2;
+            end;
+          end;
+        except
         end;
       except
       end;
-    except
-    end;
-    // FIN
+      // FIN
 
-    if not SwEsperaRsp then begin
-      NumPaso:=4;
-      PosicionActual:=0;
-    end;
-  end;
-
-  lin:='';xestado:='';xmodo:='';
-  for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
-    xmodo:=xmodo+ModoOpera[1];
-    if not SwDesHabilitado then begin
-      case estatus of
-        0:xestado:=xestado+'0'; // Sin Comunicaci�n
-        1:xestado:=xestado+'1'; // Inactivo (Idle)
-        5:xestado:=xestado+'2'; // Cargando (In Use)
-        7:if not swcargando then
-            xestado:=xestado+'3' // Fin de Carga (Used)
-          else
-            xestado:=xestado+'2';
-        3,4:xestado:=xestado+'5'; // Llamando (Calling)
-        2,8:xestado:=xestado+'9'; // Autorizado
-        6:xestado:=xestado+'8'; // Detenido (Stoped)
-        else xestado:=xestado+'0';
+      if not SwEsperaRsp then begin
+        NumPaso:=4;
+        PosicionActual:=0;
       end;
-    end
-    else xestado:=xestado+'7'; // Deshabilitado
-    xcomb:=CombustibleEnPosicion(xpos,PosActual);
-    CombActual:=xcomb;
-    MangActual:=MangueraEnPosicion(xpos,PosActual);
-    ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
-    ss:=ss+'/'+FormatFloat('###0.##',volumen);
-    ss:=ss+'/'+FormatFloat('#0.##',precio);
-    ss:=ss+'/'+FormatFloat('####0.##',importe);
-    lin:=lin+'#'+ss;
-  end;
-  if lin='' then
-    lin:=xestado+xestado2+'#'
-  else
-    lin:=xestado+xestado2+lin;
-  lin:=lin+xdisp2+'&'+xmodo+xmodo2;
-  LinEstado:='D'+lin;
-  LinEstadoGen:=xestado;
-
-  if (NumPaso=4) then begin
-    // Checa Comandos
-    if swcierrabd then begin
-      Esperamiliseg(300);
-      swcierrabd:=false;
     end;
-    for k:=1 to 200 do begin
-      claveCmnd:=k;
-      if (TabCmnd[claveCmnd].SwActivo)and(not TabCmnd[claveCmnd].SwResp) then begin
-        SwAplicaCmnd:=true;
-        ss:=ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,1,' ');
-        AgregaLog(TabCmnd[claveCmnd].Comando);
-        // ORDENA CARGA DE COMBUSTIBLE EN IMPORTE
-        if ss='OCC' then begin     // OCC POSCARGA IMPORTE COMBUSTIBLE TIPOVENTA FINVENTA BOUCHER
-          SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          xpos:=SnPosCarga;
-          rsp:='OK';
-          if (SnPosCarga in [1..MaxPosCarga]) then begin
-            if (TPosCarga[SnPosCarga].estatus in [1,3])or(TPosCarga[SnPosCarga].SwOCC) then begin
-              // Valida que se haya aplicado el PRESET
-              if TabCmnd[claveCmnd].SwNuevo then begin
-                TPosCarga[SnPosCarga].SwOCC:=false;
-                TabCmnd[claveCmnd].SwNuevo:=false;
-              end;
-              Swerr:=false;
-              if (TPosCarga[SnPosCarga].SwOCC) then begin
-                if (TPosCarga[SnPosCarga].SwCmndB) then begin
-                  if (TPosCarga[SnPosCarga].estatus in [1,3])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
-                    TPosCarga[SnPosCarga].SwOCC:=false;
-                  end
-                  else if (TPosCarga[SnPosCarga].estatus in [1,3])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
-                    rsp:='Error al aplicar PRESET';
-                    TPosCarga[SnPosCarga].SwOCC:=false;
-                    TPosCarga[SnPosCarga].ContOCC:=0;
-                    Swerr:=true;
-                  end;
-                end
-                else SwAplicaCmnd:=false;
-              end;
-              if (TPosCarga[SnPosCarga].estatus in [1,3])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
-                TPosCarga[SnPosCarga].SwOCC:=true;
-                TPosCarga[SnPosCarga].SwCmndB:=false;
-                if TPosCarga[SnPosCarga].ContOCC=0 then
-                  TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
-                else begin
-                  dec(TPosCarga[SnPosCarga].ContOCC);
-                  esperamiliseg(500);
-                end;
-                SwAplicaCmnd:=false;
-                try
-                  SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
-                  rsp:=ValidaCifra(SnImporte,IfThen(UpperCase(Bennett8Digitos)='SI',6,4),2);
-                except
-                  rsp:='Error en Importe';
-                end;
-                if rsp='OK' then begin
-                  ss:=ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,4,' ');
-                  if ss[1]='P' then begin
-                    delete(ss,1,1);
-                    xp:=StrToIntDef(ss,0);
-                    xcomb:=CombustibleEnPosicion(xpos,xp);
-                  end
-                  else begin
-                    xcomb:=StrToIntDef(ss,0);
-                    xp:=PosicionDeCombustible(xpos,xcomb);
-                  end;
-                  if xp>0 then begin
-                    TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
-                    if rsp='OK' then
-                      EnviaPreset(rsp,xcomb);
-                  end
-                  else rsp:='Combustible no existe en esta posicion';
-                end;
-              end;
-              if (not SwAplicaCmnd)and(rsp<>'OK') then
-                 SwAplicaCmnd:=true;
-            end
-            else rsp:='Posicion de Carga no Disponible';
-            if SwAplicaCmnd then
-              TPosCarga[SnPosCarga].SwOCC:=false;
-          end
-          else rsp:='Posicion de Carga no Existe';
-        end
-        // ORDENA CARGA DE COMBUSTIBLE EN LITROS
-        else if ss='OCL' then begin     // OCL POSCARGA LITROS COMBUSTIBLE TIPOVENTA FINVENTA BOUCHER
-          SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          xpos:=SnPosCarga;
-          if (xpos<=MaximoDePosiciones) then begin
+
+    lin:='';xestado:='';xmodo:='';
+    for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
+      xmodo:=xmodo+ModoOpera[1];
+      if not SwDesHabilitado then begin
+        case estatus of
+          0:xestado:=xestado+'0'; // Sin Comunicacin
+          1:xestado:=xestado+'1'; // Inactivo (Idle)
+          5:xestado:=xestado+'2'; // Cargando (In Use)
+          7:if not swcargando then
+              xestado:=xestado+'3' // Fin de Carga (Used)
+            else
+              xestado:=xestado+'2';
+          3,4:xestado:=xestado+'5'; // Llamando (Calling)
+          2,8:xestado:=xestado+'9'; // Autorizado
+          6:xestado:=xestado+'8'; // Detenido (Stoped)
+          else xestado:=xestado+'0';
+        end;
+      end
+      else xestado:=xestado+'7'; // Deshabilitado
+      xcomb:=CombustibleEnPosicion(xpos,PosActual);
+      CombActual:=xcomb;
+      MangActual:=MangueraEnPosicion(xpos,PosActual);
+      
+      // *** JSON UPDATE ***
+      ActualizaCampoJSON(xpos, 'Combustible', CombActual);
+      ActualizaCampoJSON(xpos, 'Manguera', MangActual);
+      // *******************
+      
+      ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
+      ss:=ss+'/'+FormatFloat('###0.##',volumen);
+      ss:=ss+'/'+FormatFloat('#0.##',precio);
+      ss:=ss+'/'+FormatFloat('####0.##',importe);
+      lin:=lin+'#'+ss;
+    end;
+    if lin='' then
+      lin:=xestado+xestado2+'#'
+    else
+      lin:=xestado+xestado2+lin;
+    lin:=lin+xdisp2+'&'+xmodo+xmodo2;
+    LinEstado:='D'+lin;
+    LinEstadoGen:=xestado;
+
+    if (NumPaso=4) then begin
+      // Checa Comandos
+      if swcierrabd then begin
+        Esperamiliseg(300);
+        swcierrabd:=false;
+      end;
+      for k:=1 to 200 do begin
+        claveCmnd:=k;
+        if (TabCmnd[claveCmnd].SwActivo)and(not TabCmnd[claveCmnd].SwResp) then begin
+          SwAplicaCmnd:=true;
+          ss:=ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,1,' ');
+          AgregaLog(TabCmnd[claveCmnd].Comando);
+          // ORDENA CARGA DE COMBUSTIBLE EN IMPORTE
+          if ss='OCC' then begin     // OCC POSCARGA IMPORTE COMBUSTIBLE TIPOVENTA FINVENTA BOUCHER
+            SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            xpos:=SnPosCarga;
             rsp:='OK';
             if (SnPosCarga in [1..MaxPosCarga]) then begin
               if (TPosCarga[SnPosCarga].estatus in [1,3])or(TPosCarga[SnPosCarga].SwOCC) then begin
@@ -1217,6 +1376,8 @@ begin
                 if (TPosCarga[SnPosCarga].estatus in [1,3])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
                   TPosCarga[SnPosCarga].SwOCC:=true;
                   TPosCarga[SnPosCarga].SwCmndB:=false;
+                  TPosCarga[SnPosCarga].HoraOcc:=Now; // Added HoraOcc update
+                  
                   if TPosCarga[SnPosCarga].ContOCC=0 then
                     TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
                   else begin
@@ -1225,14 +1386,10 @@ begin
                   end;
                   SwAplicaCmnd:=false;
                   try
-                    SnLitros:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
-                    SnImporte:=0;
-                    rsp:=ValidaCifra(SnLitros,4,0);
-                    if rsp='OK' then
-                      if (SnLitros<1) then
-                        rsp:='Valor en cero no permitido'
+                    SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
+                    rsp:=ValidaCifra(SnImporte,IfThen(UpperCase(Bennett8Digitos)='SI',6,4),2);
                   except
-                    rsp:='Error en Valor Litros';
+                    rsp:='Error en Importe';
                   end;
                   if rsp='OK' then begin
                     ss:=ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,4,' ');
@@ -1247,19 +1404,8 @@ begin
                     end;
                     if xp>0 then begin
                       TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
-                      if rsp='OK' then begin
-                        ss:='F'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000',SnLitros));
-                        ComandoConsolaBuff(ss,false);
-                        EsperaMiliSeg(300);
-                        TPosCarga[SnPosCarga].SwCmndF:=true;
-                        if Bennett8Digitos<>'Si' then
-                          SnImporte:=9999.99
-                        else
-                          SnImporte:=999999.99;
-
-                        SnLitros:=0;
+                      if rsp='OK' then
                         EnviaPreset(rsp,xcomb);
-                      end;
                     end
                     else rsp:='Combustible no existe en esta posicion';
                   end;
@@ -1273,113 +1419,215 @@ begin
             end
             else rsp:='Posicion de Carga no Existe';
           end
-          else rsp:='Posicion no Existe';
-        end
-        // ORDENA FIN DE VENTA
-        else if ss='FINV' then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          if (xpos<=MaximoDePosiciones) then begin
-            rsp:='OK';
-            if (xpos in [1..MaxPosCarga]) then begin
-              TPosCarga[xpos].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '),0);
-              if TPosCarga[xpos].Estatus in [7,8,1] then begin // EOT
-                if (not TPosCarga[xpos].swcargando) then begin
-                  ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
-                  ComandoConsolaBuff(ss,False);
+          // ORDENA CARGA DE COMBUSTIBLE EN LITROS
+          else if ss='OCL' then begin     // OCL POSCARGA LITROS COMBUSTIBLE TIPOVENTA FINVENTA BOUCHER
+            SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            xpos:=SnPosCarga;
+            if (xpos<=MaximoDePosiciones) then begin
+              rsp:='OK';
+              if (SnPosCarga in [1..MaxPosCarga]) then begin
+                if (TPosCarga[SnPosCarga].estatus in [1,3])or(TPosCarga[SnPosCarga].SwOCC) then begin
+                  // Valida que se haya aplicado el PRESET
+                  if TabCmnd[claveCmnd].SwNuevo then begin
+                    TPosCarga[SnPosCarga].SwOCC:=false;
+                    TabCmnd[claveCmnd].SwNuevo:=false;
+                  end;
+                  Swerr:=false;
+                  if (TPosCarga[SnPosCarga].SwOCC) then begin
+                    if (TPosCarga[SnPosCarga].SwCmndB) then begin
+                      if (TPosCarga[SnPosCarga].estatus in [1,3])and(TPosCarga[SnPosCarga].ContOCC>0) then begin
+                        TPosCarga[SnPosCarga].SwOCC:=false;
+                      end
+                      else if (TPosCarga[SnPosCarga].estatus in [1,3])and(TPosCarga[SnPosCarga].ContOCC<=0) then begin
+                        rsp:='Error al aplicar PRESET';
+                        TPosCarga[SnPosCarga].SwOCC:=false;
+                        TPosCarga[SnPosCarga].ContOCC:=0;
+                        Swerr:=true;
+                      end;
+                    end
+                    else SwAplicaCmnd:=false;
+                  end;
+                  if (TPosCarga[SnPosCarga].estatus in [1,3])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
+                    TPosCarga[SnPosCarga].SwOCC:=true;
+                    TPosCarga[SnPosCarga].SwCmndB:=false;
+                    TPosCarga[SnPosCarga].HoraOcc:=Now; // Added HoraOcc update
+                    
+                    if TPosCarga[SnPosCarga].ContOCC=0 then
+                      TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
+                    else begin
+                      dec(TPosCarga[SnPosCarga].ContOCC);
+                      esperamiliseg(500);
+                    end;
+                    SwAplicaCmnd:=false;
+                    try
+                      SnLitros:=StrToFLoat(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '));
+                      SnImporte:=0;
+                      rsp:=ValidaCifra(SnLitros,4,0);
+                      if rsp='OK' then
+                        if (SnLitros<1) then
+                          rsp:='Valor en cero no permitido'
+                    except
+                      rsp:='Error en Valor Litros';
+                    end;
+                    if rsp='OK' then begin
+                      ss:=ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,4,' ');
+                      if ss[1]='P' then begin
+                        delete(ss,1,1);
+                        xp:=StrToIntDef(ss,0);
+                        xcomb:=CombustibleEnPosicion(xpos,xp);
+                      end
+                      else begin
+                        xcomb:=StrToIntDef(ss,0);
+                        xp:=PosicionDeCombustible(xpos,xcomb);
+                      end;
+                      if xp>0 then begin
+                        TPosCarga[SnPosCarga].finventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,5,' '),0);
+                        if rsp='OK' then begin
+                          ss:='F'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000',SnLitros));
+                          ComandoConsolaBuff(ss,false);
+                          EsperaMiliSeg(300);
+                          TPosCarga[SnPosCarga].SwCmndF:=true;
+                          if Bennett8Digitos<>'Si' then
+                            SnImporte:=9999.99
+                          else
+                            SnImporte:=999999.99;
+
+                          SnLitros:=0;
+                          EnviaPreset(rsp,xcomb);
+                        end;
+                      end
+                      else rsp:='Combustible no existe en esta posicion';
+                    end;
+                  end;
+                  if (not SwAplicaCmnd)and(rsp<>'OK') then
+                     SwAplicaCmnd:=true;
                 end
-                else
-                  rsp:='Posicion no esta despachando';
+                else rsp:='Posicion de Carga no Disponible';
+                if SwAplicaCmnd then
+                  TPosCarga[SnPosCarga].SwOCC:=false;
               end
-              else begin // EOT
-                rsp:='Posicion aun no esta en fin de venta';
-              end;
+              else rsp:='Posicion de Carga no Existe';
             end
+            else rsp:='Posicion no Existe';
+          end
+          // ORDENA FIN DE VENTA
+          else if ss='FINV' then begin
+            xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            if (xpos<=MaximoDePosiciones) then begin
+              rsp:='OK';
+              if (xpos in [1..MaxPosCarga]) then begin
+                TPosCarga[xpos].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '),0);
+                if TPosCarga[xpos].Estatus in [7,8,1] then begin // EOT
+                  if (not TPosCarga[xpos].swcargando) then begin
+                    ss:='J'+IntToClaveNum(xpos,2); // Fin de Venta
+                    ComandoConsolaBuff(ss,False);
+                  end
+                  else
+                    rsp:='Posicion no esta despachando';
+                end
+                else begin // EOT
+                  rsp:='Posicion aun no esta en fin de venta';
+                end;
+              end
+              else rsp:='Posicion de Carga no Existe';
+            end
+            else rsp:='Posicion no Existe';
+          end
+          // ORDENA ESPERA FIN DE VENTA
+          else if ss='EFV' then begin
+            xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            rsp:='OK';
+            if (xpos in [1..MaxPosCarga]) then
+              if (TPosCarga[xpos].Estatus=5) then
+                TPosCarga[xpos].finventa:=1
+              else rsp:='Posicion debe estar Despachando'
             else rsp:='Posicion de Carga no Existe';
           end
-          else rsp:='Posicion no Existe';
-        end
-        // ORDENA ESPERA FIN DE VENTA
-        else if ss='EFV' then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          rsp:='OK';
-          if (xpos in [1..MaxPosCarga]) then
-            if (TPosCarga[xpos].Estatus=5) then
-              TPosCarga[xpos].finventa:=1
-            else rsp:='Posicion debe estar Despachando'
-          else rsp:='Posicion de Carga no Existe';
-        end
-        // CMND: DESAUTORIZA VENTA DE COMBUSTIBLE
-        else if (ss='DVC')or(ss='PARAR') then begin
-          rsp:='OK';
-          xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          if (xpos<=MaximoDePosiciones) then begin
-            if TPosCarga[xpos].ModoOpera='Normal' then begin
-              if Bennett8Digitos<>'Si' then
-                ComandoConsolaBuff('P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',9999.00)),false)
-              else
-                ComandoConsolaBuff('5'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('000000.00',999999.00)),false);
-            end;
-            ComandoConsolaBuff('E'+IntToClaveNum(xpos,2),false);
-            if TPosCarga[xpos].estatus=2 then
-              TPosCarga[xpos].tipopago:=0;
-            TPosCarga[xpos].PresetImpo:=0;
-            TPosCarga[xpos].PresetImpoN:=0;
-          end
-          else rsp:='Posicion no Existe';
-        end
-        else if (ss='REANUDAR') then begin
-          rsp:='OK';
-          xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          if xpos in [1..MaxPosCarga] then begin
-            if (TPosCarga[xpos].estatus in [6]) then begin
-              ComandoConsolaBuff('S'+IntToClaveNum(xpos,2),False);
-            end;
-          end;
-        end
-        else if (ss='TOTAL') then begin
-          SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-          xpos:=SnPosCarga;
-          rsp:='OK';
-          with TPosCarga[xpos] do begin
-            if estatus=1 then begin
-              if (SecondsBetween(Now,HoraTotales)>10) then begin
-                SwCargaTotales:=True;
-                TabCmnd[claveCmnd].SwNuevo:=false;
-                SwAplicaCmnd:=False;
-                ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
+          // CMND: DESAUTORIZA VENTA DE COMBUSTIBLE
+          else if (ss='DVC')or(ss='PARAR') then begin
+            rsp:='OK';
+            xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            if (xpos<=MaximoDePosiciones) then begin
+              if TPosCarga[xpos].ModoOpera='Normal' then begin
+                if Bennett8Digitos<>'Si' then
+                  ComandoConsolaBuff('P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',9999.00)),false)
+                else
+                  ComandoConsolaBuff('5'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('000000.00',999999.00)),false);
               end;
-              if not SwCargaTotales then begin
+              ComandoConsolaBuff('E'+IntToClaveNum(xpos,2),false);
+              if TPosCarga[xpos].estatus=2 then
+                TPosCarga[xpos].tipopago:=0;
+              TPosCarga[xpos].PresetImpo:=0;
+              TPosCarga[xpos].PresetImpoN:=0;
+            end
+            else rsp:='Posicion no Existe';
+          end
+          else if (ss='REANUDAR') then begin
+            rsp:='OK';
+            xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            if xpos in [1..MaxPosCarga] then begin
+              if (TPosCarga[xpos].estatus in [6]) then begin
+                ComandoConsolaBuff('S'+IntToClaveNum(xpos,2),False);
+              end;
+            end;
+          end
+          else if (ss='TOTAL') then begin
+            SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
+            xpos:=SnPosCarga;
+            rsp:='OK';
+            with TPosCarga[xpos] do begin
+              if estatus=1 then begin
+                if (SecondsBetween(Now,HoraTotales)>10) then begin
+                  SwCargaTotales:=True;
+                  TabCmnd[claveCmnd].SwNuevo:=false;
+                  SwAplicaCmnd:=False;
+                  ComandoConsolaBuff('N'+IntToClaveNum(xpos,2),false);
+                end;
+                if not SwCargaTotales then begin
+                  rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
+                                  FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
+                                  FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
+                  SwAplicaCmnd:=True;
+                end
+              end
+              else if (estatus=9) and (SecondsBetween(Now,HoraFinv)<=5) and (SecondsBetween(Now,HoraTotales)>30) then begin
+                TotalLitros[MangActual]:=TotalLitros[MangActual]+volumen;
+                HoraTotales:=Now;
                 rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
                                 FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
                 SwAplicaCmnd:=True;
               end
-            end
-            else if (estatus=9) and (SecondsBetween(Now,HoraFinv)<=5) and (SecondsBetween(Now,HoraTotales)>30) then begin
-              TotalLitros[MangActual]:=TotalLitros[MangActual]+volumen;
-              HoraTotales:=Now;
-              rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
-                              FormatFloat('0.000',ToTalLitros[2])+'|'+FormatoMoneda(ToTalLitros[2]*LPrecios[TComb[2]])+'|'+
-                              FormatFloat('0.000',ToTalLitros[3])+'|'+FormatoMoneda(ToTalLitros[3]*LPrecios[TComb[3]]);
-              SwAplicaCmnd:=True;
-            end
-            else
-              SwAplicaCmnd:=False;            
-          end;
-        end
-        else rsp:='Comando no Soportado o no Existe';
+              else
+                SwAplicaCmnd:=False;            
+            end;
+          end
+          else rsp:='Comando no Soportado o no Existe';
 
-        if SwAplicaCmnd then begin
-          TabCmnd[claveCmnd].SwNuevo:=false;
-          TabCmnd[claveCmnd].SwResp:=true;
-          TabCmnd[claveCmnd].Respuesta:=rsp;
-          AgregaLogPetRes('C '+LlenaStr(TabCmnd[claveCmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[claveCmnd].Respuesta);
+          if SwAplicaCmnd then begin
+            TabCmnd[claveCmnd].SwNuevo:=false;
+            TabCmnd[claveCmnd].SwResp:=true;
+            TabCmnd[claveCmnd].Respuesta:=rsp;
+            AgregaLogPetRes('C '+LlenaStr(TabCmnd[claveCmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[claveCmnd].Respuesta);
+          end;
         end;
       end;
-    end;
 
-    if not SwEsperaRsp then
-      NumPaso:=1;
+      if not SwEsperaRsp then
+        NumPaso:=1;
+    end;
+  finally
+    // Ensure socket response is handled after processing line
+    try
+      if xTurnoSocket=3 then
+        Responder(TlkJSON.GenerateText(rootJSON));
+    except
+      on e:Exception do begin
+        AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
+        Timer1.Enabled:=False;
+        Timer2.Enabled:=True;
+      end;
+    end;
   end;
 end;
 
@@ -1546,12 +1794,12 @@ begin
   end;
 end;
 
-function Togcvdispensarios_bennett.Iniciar: string;
+procedure Togcvdispensarios_bennett.Iniciar(folio:Integer);
 begin
   try
     if (not pSerial.Open) then begin
       if (estado=-1) then begin
-        Result:='False|No se han recibido los parametros de inicializacion|';
+        AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
         Exit;
       end
       else if detenido then
@@ -1561,35 +1809,39 @@ begin
     detenido:=False;
     estado:=1;
     Timer1.Enabled:=True;
+    Timer2.Enabled:=False;
     numPaso:=0;
-
-    Result:='True|';
+    SetEstadoJSON(estado);
+    
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|'+e.Message+'|';
+      AddPeticionJSON(folio, 'False|'+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Detener: string;
+procedure Togcvdispensarios_bennett.Detener(folio:Integer);
 begin
   try
     if estado=-1 then begin
-      Result:='False|El proceso no se ha iniciado aun|';
+      AddPeticionJSON(folio, 'False|El proceso no se ha iniciado aun|');
       Exit;
     end;
 
     if not detenido then begin
       pSerial.Open:=False;
       Timer1.Enabled:=False;
+      Timer2.Enabled:=True;
       detenido:=True;
       estado:=0;
-      Result:='True|';
+      SetEstadoJSON(estado);
+      AddPeticionJSON(folio, 'True|');
     end
     else
-      Result:='False|El proceso ya habia sido detenido|'
+      AddPeticionJSON(folio, 'False|El proceso ya habia sido detenido|')
   except
     on e:Exception do
-      Result:='False|'+e.Message+'|';
+      AddPeticionJSON(folio, 'False|'+e.Message+'|');
   end;
 end;
 
@@ -1598,79 +1850,87 @@ begin
   Result:='True|'+IntToStr(estado)+'|';
 end;
 
-function Togcvdispensarios_bennett.GuardarLog:string;
+procedure Togcvdispensarios_bennett.GuardarLog(folio:Integer);
 begin
   try
     AgregaLog('Version: '+version);
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-    GuardarLogPetRes;
+    GuardarLogPetRes(0);
     GuardaLogComandos;
-    Result:='True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt';
+    if folio>0 then
+      AddPeticionJSON(folio, 'True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      if folio>0 then AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.GuardarLogPetRes:string;
+procedure Togcvdispensarios_bennett.GuardarLogPetRes(folio:Integer);
 begin
   try
     AgregaLogPetRes('Version: '+version);
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-    Result:='True|';
+    if folio>0 then
+      AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      if folio>0 then AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.ObtenerLog(r: Integer): string;
+procedure Togcvdispensarios_bennett.ObtenerLog(folio:Integer; r: Integer);
 var
   i:Integer;
+  res:string;
 begin
   if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
+    AddPeticionJSON(folio, 'False|No se indico el numero de registros|');
     Exit;
   end;
 
   if ListaLog.Count<1 then begin
-    Result:='False|No hay registros en el log|';
+    AddPeticionJSON(folio, 'False|No hay registros en el log|');
     Exit;
   end;
 
   i:=ListaLog.Count-(r+1);
   if i<1 then i:=0;
 
-  Result:='True|';
+  res:='True|';
 
   for i:=i to ListaLog.Count-1 do
-    Result:=Result+ListaLog[i]+'|';
+    res:=res+ListaLog[i]+'|';
+    
+  AddPeticionJSON(folio, res);
 end;
 
-function Togcvdispensarios_bennett.ObtenerLogPetRes(r: Integer): string;
+procedure Togcvdispensarios_bennett.ObtenerLogPetRes(folio:Integer; r: Integer);
 var
   i:Integer;
+  res:string;
 begin
   if r=0 then begin
-    Result:='False|No se indico el numero de registros|';
+    AddPeticionJSON(folio, 'False|No se indico el numero de registros|');
     Exit;
   end;
 
   if ListaLogPetRes.Count<1 then begin
-    Result:='False|No hay registros en el log de peticiones|';
+    AddPeticionJSON(folio, 'False|No hay registros en el log de peticiones|');
     Exit;
   end;
 
   i:=ListaLogPetRes.Count-(r+1);
   if i<1 then i:=0;
 
-  Result:='True|';
+  res:='True|';
 
   for i:=i to ListaLogPetRes.Count-1 do
-    Result:=Result+ListaLogPetRes[i]+'|';
+    res:=res+ListaLogPetRes[i]+'|';
+    
+  AddPeticionJSON(folio, res);
 end;
 
-function Togcvdispensarios_bennett.AutorizarVenta(msj: string): string;
+procedure Togcvdispensarios_bennett.AutorizarVenta(folio:Integer; msj: string);
 var
   cmd,cantidad,posCarga,comb,finv:string;
 begin
@@ -1685,14 +1945,14 @@ begin
       cantidad:=ExtraeElemStrSep(msj,3,'|');
     end
     else begin
-      Result:='False|Favor de indicar la cantidad que se va a despachar|';
+      AddPeticionJSON(folio, 'False|Favor de indicar la cantidad que se va a despachar|');
       Exit;
     end;
 
     posCarga:=ExtraeElemStrSep(msj,1,'|');
 
     if posCarga='' then begin
-      Result:='False|Favor de indicar la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar la posicion de carga|');
       Exit;
     end;
 
@@ -1708,10 +1968,10 @@ begin
     else
       finv:='0';
 
-    Result:='True|'+IntToStr(EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv))+'|';
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv))+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
@@ -1737,13 +1997,13 @@ begin
   end;
 end;
 
-function Togcvdispensarios_bennett.RespuestaComando(msj: string): string;
+procedure Togcvdispensarios_bennett.RespuestaComando(folio:Integer; msj: string);
 var
   resp:string;
 begin
   try
     if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente el numero de folio de comando|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente el numero de folio de comando|');
       Exit;
     end;
 
@@ -1754,54 +2014,54 @@ begin
         resp:=copy(resp,3,Length(resp)-2)+'|'
       else
         resp:='';
-      Result:='True|'+resp;
+      AddPeticionJSON(folio, 'True|'+resp);
     end
     else
-      Result:='False|'+resp+'|';
+      AddPeticionJSON(folio, 'False|'+resp+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.DetenerVenta(msj: string): string;
+procedure Togcvdispensarios_bennett.DetenerVenta(folio:Integer; msj: string);
 begin
   try
     if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
-    Result:='True|'+IntToStr(EjecutaComando('DVC '+msj))+'|';
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('DVC '+msj))+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.ReanudarVenta(msj: string): string;
+procedure Togcvdispensarios_bennett.ReanudarVenta(folio:Integer; msj: string);
 begin
   try
     if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
-    Result:='True|'+IntToStr(EjecutaComando('REANUDAR '+msj))+'|';
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('REANUDAR '+msj))+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.ActivaModoPrepago(msj: string): string;
+procedure Togcvdispensarios_bennett.ActivaModoPrepago(folio:Integer; msj: string);
 var
   xpos:Integer;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
     if xpos=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
@@ -1812,21 +2072,21 @@ begin
     else if (xpos in [1..maxposcarga]) then
       TPosCarga[xpos].ModoOpera:='Prepago';
 
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.DesactivaModoPrepago(msj: string): string;
+procedure Togcvdispensarios_bennett.DesactivaModoPrepago(folio:Integer; msj: string);
 var
   xpos:Integer;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
     if xpos=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
@@ -1837,25 +2097,25 @@ begin
     else if (xpos in [1..maxposcarga]) then
       TPosCarga[xpos].ModoOpera:='Prepago';
 
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;                                                     
 
-function Togcvdispensarios_bennett.FinVenta(msj: string): string;
+procedure Togcvdispensarios_bennett.FinVenta(folio:Integer; msj: string);
 begin
   try
     if StrToIntDef(msj,-1)=-1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
-    Result:='True|'+IntToStr(EjecutaComando('FINV '+msj))+'|';
+    AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando('FINV '+msj))+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
@@ -1910,7 +2170,7 @@ begin
   end;
 end;
 
-function Togcvdispensarios_bennett.TotalesBomba(msj: string): string;
+procedure Togcvdispensarios_bennett.TotalesBomba(folio:Integer; msj: string);
 var
   xpos,xfolioCmnd:Integer;
   valor:string;
@@ -1918,7 +2178,7 @@ begin
   try
     xpos:=StrToIntDef(msj,-1);
     if xpos<1 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
@@ -1926,24 +2186,24 @@ begin
 
     valor:=IfThen(xfolioCmnd>0, 'True', 'False');
 
-    Result:=valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|';
+    AddPeticionJSON(folio, valor+'|0|0|0|0|0|0|'+IntToStr(xfolioCmnd)+'|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Shutdown: string;
+procedure Togcvdispensarios_bennett.Shutdown(folio:Integer);
 begin
   if estado>0 then
-    Result:='False|El servicio esta en proceso, no fue posible detenerlo|'
+    AddPeticionJSON(folio, 'False|El servicio esta en proceso, no fue posible detenerlo|')
   else begin
     ServiceThread.Terminate;
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Bloquear(msj: string): string;
+procedure Togcvdispensarios_bennett.Bloquear(folio:Integer; msj: string);
 var
   xpos:Integer;
 begin
@@ -1951,7 +2211,7 @@ begin
     xpos:=StrToIntDef(msj,-1);
 
     if xpos<0 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
@@ -1960,28 +2220,28 @@ begin
         if not ContieneChar(LinEstadoGen,'2') then begin
           for xpos:=1 to MaxPosCarga do
             TPosCarga[xpos].SwDesHabilitado:=True;
-          Result:='True|';
+          AddPeticionJSON(folio, 'True|');
         end
         else
-          Result:='False|Existen posiciones cargando combustible|';
+          AddPeticionJSON(folio, 'False|Existen posiciones cargando combustible|');
       end
       else if (xpos in [1..maxposcarga]) then begin
         if not TPosCarga[xpos].swcargando then begin
           TPosCarga[xpos].SwDesHabilitado:=True;
-          Result:='True|';
+          AddPeticionJSON(folio, 'True|');
         end
         else
-          Result:='False|Posicion esta cargando combustible|';
+          AddPeticionJSON(folio, 'False|Posicion esta cargando combustible|');
       end;
     end
-    else Result:='False|Posicion no Existe|';
+    else AddPeticionJSON(folio, 'False|Posicion no Existe|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Desbloquear(msj: string): string;
+procedure Togcvdispensarios_bennett.Desbloquear(folio:Integer; msj: string);
 var
   xpos:Integer;
 begin
@@ -1989,7 +2249,7 @@ begin
     xpos:=StrToIntDef(msj,-1);
 
     if xpos<0 then begin
-      Result:='False|Favor de indicar correctamente la posicion de carga|';
+      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
       Exit;
     end;
 
@@ -1997,30 +2257,30 @@ begin
       if xpos=0 then begin
         for xpos:=1 to MaxPosCarga do
           TPosCarga[xpos].SwDesHabilitado:=False;
-        Result:='True|';
+        AddPeticionJSON(folio, 'True|');
       end
       else if (xpos in [1..maxposcarga]) then begin
         TPosCarga[xpos].SwDesHabilitado:=False;
-        Result:='True|';
+        AddPeticionJSON(folio, 'True|');
       end;
     end
-    else Result:='False|Posicion no Existe|';
+    else AddPeticionJSON(folio, 'False|Posicion no Existe|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Inicializar(msj: string): string;
+procedure Togcvdispensarios_bennett.Inicializar(folio:Integer; msj: string);
 var
   js: TlkJSONBase;
   consolas,dispensarios,productos: TlkJSONbase;
   i,productID: Integer;
-  datosPuerto, variables, variable:string;
+  datosPuerto, variables, variable, resultado:string; // Added 'resultado' variable
 begin
   try
     if estado>-1 then begin
-      Result:='False|El servicio ya habia sido inicializado|';
+      AddPeticionJSON(folio, 'False|El servicio ya habia sido inicializado|');
       Exit;
     end;
 
@@ -2044,24 +2304,28 @@ begin
 
     datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
 
-    Result:=IniciaPSerial(datosPuerto);
+    resultado:=IniciaPSerial(datosPuerto); // Replaced Result with resultado
 
-    if Result<>'' then
+    if resultado<>'' then begin
+      AddPeticionJSON(folio, resultado);
       Exit;
+    end;
 
     dispensarios := js.Field['Dispensers'];
 
-    Result:=AgregaPosCarga(dispensarios);
+    resultado:=AgregaPosCarga(dispensarios); // Replaced Result with resultado
 
-    if Result<>'' then
+    if resultado<>'' then begin
+      AddPeticionJSON(folio, resultado);
       Exit;
+    end;
 
     productos := js.Field['Products'];
 
     for i:=0 to productos.Count-1 do begin
       productID:=productos.Child[i].Field['ProductId'].Value;
       if productos.Child[i].Field['Price'].Value<0 then begin
-        Result:='False|El precio '+IntToStr(productID)+' es incorrecto|';
+        AddPeticionJSON(folio, 'False|El precio '+IntToStr(productID)+' es incorrecto|');
         Exit;
       end;
       LPrecios[productID]:=productos.Child[i].Field['Price'].Value;    
@@ -2069,26 +2333,29 @@ begin
     PreciosInicio:=False;
     estado:=0;
     SwBcc:=false;
-    Result:='True|';
+    
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
-function Togcvdispensarios_bennett.Terminar: string;
+procedure Togcvdispensarios_bennett.Terminar(folio:Integer);
 begin
   if estado>0 then
-    Result:='False|El servicio no esta detenido, no es posible terminar la comunicacion|'
+    AddPeticionJSON(folio, 'False|El servicio no esta detenido, no es posible terminar la comunicacion|')
   else begin
     Timer1.Enabled:=False;
+    Timer2.Enabled:=False;
     pSerial.Open:=False;
     LPrecios[1]:=0;
     LPrecios[2]:=0;
     LPrecios[3]:=0;
     LPrecios[4]:=0;
     estado:=-1;
-    Result:='True|';
+    SetEstadoJSON(estado);
+    AddPeticionJSON(folio, 'True|');
   end;
 end;
 
@@ -2106,17 +2373,17 @@ begin
   aCrc.Destroy;
 end;
 
-function Togcvdispensarios_bennett.Login(mensaje: string): string;
+procedure Togcvdispensarios_bennett.Login(folio:Integer; mensaje: string);
 var
   usuario,password:string;
 begin
   usuario:=ExtraeElemStrSep(mensaje,1,'|');
   password:=ExtraeElemStrSep(mensaje,2,'|');
   if MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now))<>password then
-    Result:='False|Password invalido|'
+    AddPeticionJSON(folio, 'False|Password invalido|')
   else begin
     Token:=MD5(usuario+'|'+FormatDateTime('yyyy-mm-dd',Date)+'T'+FormatDateTime('hh:nn',Now));
-    Result:='True|'+Token+'|';
+    AddPeticionJSON(folio, 'True|'+Token+'|');
   end;
 end;
 
@@ -2132,7 +2399,7 @@ begin
   idmd5.Destroy;
 end;
 
-function Togcvdispensarios_bennett.Parametros(json: string): string;
+procedure Togcvdispensarios_bennett.Parametros(folio:Integer; json: string);
 var 
   js: TlkJSONBase;
 begin
@@ -2140,19 +2407,19 @@ begin
     js := TlkJSON.ParseText(json);
     if js.Field['CounterToPaySale'].Value>0 then
       SegundosFinv := js.Field['CounterToPaySale'].Value;
-    Result:='True|';
+    AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do begin
       SegundosFinv:=30;
-      Result:='False|Excepcion: '+e.Message+'|';
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
     end;
   end;
 end;
 
-function Togcvdispensarios_bennett.Logout: string;
+procedure Togcvdispensarios_bennett.Logout(folio:Integer);
 begin
   Token:='';
-  Result:='True|';
+  AddPeticionJSON(folio, 'True|');
 end;
 
 procedure Togcvdispensarios_bennett.IniciarPrecios;

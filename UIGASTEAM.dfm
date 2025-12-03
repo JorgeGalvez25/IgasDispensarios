@@ -6,20 +6,12 @@ object ogcvdispensarios_team: Togcvdispensarios_team
   Top = 2
   Height = 203
   Width = 213
-  object ServerSocket1: TServerSocket
-    Active = False
-    Port = 1001
-    ServerType = stNonBlocking
-    OnClientRead = ServerSocket1ClientRead
-    Left = 34
-    Top = 32
-  end
   object pSerial: TApdComPort
     TraceName = 'APRO.TRC'
     LogName = 'APRO.LOG'
     OnTriggerAvail = pSerialTriggerAvail
-    Left = 99
-    Top = 30
+    Left = 125
+    Top = 31
   end
   object Timer1: TTimer
     Enabled = False
@@ -27,5 +19,21 @@ object ogcvdispensarios_team: Togcvdispensarios_team
     OnTimer = Timer1Timer
     Left = 47
     Top = 96
+  end
+  object ClientSocket1: TClientSocket
+    Active = False
+    ClientType = ctNonBlocking
+    Port = 0
+    OnConnect = ClientSocket1Connect
+    OnDisconnect = ClientSocket1Disconnect
+    OnRead = ClientSocket1Read
+    Left = 56
+    Top = 28
+  end
+  object Timer2: TTimer
+    Interval = 200
+    OnTimer = Timer2Timer
+    Left = 125
+    Top = 109
   end
 end
