@@ -500,8 +500,8 @@ begin
         xc:=0;
       DivImporte:=WtwDivImporte;
       DivLitros:=WtwDivLitros;
-      estatus:=-1;
-      estatusant:=-1;
+      estatus:=0;
+      estatusant:=0;
       HoraOcc:=0;
       NoComb:=0;
       SwPreset:=false;
