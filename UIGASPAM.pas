@@ -143,6 +143,7 @@ type
     procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure SetEstadoJSON(const AEstado: Integer);
+    procedure ApplyTotalLitrosToJSON(const xpos: Integer; const TotalLitros: array of Real);
     
     { Public declarations }
   end;
@@ -1233,6 +1234,7 @@ begin
                      end;
                    end;
                  end;
+                 ApplyTotalLitrosToJSON(xpos,TotalLitros);
                end;
              end;
            except
@@ -1249,6 +1251,7 @@ begin
                    SwTotales[i]:=false;
                    TotalLitros[i]:=StrToFloat(copy(lin,6,10))/100;
                  end;
+                 ApplyTotalLitrosToJSON(xpos,TotalLitros);
                end;
              end;
            except
@@ -2829,6 +2832,43 @@ begin
     ComandoConsola(ss)
   else
     ListaCmnd.Add(ss);
+end;
+
+procedure Togcvdispensarios_pam.ApplyTotalLitrosToJSON(const xpos: Integer;
+  const TotalLitros: array of Real);
+var
+  posCargaList : TlkJSONlist;
+  hosesList    : TlkJSONlist;
+  posObj       : TlkJSONobject;
+  hoseObj      : TlkJSONobject;
+  totalNode    : TlkJSONbase;
+  hoseIdx      : Integer;
+  posIndex0    : Integer;
+begin
+  posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
+  if posCargaList = nil then
+    Exit;
+
+  posIndex0 := xpos - 1;
+  if (posIndex0 < 0) or (posIndex0 >= posCargaList.Count) then
+    Exit;
+
+  posObj   := TlkJSONobject(posCargaList.Child[posIndex0]);
+  hosesList := posObj.Field['Hoses'] as TlkJSONlist;
+  if hosesList = nil then
+    Exit;
+
+  for hoseIdx := 0 to hosesList.Count - 1 do
+  begin
+    if hoseIdx > High(TotalLitros) then
+      Break;
+
+    hoseObj := TlkJSONobject(hosesList.Child[hoseIdx]);
+
+    totalNode := hoseObj.Field['Total'];
+    if totalNode <> nil then
+      totalNode.Value := TotalLitros[hoseIdx];
+  end;
 end;
 
 end.

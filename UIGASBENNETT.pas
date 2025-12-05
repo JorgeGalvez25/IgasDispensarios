@@ -132,6 +132,7 @@ type
     procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure SetEstadoJSON(const AEstado: Integer);
+    procedure ApplyTotalLitrosToJSON(const xpos: Integer; const TotalLitros: array of Real);
     
     { Public declarations }
   end;
@@ -155,7 +156,7 @@ type
        SwDesp,SwA,SwPrec   :boolean;
        HoraFinv,
        Hora,
-       HoraOcc      :TDateTime; // Added HoraOcc here
+       HoraOcc      :TDateTime;
        SwInicio,
        SwInicio2    :boolean;
        SwCargaTotales:boolean;
@@ -261,7 +262,7 @@ begin
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     
-    // Changed to match Wayne's socket config
+    // Socket config
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
     ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     
@@ -303,7 +304,7 @@ begin
 end;
 
 // =============================================================================
-// SOCKET AND JSON HANDLING (NEW)
+// SOCKET AND JSON HANDLING
 // =============================================================================
 
 procedure Togcvdispensarios_bennett.ClientSocket1Connect(Sender: TObject;
@@ -512,13 +513,56 @@ begin
 
       Exit;
     end;
-
-    // AgregaLog('DispenserId no encontrado en PosCarga.'); // Optional logging
   except
     on e:Exception do begin
       AgregaLog('Error ActualizaCampoJSON: '+e.Message+'|');
       GuardarLog(0);
     end;
+  end;
+end;
+
+procedure Togcvdispensarios_bennett.ApplyTotalLitrosToJSON(
+  const xpos: Integer; const TotalLitros: array of Real);
+var
+  posCargaList : TlkJSONlist;
+  hosesList    : TlkJSONlist;
+  posObj       : TlkJSONobject;
+  hoseObj      : TlkJSONobject;
+  totalNode    : TlkJSONbase;
+  hoseIdx      : Integer;
+  i            : Integer;
+begin
+  if rootJSON = nil then Exit;
+
+  posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
+  if posCargaList = nil then Exit;
+
+  // Search for the correct DispenserId
+  posObj := nil;
+  for i := 0 to posCargaList.Count - 1 do
+  begin
+    if TlkJSONObject(posCargaList.Child[i]).Field['DispenserId'].Value = xpos then
+    begin
+      posObj := TlkJSONObject(posCargaList.Child[i]);
+      Break;
+    end;
+  end;
+
+  if posObj = nil then Exit;
+
+  hosesList := posObj.Field['Hoses'] as TlkJSONlist;
+  if hosesList = nil then Exit;
+
+  for hoseIdx := 0 to hosesList.Count - 1 do
+  begin
+    // Check bounds of the incoming array
+    if hoseIdx > High(TotalLitros) then Break;
+
+    hoseObj := TlkJSONObject(hosesList.Child[hoseIdx]);
+
+    totalNode := hoseObj.Field['Total'];
+    if totalNode <> nil then
+      totalNode.Value := TotalLitros[hoseIdx];
   end;
 end;
 
@@ -571,7 +615,7 @@ begin
 end;
 
 // =============================================================================
-// ORIGINAL BENNETT LOGIC (Modified for JSON updates)
+// ORIGINAL BENNETT LOGIC
 // =============================================================================
 
 procedure Togcvdispensarios_bennett.AgregaLog(lin: string);
@@ -766,7 +810,7 @@ begin
       PresetComb:=0;
       SwPresetHora:=false;
       HoraTotales:=0;
-      HoraOcc:=0; // Initialized HoraOcc
+      HoraOcc:=0;
     end;
 
     // Build JSON Structure
@@ -1209,6 +1253,8 @@ begin
                  if TPos[j] in [1..4] then
                    TotalLitros[j]:=TotLts[TPos[j]];
                HoraTotales:=Now;
+
+               ApplyTotalLitrosToJSON(xpos, TotalLitros);
              end;
            end;
          end;
@@ -1218,11 +1264,12 @@ begin
       ListaCmnd.Delete(0);
       ComandoConsola(ss);
       exit;
-    end
-    else begin
-      inc(NumPaso);
-      PosicionActual:=0;
     end;
+    
+    // The rest of the state machine logic...
+    inc(NumPaso);
+    PosicionActual:=0;
+    
     // checa lecturas de dispensarios
     if NumPaso=2 then begin
       if PosicionActual<MaxPosCargaActiva then begin
@@ -1376,7 +1423,7 @@ begin
                 if (TPosCarga[SnPosCarga].estatus in [1,3])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
                   TPosCarga[SnPosCarga].SwOCC:=true;
                   TPosCarga[SnPosCarga].SwCmndB:=false;
-                  TPosCarga[SnPosCarga].HoraOcc:=Now; // Added HoraOcc update
+                  TPosCarga[SnPosCarga].HoraOcc:=Now;
                   
                   if TPosCarga[SnPosCarga].ContOCC=0 then
                     TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
@@ -1450,7 +1497,7 @@ begin
                   if (TPosCarga[SnPosCarga].estatus in [1,3])and(not TPosCarga[SnPosCarga].SwOCC)and(not swerr) then begin
                     TPosCarga[SnPosCarga].SwOCC:=true;
                     TPosCarga[SnPosCarga].SwCmndB:=false;
-                    TPosCarga[SnPosCarga].HoraOcc:=Now; // Added HoraOcc update
+                    TPosCarga[SnPosCarga].HoraOcc:=Now;
                     
                     if TPosCarga[SnPosCarga].ContOCC=0 then
                       TPosCarga[SnPosCarga].ContOCC:=BennetReintentosPreset
@@ -2276,7 +2323,7 @@ var
   js: TlkJSONBase;
   consolas,dispensarios,productos: TlkJSONbase;
   i,productID: Integer;
-  datosPuerto, variables, variable, resultado:string; // Added 'resultado' variable
+  datosPuerto, variables, variable, resultado:string;
 begin
   try
     if estado>-1 then begin
@@ -2304,7 +2351,7 @@ begin
 
     datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
 
-    resultado:=IniciaPSerial(datosPuerto); // Replaced Result with resultado
+    resultado:=IniciaPSerial(datosPuerto);
 
     if resultado<>'' then begin
       AddPeticionJSON(folio, resultado);
@@ -2313,7 +2360,7 @@ begin
 
     dispensarios := js.Field['Dispensers'];
 
-    resultado:=AgregaPosCarga(dispensarios); // Replaced Result with resultado
+    resultado:=AgregaPosCarga(dispensarios);
 
     if resultado<>'' then begin
       AddPeticionJSON(folio, resultado);
