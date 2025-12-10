@@ -1942,8 +1942,10 @@ begin
                       end;
                       if (EstatusAnt in [3,4])and(Estatus=1) then begin
                         swcargando:=false;
-                        if EsperaFinVenta=1 then
-                          Estatus:=4;
+                        if (EsperaFinVenta=1) and (volumen>0) then
+                          Estatus:=4
+                        else
+                          EsperaFinVenta:=0;
                       end;
                       if (estatusant = 0) and (estatus = 0) then
                       begin
