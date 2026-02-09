@@ -64,6 +64,7 @@ type
     DecimalesGilbarco: Integer;
     DigGilbarco: string;
     PermiteModoNormal: Boolean;
+    MapeoTotales:string;
 
     GtwDivPresetLts,        // Divisor preset litros           **
     GtwDivPresetPesos,      // Divisor preset pesos            **
@@ -116,6 +117,7 @@ type
 
     function CombustibleEnPosicion(xpos, xpc: integer): integer;
     function PosicionDeCombustible(xpos, xcomb: integer): integer;
+    function PosicionDeCombustibleTotales(xpos, xcomb: integer): integer;
     function CambiaPrecio6(xNPos, xNMang, xNPrec: integer; rPrecio: real): boolean;
     function CambiaPrecio8(xNPos, xNMang, xNPrec: integer; rPrecio: real): boolean;
     function DameTotales6(xNPos: integer; var rTotalizadorLitros1, rTotalizadorPesos1, rTotalizadorLitros2, rTotalizadorPesos2, rTotalizadorLitros3, rTotalizadorPesos3: real): boolean;
@@ -179,6 +181,7 @@ type
     HoraTotales: TDateTime;
     SinComunicacion: Boolean;
     HoraDesconexion: TDateTime;
+    TPosTotales: array[1..MCxP] of integer;
   end;
 
   RegCmnd = record
@@ -310,6 +313,7 @@ begin
     minutosLog := StrToInt(config.ReadString('CONF', 'MinutosLog', '0'));
     DigGilbarco := config.ReadString('CONF', 'DigitosGilbarco', '');
     PermiteModoNormal := config.ReadString('CONF', 'PermiteModoNormal', 'No') = 'Si';
+    MapeoTotales := config.ReadString('CONF', 'MapeoTotales', '');
     ListaCmnd := TStringList.Create;
     detenido := True;
     estado := -1;
@@ -1591,6 +1595,11 @@ begin
             else
               TPosx[NoComb] := 1;
 
+            if MapeoTotales<>'' then
+              TPosTotales[NoComb]:=StrToIntDef(ExtraeElemStrSep(ExtraeElemStrSep(MapeoTotales,xpos,';'),NoComb,','),TPosx[NoComb])
+            else
+              TPosTotales[NoComb]:=TPosx[NoComb];
+
             hoseObj := TlkJSONObject.Create;
             hoseObj.Add('HoseId', TMang[NoComb]);
             hoseObj.Add('ProductId', xcomb);
@@ -2254,7 +2263,7 @@ label
   L01;
 var
   xvolumen, n1, n2, n3: real;
-  xcomb, xpos, xp, xgrade, i, xsuma, estatusRecibido: integer;
+  xcomb, xpos, xp, xt, xgrade, i, xsuma, estatusRecibido: integer;
   xtotallitros: array[1..4] of real;
 begin
   try
@@ -2417,10 +2426,11 @@ begin
                           for i := 1 to nocomb do
                           begin
                             xcomb := Tcomb[i];
+                            xt := PosicionDeCombustibleTotales(PosCiclo, xcomb);
                             xp := PosicionDeCombustible(PosCiclo, xcomb);
                             if xp > 0 then
                             begin
-                              TotalLitros[xp] := xtotallitros[xp];
+                              TotalLitros[xt] := xtotallitros[xp];
                             end;
                           end;
                           ApplyTotalLitrosToJSON(PosCiclo, TotalLitros);
@@ -2437,10 +2447,11 @@ begin
                           for i := 1 to nocomb do
                           begin
                             xcomb := Tcomb[i];
+                            xt := PosicionDeCombustibleTotales(PosCiclo, xcomb);
                             xp := PosicionDeCombustible(PosCiclo, xcomb);
                             if xp > 0 then
                             begin
-                              TotalLitros[xp] := xtotallitros[xp];
+                              TotalLitros[xt] := xtotallitros[xp];
                             end;
                           end;
                           ApplyTotalLitrosToJSON(PosCiclo, TotalLitros);
@@ -3063,6 +3074,25 @@ procedure Togcvdispensarios_gilbarco2W.Logout(folio: Integer);
 begin
   Token := '';
   AddPeticionJSON(folio, 'True|')
+end;
+
+function Togcvdispensarios_gilbarco2W.PosicionDeCombustibleTotales(xpos,
+  xcomb: integer): integer;
+var
+  i: integer;
+begin
+  with TPosCarga[xpos] do
+  begin
+    result := 0;
+    if xcomb > 0 then
+    begin
+      for i := 1 to NoComb do
+      begin
+        if TComb[i] = xcomb then
+          result := TPosTotales[i];
+      end;
+    end;
+  end;
 end;
 
 end.
