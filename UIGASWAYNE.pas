@@ -973,7 +973,10 @@ begin
                  end;
                  estatusant:=estatus;
                  estatus:=StrToIntDef(ss[xpos],0);
-                 ActualizaCampoJSON(xpos,'Estatus',estatus);
+                 if (estatus = 3) and (swcargando) then
+                   ActualizaCampoJSON(xpos,'Estatus',2)
+                 else
+                   ActualizaCampoJSON(xpos,'Estatus',estatus);
                  if estatus=2 then begin
                    if not swcargando then
                      importeant:=0;
@@ -1220,6 +1223,8 @@ begin
                      ActualizaCampoJSON(xpos,'Volumen',volumen);
                      ActualizaCampoJSON(xpos,'Importe',importe);
                      ActualizaCampoJSON(xpos,'Precio',precio);
+                     if (estatus = 3) then
+                       ActualizaCampoJSON(xpos,'Estatus',estatus);
                    end;
                  except
                    if estatus<>2 then
@@ -2786,7 +2791,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0;
+    Timer2.Enabled := (not conectado) or (estado<=0);
   end;
 end;
 
