@@ -56,7 +56,7 @@ type
     SwEspera      :boolean;
     CmndNuevo     :Boolean;
     ContadorAlarma:Integer;
-    HoraEspera, HoraArranque  :TDateTime;
+    HoraEspera, HoraArranque, horaAct  :TDateTime;
     SwPasoBien :boolean;
     conectado, respJson:Boolean;
     rootJSON : TlkJSONbase;
@@ -449,6 +449,12 @@ begin
     AgregaLogPetRes('E '+resp);
   except
     on e:Exception do begin
+      AgregaLog('Se perdió comunicación con Bridge Responder');
+      GuardarLog(0);
+      conectado:=False;
+      ClientSocket1.Active:=False;
+      Timer1.Enabled:=False;
+      Timer2.Enabled:=True; 
       AgregaLogPetRes('False|Excepcion: '+e.Message+'|');
       GuardarLogPetRes(0);
     end;
@@ -1884,6 +1890,13 @@ var xvolumen,n1,n2,n3:real;
 begin
   try
     try
+      if SecondsBetween(Now,horaAct)>=2 then begin
+        conectado:=False;
+        ClientSocket1.Active:=False;
+        Timer1.Enabled:=False;
+        Timer2.Enabled:=True;
+      end;
+
       Inc(xTurnoSocket);
       if xTurnoSocket>3 then
         xTurnoSocket:=1;
@@ -2114,14 +2127,11 @@ begin
     end;
   finally
     try
-      if xTurnoSocket=3 then
+      if (conectado) and (xTurnoSocket=3) then
         Responder(TlkJSON.GenerateText(rootJSON));
     except
-      on e:Exception do begin
+      on e:Exception do
         AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
-        Timer1.Enabled:=False;
-        Timer2.Enabled:=True;
-      end;
     end;
   end;
 end;
@@ -2952,7 +2962,13 @@ begin
     try
       Timer2.Enabled:=False;
       if not conectado then begin
-        ClientSocket1.Active:=True;
+        socketResponse:=nil;
+        try
+          ClientSocket1.Active := False;
+        except
+        end;
+        Sleep(500);
+        ClientSocket1.Active := True;
         for i:=0 to 100 do begin
           Sleep(10);
           if conectado then Break;
@@ -2976,7 +2992,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0;
+    Timer2.Enabled := (not conectado) or (estado <= 0);
   end;
 end;
 
@@ -2984,12 +3000,14 @@ procedure Togcvdispensarios_wayne2w.ClientSocket1Connect(Sender: TObject;
   Socket: TCustomWinSocket);
 begin
   conectado:=True;
+  horaAct:=Now;
 end;
 
 procedure Togcvdispensarios_wayne2w.ClientSocket1Disconnect(
   Sender: TObject; Socket: TCustomWinSocket);
 begin
   conectado:=False;
+  socketResponse:=nil;
   Timer1.Enabled:=False;
   Timer2.Enabled:=True;
 end;
@@ -3002,6 +3020,7 @@ procedure Togcvdispensarios_wayne2w.ClientSocket1Read(Sender: TObject;
     metodoEnum:TMetodos;
 begin
   try
+    horaAct:=Now;
     mensaje:=Socket.ReceiveText;
     if mensaje<>'' then begin
       AgregaLogPetRes('R '+mensaje);

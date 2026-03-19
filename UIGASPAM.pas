@@ -55,9 +55,7 @@ type
     VersionPam1000,SetUpPAM1000:string;
     AjustePAM:Boolean;
     ValidaMang:Boolean;
-    
-    // JSON and Socket Control
-    xTurnoSocket:Integer;
+
     conectado, respJson:Boolean;
     rootJSON : TlkJSONbase;
     socketResponse : TCustomWinSocket;
@@ -83,6 +81,8 @@ type
     ListaComandos:TStringList;
     horaLog:TDateTime;
     minutosLog:Integer;
+    modoAuto:Boolean;
+    jsonInitialize:string;
     version:string;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
@@ -278,7 +278,9 @@ begin
     MapCombs:=config.ReadString('CONF','MapeoCombustibles','');
     LigaCombs:=config.ReadString('CONF','LigueCombustibles','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
-    
+    modoAuto:=Mayusculas(config.ReadString('CONF','modoAuto',''))='SI';
+    jsonInitialize:=config.ReadString('CONF','jsonInitialize','');
+
     ListaCmnd:=TStringList.Create;
     detenido:=True;
     estado:=-1;
@@ -292,16 +294,22 @@ begin
 
     ReautorizaPam:='No';
 
+    if (modoAuto) and (jsonInitialize<>'') then begin
+      Inicializar(0,jsonInitialize);
+      Iniciar(0);
+    end;
+
     while not Terminated do
       ServiceThread.ProcessRequests(True);
     ClientSocket1.Active := False;
+
   except
     on e:exception do begin
       ListaLog.Add('Error al iniciar servicio: '+e.Message);
       ListaLog.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
       GuardarLog(0);
       if ListaLogPetRes.Count>0 then
-        GuardarLogPetRes(0);      
+        GuardarLogPetRes(0);
     end;
   end;
 end;
@@ -338,7 +346,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0;
+    Timer2.Enabled := (not conectado) or (estado<=0);
   end;
 end;
 
@@ -370,12 +378,6 @@ begin
       AgregaLogPetRes('R '+mensaje);
 
       folio:=StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0);
-
-      // Wayne style message parsing: Folio|Target|Command|Params
-      if UpperCase(ExtraeElemStrSep(mensaje,2,'|'))<>'DISPENSERS' then begin
-        AddPeticionJSON(folio, 'False|Este servicio solo procesa solicitudes de dispensarios|');
-        Exit;
-      end;
 
       comando:=UpperCase(ExtraeElemStrSep(mensaje,3,'|'));
 
@@ -821,10 +823,6 @@ begin
       horaLog:=Now;
       GuardarLog(0);
     end;
-    
-    // Timer2 handles socket/JSON updates, but we also ensure turn rotation here if needed
-    Inc(xTurnoSocket);
-    if xTurnoSocket>3 then xTurnoSocket:=1;
 
     if LineaTimer='' then
       exit;
@@ -1686,16 +1684,7 @@ begin
     end;
   finally
     // Ensure we trigger socket response if on proper cycle
-    try
-      if xTurnoSocket=3 then
-        Responder(TlkJSON.GenerateText(rootJSON));
-    except
-      on e:Exception do begin
-        AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
-        Timer1.Enabled:=False;
-        Timer2.Enabled:=True;
-      end;
-    end;
+
   end;
 end;
 
@@ -2183,60 +2172,72 @@ var ss:string;
 //    i:integer;
 begin
   try
-    if NumPaso>4 then
-      NumPaso:=0;  
-    if NumPaso>1 then begin
-      if NumPaso=2 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso2);     // espera hasta 5 ciclos
-        if ContEsperaPaso2>MaxEspera2 then begin
-          ContEsperaPaso2:=0;
-          LineaTimer:='.A00..';  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
+    try
+      if NumPaso>4 then
+        NumPaso:=0;
+      if NumPaso>1 then begin
+        if NumPaso=2 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso2);     // espera hasta 5 ciclos
+          if ContEsperaPaso2>MaxEspera2 then begin
+            ContEsperaPaso2:=0;
+            LineaTimer:='.A00..';  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+          end;
         end;
-      end;
-      if NumPaso=3 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso3);     // espera hasta 5 ciclos
-        if ContEsperaPaso3>MaxEspera3 then begin
-          ContEsperaPaso3:=0;
-          LineaTimer:='.N00..';  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
+        if NumPaso=3 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso3);     // espera hasta 5 ciclos
+          if ContEsperaPaso3>MaxEspera3 then begin
+            ContEsperaPaso3:=0;
+            LineaTimer:='.N00..';  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+          end;
         end;
-      end;
-      if NumPaso=4 then begin // si esta en espera de respuesta ACK
-        inc(ContEsperaPaso4);     // espera hasta 5 ciclos
-        if ContEsperaPaso4>3 then begin
-          ContEsperaPaso4:=0;
-          LineaTimer:=idNak;  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
+        if NumPaso=4 then begin // si esta en espera de respuesta ACK
+          inc(ContEsperaPaso4);     // espera hasta 5 ciclos
+          if ContEsperaPaso4>3 then begin
+            ContEsperaPaso4:=0;
+            LineaTimer:=idNak;  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+          end;
         end;
-      end;
-      if NumPaso=5 then begin
-        inc(ContEsperaPaso5);     // espera hasta 5 ciclos
-        if ContEsperaPaso5>10 then begin
-          ContEsperaPaso5:=0;
-          LineaTimer:=idNak;  // de lo contrario provoca un NAK para que continue
-          ProcesaLinea;       // el proceso con la siguiente solicitud
+        if NumPaso=5 then begin
+          inc(ContEsperaPaso5);     // espera hasta 5 ciclos
+          if ContEsperaPaso5>10 then begin
+            ContEsperaPaso5:=0;
+            LineaTimer:=idNak;  // de lo contrario provoca un NAK para que continue
+            ProcesaLinea;       // el proceso con la siguiente solicitud
+          end;
         end;
-      end;
-      exit;
-    end;
-
-    // Espera en el paso 0 hasta que reciba respuesta
-    if NumPaso=1 then begin
-      inc(ContEspera1);
-      if ContEspera1>10 then
-        SwEsperaRsp:=False
-      else
         exit;
+      end;
+
+      // Espera en el paso 0 hasta que reciba respuesta
+      if NumPaso=1 then begin
+        inc(ContEspera1);
+        if ContEspera1>10 then
+          SwEsperaRsp:=False
+        else
+          exit;
+      end;
+
+      NumPaso:=1;
+      ss:='B00';
+
+      ContEspera1:=0;
+      ComandoConsolaBuff(ss);
+    except
+      AgregaLog('ERROR TIMER1');
     end;
-
-    NumPaso:=1;
-    ss:='B00';
-
-    ContEspera1:=0;
-    ComandoConsolaBuff(ss);
-  except
-    AgregaLog('ERROR TIMER1');
+  finally
+    try
+      Responder(TlkJSON.GenerateText(rootJSON));
+    except
+      on e:Exception do begin
+        AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
+        Timer1.Enabled:=False;
+        Timer2.Enabled:=True;
+      end;
+    end;
   end;
 end;
 
@@ -2588,11 +2589,17 @@ var
   consolas,dispensarios,productos: TlkJSONbase;
   i,productID: Integer;
   datosPuerto,json,variables,variable,resultado:string;
+  config:TIniFile;
 begin
   try
     if estado>-1 then begin
       AddPeticionJSON(folio, 'False|El servicio ya habia sido inicializado|');
       Exit;
+    end;
+
+    if (modoAuto) and (folio>0) then begin
+      config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
+      config.WriteString('CONF','jsonInitialize',msj);
     end;
 
     // Use parameters from Wayne style parsing if applicable, or parse raw msj
@@ -2658,7 +2665,8 @@ begin
     PreciosInicio:=False;
     estado:=0;
     SetEstadoJSON(estado);
-    AddPeticionJSON(folio, 'True|');
+    if folio>0 then
+      AddPeticionJSON(folio, 'True|');
   except
     on e:Exception do begin
       AgregaLog('Error Inicializar: '+e.Message);

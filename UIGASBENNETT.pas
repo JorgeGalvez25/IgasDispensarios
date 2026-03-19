@@ -49,7 +49,6 @@ type
     MaxPosCargaActiva:integer;
     SegundosFinv:Integer;
     MapCombs:string;
-    // JSON & Socket Variables
     conectado, respJson:Boolean;
     rootJSON : TlkJSONbase;
     socketResponse : TCustomWinSocket;
@@ -95,7 +94,6 @@ type
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
     
-    // Updated Signatures for JSON/ClientSocket operation
     procedure Inicializar(folio:Integer; msj:string);
     procedure Parametros(folio:Integer; json:string);
     procedure Login(folio:Integer; mensaje:string);
@@ -128,7 +126,6 @@ type
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;   
     
-    // Helper JSON methods
     procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure SetEstadoJSON(const AEstado: Integer);
@@ -261,8 +258,7 @@ begin
   try
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
-    
-    // Socket config
+
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
     ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     
@@ -272,8 +268,7 @@ begin
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     SwEsperaRsp:=false;
-    
-    // Socket initialization
+
     conectado:=False;
     ClientSocket1.Active:=True;
     
@@ -284,8 +279,7 @@ begin
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
-    
-    // JSON Initialization
+
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(estado);
 
@@ -302,10 +296,6 @@ begin
     end;
   end;
 end;
-
-// =============================================================================
-// SOCKET AND JSON HANDLING
-// =============================================================================
 
 procedure Togcvdispensarios_bennett.ClientSocket1Connect(Sender: TObject;
   Socket: TCustomWinSocket);
@@ -342,11 +332,6 @@ begin
 
         if parametro[Length(parametro)]='|' then
           Delete(parametro,Length(parametro),1);
-      end;
-
-      if UpperCase(ExtraeElemStrSep(mensaje,2,'|'))<>'DISPENSERS' then begin
-        AddPeticionJSON(folio, 'False|Este servicio solo procesa solicitudes de dispensarios|');
-        Exit;
       end;
 
       metodoEnum := TMetodos(GetEnumValue(TypeInfo(TMetodos), comando+'_e'));
@@ -537,7 +522,6 @@ begin
   posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
   if posCargaList = nil then Exit;
 
-  // Search for the correct DispenserId
   posObj := nil;
   for i := 0 to posCargaList.Count - 1 do
   begin
@@ -555,7 +539,6 @@ begin
 
   for hoseIdx := 0 to hosesList.Count - 1 do
   begin
-    // Check bounds of the incoming array
     if hoseIdx > High(TotalLitros) then Break;
 
     hoseObj := TlkJSONObject(hosesList.Child[hoseIdx]);
@@ -610,13 +593,9 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0;
+    Timer2.Enabled := (not conectado) or (estado<=0);
   end;
 end;
-
-// =============================================================================
-// ORIGINAL BENNETT LOGIC
-// =============================================================================
 
 procedure Togcvdispensarios_bennett.AgregaLog(lin: string);
 var lin2:string;
@@ -778,8 +757,7 @@ begin
       Exit;
     end;
     MaxPosCarga:=0;
-    
-    // Initialize Internal Arrays
+
     for i:=1 to 100 do with TPosCarga[i] do begin
       estatus:=-1;
       estatusant:=-1;
@@ -813,7 +791,6 @@ begin
       HoraOcc:=0;
     end;
 
-    // Build JSON Structure
     posArr := TlkJSONlist.Create;
 
     for i:=0 to posiciones.Count-1 do begin
@@ -826,9 +803,8 @@ begin
         SwA:=false;
         SwPrec:=false;
         existe:=false;
-        ModoOpera:='Prepago';
-        
-        // JSON Object Creation
+        ModoOpera:='Prepago'; 
+
         posObj := TlkJSONObject.Create;
         posObj.Add('DispenserId', xpos);
         posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
@@ -862,8 +838,7 @@ begin
               TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
               TPos[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
             end;
-            
-            // JSON Hose Object
+
             hoseObj := TlkJSONObject.Create;
             hoseObj.Add('HoseId',TMang[NoComb]);
             hoseObj.Add('ProductId', xcomb);
@@ -1044,10 +1019,6 @@ begin
                estatusant:=estatus;
                estatus:=StrToIntDef(sslin[xpos*2],0);
                
-               // *** JSON UPDATE ***
-               ActualizaCampoJSON(xpos, 'Estatus', estatus);
-               // *******************
-               
                if (estatus=0)and(stcero<=3) then begin
                  inc(stcero);
                  estatus:=estatusant;
@@ -1188,12 +1159,10 @@ begin
                    swcargando:=false;
                    swdesp:=true;
                  end;
-                 
-                 // *** JSON UPDATE ***
+
                  ActualizaCampoJSON(xpos, 'Volumen', volumen);
                  ActualizaCampoJSON(xpos, 'Importe', importe);
                  ActualizaCampoJSON(xpos, 'Precio', precio);
-                 // *******************
                except
                end;
              end;
@@ -1226,12 +1195,10 @@ begin
                      ComandoConsola(ss);
                    end;
                  end;
-                 
-                 // *** JSON UPDATE ***
+
                  ActualizaCampoJSON(xpos, 'Volumen', volumen);
                  ActualizaCampoJSON(xpos, 'Importe', importe);
                  ActualizaCampoJSON(xpos, 'Precio', precio);
-                 // *******************
                except
                end;
              end;
@@ -1265,8 +1232,7 @@ begin
       ComandoConsola(ss);
       exit;
     end;
-    
-    // The rest of the state machine logic...
+
     inc(NumPaso);
     PosicionActual:=0;
     
@@ -1358,14 +1324,15 @@ begin
         end;
       end
       else xestado:=xestado+'7'; // Deshabilitado
+
+      ActualizaCampoJSON(xpos, 'Estatus', Copy(xestado,xpos,1));
+
       xcomb:=CombustibleEnPosicion(xpos,PosActual);
       CombActual:=xcomb;
       MangActual:=MangueraEnPosicion(xpos,PosActual);
-      
-      // *** JSON UPDATE ***
+
       ActualizaCampoJSON(xpos, 'Combustible', CombActual);
       ActualizaCampoJSON(xpos, 'Manguera', MangActual);
-      // *******************
       
       ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
       ss:=ss+'/'+FormatFloat('###0.##',volumen);
@@ -1664,7 +1631,6 @@ begin
         NumPaso:=1;
     end;
   finally
-    // Ensure socket response is handled after processing line
     try
       if xTurnoSocket=3 then
         Responder(TlkJSON.GenerateText(rootJSON));
