@@ -463,7 +463,7 @@ begin
     AgregaLogPetRes('E '+resp);
   except
     on e:Exception do begin
-      AgregaLog('Se perdió comunicación con Bridge Responder');
+      AgregaLog('Se perdiï¿½ comunicaciï¿½n con Bridge Responder');
       GuardarLog(0);
       conectado:=False;
       ClientSocket1.Active:=False;
@@ -1645,16 +1645,38 @@ begin
                       TPosCarga[xpos].Estatus:=9;
                       EmuPos[xpos].PresetMonto:=ximporte;
                       EmuPos[xpos].PresetTipo:=1;
-                      EmuPos[xpos].CombVenta:=xcomb;
-                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then
-                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb]
-                      else
-                        EmuPos[xpos].PrecioVenta:=1;
+                      { Si combustible=0, usar el primero de la posicion }
+                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then begin
+                        EmuPos[xpos].CombVenta:=xcomb;
+                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb];
+                      end
+                      else if TPosCarga[xpos].NoComb > 0 then begin
+                        EmuPos[xpos].CombVenta:=TPosCarga[xpos].TComb[1];
+                        if (TPosCarga[xpos].TComb[1] in [1..4]) then
+                          EmuPos[xpos].PrecioVenta:=LPrecios[TPosCarga[xpos].TComb[1]]
+                        else
+                          EmuPos[xpos].PrecioVenta:=1;
+                      end
+                      else begin
+                        EmuPos[xpos].CombVenta:=1;
+                        EmuPos[xpos].PrecioVenta:=LPrecios[1];
+                      end;
                       EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
                       EmuPos[xpos].HoraTransic:=Now;
                       EmuPos[xpos].HoraUltTick:=Now;
+                      { Establecer posicion activa para totalizadores }
+                      if xp > 0 then
+                        TPosCarga[xpos].PosActual:=xp
+                      else if TPosCarga[xpos].NoComb > 0 then
+                        TPosCarga[xpos].PosActual:=TPosCarga[xpos].TPosx[1]
+                      else
+                        TPosCarga[xpos].PosActual:=1;
                       ActualizaCampoJSON(xpos,'Estatus',9);
-                      AgregaLog('EMU OCC Pos '+IntToStr(xpos)+' $'+FormatFloat('0.00',ximporte)+' Comb:'+IntToStr(xcomb));
+                      ActualizaCampoJSON(xpos,'Combustible',EmuPos[xpos].CombVenta);
+                      AgregaLog('EMU OCC Pos '+IntToStr(xpos)+
+                        ' $'+FormatFloat('0.00',ximporte)+
+                        ' Comb:'+IntToStr(EmuPos[xpos].CombVenta)+
+                        ' Precio:'+FormatFloat('0.00',EmuPos[xpos].PrecioVenta));
                     end
                     else begin
                       EsperaMiliseg(50);
@@ -1712,16 +1734,38 @@ begin
                       TPosCarga[xpos].Estatus:=9;
                       EmuPos[xpos].PresetMonto:=xlitros;
                       EmuPos[xpos].PresetTipo:=2;
-                      EmuPos[xpos].CombVenta:=xcomb;
-                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then
-                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb]
-                      else
-                        EmuPos[xpos].PrecioVenta:=1;
+                      { Si combustible=0, usar el primero de la posicion }
+                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then begin
+                        EmuPos[xpos].CombVenta:=xcomb;
+                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb];
+                      end
+                      else if TPosCarga[xpos].NoComb > 0 then begin
+                        EmuPos[xpos].CombVenta:=TPosCarga[xpos].TComb[1];
+                        if (TPosCarga[xpos].TComb[1] in [1..4]) then
+                          EmuPos[xpos].PrecioVenta:=LPrecios[TPosCarga[xpos].TComb[1]]
+                        else
+                          EmuPos[xpos].PrecioVenta:=1;
+                      end
+                      else begin
+                        EmuPos[xpos].CombVenta:=1;
+                        EmuPos[xpos].PrecioVenta:=LPrecios[1];
+                      end;
                       EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
                       EmuPos[xpos].HoraTransic:=Now;
                       EmuPos[xpos].HoraUltTick:=Now;
+                      { Establecer posicion activa para totalizadores }
+                      if xp > 0 then
+                        TPosCarga[xpos].PosActual:=xp
+                      else if TPosCarga[xpos].NoComb > 0 then
+                        TPosCarga[xpos].PosActual:=TPosCarga[xpos].TPosx[1]
+                      else
+                        TPosCarga[xpos].PosActual:=1;
                       ActualizaCampoJSON(xpos,'Estatus',9);
-                      AgregaLog('EMU OCL Pos '+IntToStr(xpos)+' '+FormatFloat('0.000',xlitros)+' lts Comb:'+IntToStr(xcomb));
+                      ActualizaCampoJSON(xpos,'Combustible',EmuPos[xpos].CombVenta);
+                      AgregaLog('EMU OCL Pos '+IntToStr(xpos)+
+                        ' '+FormatFloat('0.000',xlitros)+' lts'+
+                        ' Comb:'+IntToStr(EmuPos[xpos].CombVenta)+
+                        ' Precio:'+FormatFloat('0.00',EmuPos[xpos].PrecioVenta));
                     end
                     else begin
                       EsperaMiliseg(50);
