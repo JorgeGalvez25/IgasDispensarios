@@ -2117,22 +2117,28 @@ begin
         else if (ss = 'TOTAL') then
         begin
           xpos := StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 2, ' '), 0);
-          ;
           rsp := 'OK';
           with TPosCarga[xpos] do
           begin
-            if TabCmnd[xcmnd].SwNuevo then
+            if (estatus <> 1) then
             begin
-              swtotales := True;
-              TabCmnd[xcmnd].SwNuevo := false;
-            end;
-            if (not swtotales) or (SecondsBetween(Now, HoraTotales) <= 10) then
-            begin
-              rsp := 'OK' + FormatFloat('0.000', ToTalLitros[1]) + '|' + FormatoMoneda(ToTalLitros[1] * LPrecios[TComb[1]]) + '|' + FormatFloat('0.000', ToTalLitros[2]) + '|' + FormatoMoneda(ToTalLitros[2] * LPrecios[TComb[2]]) + '|' + FormatFloat('0.000', ToTalLitros[3]) + '|' + FormatoMoneda(ToTalLitros[3] * LPrecios[TComb[3]]) + '|';
+              rsp := 'Posicion no disponible';
               SwAplicaCmnd := True;
             end
-            else
-              SwAplicaCmnd := False;
+            else begin
+              if TabCmnd[xcmnd].SwNuevo then
+              begin
+                swtotales := True;
+                TabCmnd[xcmnd].SwNuevo := false;
+              end;
+              if (not swtotales) or (SecondsBetween(Now, HoraTotales) <= 10) then
+              begin
+                rsp := 'OK' + FormatFloat('0.000', ToTalLitros[1]) + '|' + FormatoMoneda(ToTalLitros[1] * LPrecios[TComb[1]]) + '|' + FormatFloat('0.000', ToTalLitros[2]) + '|' + FormatoMoneda(ToTalLitros[2] * LPrecios[TComb[2]]) + '|' + FormatFloat('0.000', ToTalLitros[3]) + '|' + FormatoMoneda(ToTalLitros[3] * LPrecios[TComb[3]]) + '|';
+                SwAplicaCmnd := True;
+              end
+              else
+                SwAplicaCmnd := False;
+            end;
           end;
         end
         else if (ss = 'CPREC') then
