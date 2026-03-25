@@ -59,6 +59,7 @@ type
     HoraEspera, HoraArranque, horaAct  :TDateTime;
     SwPasoBien :boolean;
     conectado, respJson:Boolean;
+    SwModoEmulacion:Boolean;
     rootJSON : TlkJSONbase;
     socketResponse : TCustomWinSocket;
     function  TransmiteComando1(DataBlock:string):boolean;
@@ -135,6 +136,7 @@ type
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure ApplyTotalLitrosToJSON(const xpos: Integer; const TotalLitros: array of Real);
     procedure SetEstadoJSON(const AEstado: Integer);
+    procedure AvanzaEmulacion;
     { Public declarations }
   end;
 
@@ -198,6 +200,17 @@ type
        Respuesta  :string[80];
      end;
 
+     { Datos de emulacion por posicion de carga }
+     TEmuPos = record
+       PresetMonto  : Real;      // Monto objetivo (importe o litros)
+       PresetTipo   : Integer;   // 1=importe, 2=litros, 0=libre
+       PrecioVenta  : Real;      // Precio por litro de la venta en curso
+       CombVenta    : Integer;   // Combustible de la venta
+       FlujoLps     : Real;      // Flujo simulado en litros/segundo
+       HoraUltTick  : TDateTime; // Hora del ultimo avance
+       HoraTransic  : TDateTime; // Hora de la ultima transicion de estado
+     end;
+
 type
   TMetodos = (
     NOTHING_e, INITIALIZE_e,PARAMETERS_e,
@@ -212,6 +225,7 @@ type
 var
   ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w;
   TPosCarga:array[1..100] of tiposcarga;
+  EmuPos:array[1..100] of TEmuPos;
   TabCmnd  :array[1..200] of RegCmnd;
   LPrecios  :array[1..4] of Double;
   StCiclo,
@@ -687,6 +701,7 @@ begin
     GtwTimeout:=1000;
     GtwTiempoCmnd:=1000;
     WtwPosIniExt:=999;
+    SwModoEmulacion:=False;
     for i:=1 to NoElemStrEnter(variables) do begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WTWDIVIMPORTE' then
@@ -698,24 +713,34 @@ begin
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='GTWTIEMPOCMND' then
         GtwTiempoCmnd:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0)
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WTWPOSINIEXT' then
-        WtwPosIniExt:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0);
+        WtwPosIniExt:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0)
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='MODOEMULACION' then
+        SwModoEmulacion:=UpperCase(ExtraeElemStrSep(variable,2,'='))='SI';
     end;
+
+    if SwModoEmulacion then
+      AgregaLog('*** MODO EMULACION ACTIVO ***');
 
     consolas := js.Field['Consoles'];
 
-    for i:=0 to consolas.Count-1 do begin
-      datosPuerto:=VarToStr(consolas.Child[i].Field['Connection'].Value);
+    { En modo emulacion no se abre el puerto serial }
+    if not SwModoEmulacion then begin
+      for i:=0 to consolas.Count-1 do begin
+        datosPuerto:=VarToStr(consolas.Child[i].Field['Connection'].Value);
 
-      if (i>0) and (WtwPosIniExt>0) then
-        resultado:=IniciaPSerial2(datosPuerto)
-      else
-        resultado:=IniciaPSerial(datosPuerto);
+        if (i>0) and (WtwPosIniExt>0) then
+          resultado:=IniciaPSerial2(datosPuerto)
+        else
+          resultado:=IniciaPSerial(datosPuerto);
 
-      if resultado<>'' then begin
-        AddPeticionJSON(folio, resultado);
-        Exit;
+        if resultado<>'' then begin
+          AddPeticionJSON(folio, resultado);
+          Exit;
+        end;
       end;
-    end;
+    end
+    else
+      AgregaLog('EMU: Puerto serial omitido');
 
     dispensarios := js.Field['Dispensers'];
 
@@ -1609,16 +1634,40 @@ begin
                     xp:=PosicionDeCombustible(xpos,xcomb);
                     TPosCarga[xpos].Esperafinventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                     // Preset Pesos
-                    EsperaMiliseg(50);
-                    if EnviaPresetPesosBomba(xpos,1,ximporte) then begin
+                    if SwModoEmulacion then begin
+                      // Emulacion: configurar preset sin puerto serial
                       TPosCarga[xpos].HoraOcc:=now;
                       TPosCarga[xpos].SwPreset:=true;
                       TPosCarga[xpos].SwPreset2:=true;
                       TPosCarga[xpos].PosPreset:=xp;
                       TPosCarga[xpos].TipoPreset:=1;
                       TPosCarga[xpos].ValorPreset:=ximporte;
+                      TPosCarga[xpos].Estatus:=9;
+                      EmuPos[xpos].PresetMonto:=ximporte;
+                      EmuPos[xpos].PresetTipo:=1;
+                      EmuPos[xpos].CombVenta:=xcomb;
+                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then
+                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb]
+                      else
+                        EmuPos[xpos].PrecioVenta:=1;
+                      EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
+                      EmuPos[xpos].HoraTransic:=Now;
+                      EmuPos[xpos].HoraUltTick:=Now;
+                      ActualizaCampoJSON(xpos,'Estatus',9);
+                      AgregaLog('EMU OCC Pos '+IntToStr(xpos)+' $'+FormatFloat('0.00',ximporte)+' Comb:'+IntToStr(xcomb));
                     end
-                    else rsp:='No se pudo prefijar';
+                    else begin
+                      EsperaMiliseg(50);
+                      if EnviaPresetPesosBomba(xpos,1,ximporte) then begin
+                        TPosCarga[xpos].HoraOcc:=now;
+                        TPosCarga[xpos].SwPreset:=true;
+                        TPosCarga[xpos].SwPreset2:=true;
+                        TPosCarga[xpos].PosPreset:=xp;
+                        TPosCarga[xpos].TipoPreset:=1;
+                        TPosCarga[xpos].ValorPreset:=ximporte;
+                      end
+                      else rsp:='No se pudo prefijar';
+                    end;
                     // Fin
                   end
                   else rsp:='Posicion de Carga no Disponible';
@@ -1652,16 +1701,40 @@ begin
                     xp:=PosicionDeCombustible(xpos,xcomb);
                     TPosCarga[xpos].Esperafinventa:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,5,' '),0);
                     // Preset Litros
-                    EsperaMiliseg(50);
-                    if EnviaPresetPesosBomba(xpos,1,xlitros) then begin
+                    if SwModoEmulacion then begin
+                      // Emulacion: configurar preset sin puerto serial
                       TPosCarga[xpos].HoraOcc:=now;
                       TPosCarga[xpos].SwPreset:=true;
                       TPosCarga[xpos].SwPreset2:=true;
                       TPosCarga[xpos].PosPreset:=xp;
                       TPosCarga[xpos].TipoPreset:=2;
                       TPosCarga[xpos].ValorPreset:=xlitros;
+                      TPosCarga[xpos].Estatus:=9;
+                      EmuPos[xpos].PresetMonto:=xlitros;
+                      EmuPos[xpos].PresetTipo:=2;
+                      EmuPos[xpos].CombVenta:=xcomb;
+                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then
+                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb]
+                      else
+                        EmuPos[xpos].PrecioVenta:=1;
+                      EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
+                      EmuPos[xpos].HoraTransic:=Now;
+                      EmuPos[xpos].HoraUltTick:=Now;
+                      ActualizaCampoJSON(xpos,'Estatus',9);
+                      AgregaLog('EMU OCL Pos '+IntToStr(xpos)+' '+FormatFloat('0.000',xlitros)+' lts Comb:'+IntToStr(xcomb));
                     end
-                    else rsp:='No se pudo prefijar';
+                    else begin
+                      EsperaMiliseg(50);
+                      if EnviaPresetPesosBomba(xpos,1,xlitros) then begin
+                        TPosCarga[xpos].HoraOcc:=now;
+                        TPosCarga[xpos].SwPreset:=true;
+                        TPosCarga[xpos].SwPreset2:=true;
+                        TPosCarga[xpos].PosPreset:=xp;
+                        TPosCarga[xpos].TipoPreset:=2;
+                        TPosCarga[xpos].ValorPreset:=xlitros;
+                      end
+                      else rsp:='No se pudo prefijar';
+                    end;
                     // Fin
                   end
                   else rsp:='Posicion de Carga no Disponible';
@@ -1677,20 +1750,37 @@ begin
           xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
           rsp:='OK';
           if (xpos in [1..MaxPosCarga]) then begin
-            if (TPosCarga[xpos].Estatus in [3,4]) then begin // EOT
-              if (not TPosCarga[xpos].swcargando) then
-                TPosCarga[xpos].esperafinventa:=0
-              else begin
-                if (TPosCarga[xpos].swcargando)and(TPosCarga[xpos].Estatus=1) then begin
-                  TPosCarga[xpos].swcargando:=false;
-                  TPosCarga[xpos].esperafinventa:=0;
-                  rsp:='OK';
-                end
-                else rsp:='Posicion no esta despachando';
-              end;
+            if SwModoEmulacion then begin
+              // Emulacion: transicionar a inactivo
+              if (TPosCarga[xpos].Estatus in [3,4]) then begin
+                TPosCarga[xpos].Estatus:=1;
+                TPosCarga[xpos].swcargando:=false;
+                TPosCarga[xpos].EsperaFinVenta:=0;
+                TPosCarga[xpos].SwPreset:=false;
+                TPosCarga[xpos].SwPreset2:=false;
+                EmuPos[xpos].PresetMonto:=0;
+                ActualizaCampoJSON(xpos,'Estatus',1);
+                AgregaLog('EMU FINV Pos '+IntToStr(xpos)+': Fin de Venta -> Inactivo');
+              end
+              else
+                rsp:='Posicion aun no esta en fin de venta';
             end
-            else  // EOT
-              rsp:='Posicion aun no esta en fin de venta';
+            else begin
+              if (TPosCarga[xpos].Estatus in [3,4]) then begin // EOT
+                if (not TPosCarga[xpos].swcargando) then
+                  TPosCarga[xpos].esperafinventa:=0
+                else begin
+                  if (TPosCarga[xpos].swcargando)and(TPosCarga[xpos].Estatus=1) then begin
+                    TPosCarga[xpos].swcargando:=false;
+                    TPosCarga[xpos].esperafinventa:=0;
+                    rsp:='OK';
+                  end
+                  else rsp:='Posicion no esta despachando';
+                end;
+              end
+              else  // EOT
+                rsp:='Posicion aun no esta en fin de venta';
+            end;
           end
           else rsp:='Posicion de Carga no Existe';
 
@@ -1710,15 +1800,53 @@ begin
           rsp:='OK';
           xpos:=strtointdef(ExtraeElemStrSep(scmnd,2,' '),0);
           if xpos in [1..MaxPosCarga] then begin
-            if (TPosCarga[xpos].estatus=2) then begin // despachando
-              if DetenerDespacho(xpos) then begin
-              end;
-            end
-            else if (TPosCarga[xpos].estatus=9) then begin // autorizado
-              if EnviaPresetPesosBomba(xpos,1,9999.99) then begin
+            if SwModoEmulacion then begin
+              // Emulacion: cambiar estatus directamente
+              if (TPosCarga[xpos].estatus=2) then begin
+                TPosCarga[xpos].Estatus:=8; // Detenida
+                ActualizaCampoJSON(xpos,'Estatus',8);
+                AgregaLog('EMU DVC Pos '+IntToStr(xpos)+': Despachando -> Detenida');
+              end
+              else if (TPosCarga[xpos].estatus=9) then begin
+                TPosCarga[xpos].Estatus:=1; // Cancelar autorizacion
                 TPosCarga[xpos].SwPreset:=false;
                 TPosCarga[xpos].SwPreset2:=false;
+                EmuPos[xpos].PresetMonto:=0;
+                ActualizaCampoJSON(xpos,'Estatus',1);
+                AgregaLog('EMU DVC Pos '+IntToStr(xpos)+': Autorizada -> Inactivo');
               end;
+            end
+            else begin
+              if (TPosCarga[xpos].estatus=2) then begin // despachando
+                if DetenerDespacho(xpos) then begin
+                end;
+              end
+              else if (TPosCarga[xpos].estatus=9) then begin // autorizado
+                if EnviaPresetPesosBomba(xpos,1,9999.99) then begin
+                  TPosCarga[xpos].SwPreset:=false;
+                  TPosCarga[xpos].SwPreset2:=false;
+                end;
+              end;
+            end;
+          end;
+        end
+        // CMND: REANUDAR DESPACHO (emulacion)
+        else if (ss='REANUDAR') then begin
+          rsp:='OK';
+          xpos:=strtointdef(ExtraeElemStrSep(scmnd,2,' '),0);
+          if (xpos in [1..MaxPosCarga]) then begin
+            if SwModoEmulacion then begin
+              if (TPosCarga[xpos].estatus=8) then begin
+                TPosCarga[xpos].Estatus:=2;
+                EmuPos[xpos].HoraUltTick:=Now;
+                EmuPos[xpos].HoraTransic:=Now;
+                ActualizaCampoJSON(xpos,'Estatus',2);
+                AgregaLog('EMU REANUDAR Pos '+IntToStr(xpos)+': Detenida -> Despachando');
+              end;
+            end
+            else begin
+              if (TPosCarga[xpos].estatus=8) then
+                ReanudaDespacho(xpos);
             end;
           end;
         end
@@ -1905,6 +2033,16 @@ begin
         horaLog:=Now;
         GuardarLog(0);
       end;
+
+      { === MODO EMULACION === }
+      if SwModoEmulacion then begin
+        if CmndNuevo then
+          ProcesaComandos;
+        AvanzaEmulacion;
+        EstatusDispensarios;
+      end
+      else begin
+      { === MODO NORMAL (serial) === }
       if CmndNuevo then
         ProcesaComandos;
       if ContadorAlarma>=10 then begin
@@ -2117,6 +2255,7 @@ begin
         end
         else posciclo:=1;
       end;
+      end; { fin modo normal (else SwModoEmulacion) }
     except
       on e:Exception do begin
         AgregaLog('Error Timer1: '+e.Message);
@@ -2635,11 +2774,15 @@ begin
     end;
 
     if not detenido then begin
-      pSerial.Open:=False;
-      pSerial.Tracing:= tlOff;
-      pSerial.Open:= false;
-      pSerial.DTR:= false;
-      pSerial.RTS:= false;
+      if not SwModoEmulacion then begin
+        pSerial.Open:=False;
+        pSerial.Tracing:= tlOff;
+        pSerial.Open:= false;
+        pSerial.DTR:= false;
+        pSerial.RTS:= false;
+      end
+      else
+        AgregaLog('EMU: HALT recibido');
       Timer1.Enabled:=False;
       Timer2.Enabled:=True;
       detenido:=True;
@@ -2739,19 +2882,56 @@ begin
 end;
 
 procedure Togcvdispensarios_wayne2w.Iniciar(folio: Integer);
+var i,j:Integer;
 begin
   try
-    if (not pSerial.Open) then begin
-      if (estado=-1) then begin
-        AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
-        Exit;
-      end
-      else if detenido then
-        pSerial.Open:=True;
-    end;
+    if not SwModoEmulacion then begin
+      { Modo normal: abrir puerto serial }
+      if (not pSerial.Open) then begin
+        if (estado=-1) then begin
+          AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
+          Exit;
+        end
+        else if detenido then
+          pSerial.Open:=True;
+      end;
 
-    wTriggerEOT:= pSerial.AddDataTrigger(#$F0,true);
-    wTriggerLF:= pSerial.AddDataTrigger(#$8A,true);
+      wTriggerEOT:= pSerial.AddDataTrigger(#$F0,true);
+      wTriggerLF:= pSerial.AddDataTrigger(#$8A,true);
+    end
+    else begin
+      { Modo emulacion: inicializar posiciones como conectadas }
+      AgregaLog('EMU: Iniciando emulacion para '+IntToStr(MaxPosCarga)+' posiciones');
+      for i:=1 to MaxPosCarga do begin
+        with TPosCarga[i] do begin
+          Estatus:=1;
+          EstatusAnt:=1;
+          SwDeshabil:=False;
+          SwCargando:=False;
+          SwPreset:=False;
+          SwPreset2:=False;
+          SwLeeVenta:=False;
+          SwStatusFV:=False;
+          SwCambiaPrecio:=False;
+          SwLeePrecios:=False;
+          Importe:=0;
+          Volumen:=0;
+          Precio:=0;
+          EsperaFinVenta:=0;
+          SinComunicacion:=False;
+        end;
+        with EmuPos[i] do begin
+          PresetMonto:=0;
+          PresetTipo:=0;
+          PrecioVenta:=0;
+          CombVenta:=0;
+          FlujoLps:=0.35 + Random * 0.15;
+          HoraUltTick:=Now;
+          HoraTransic:=Now;
+        end;
+        ActualizaCampoJSON(i,'Estatus',1);
+      end;
+    end;
 
     detenido:=False;
     estado:=1;
@@ -2918,7 +3098,8 @@ begin
     AddPeticionJSON(folio, 'False|El servicio no esta detenido, no es posible terminar la comunicacion|')
   else begin
     Timer1.Enabled:=False;
-    pSerial.Open:=False;
+    if not SwModoEmulacion then
+      pSerial.Open:=False;
     LPrecios[1]:=0;
     LPrecios[2]:=0;
     LPrecios[3]:=0;
@@ -3117,6 +3298,148 @@ begin
       AgregaLogPetRes('Error ClientSocket1Read: '+e.Message);
       GuardarLog(0);
     end;
+  end;
+end;
+
+{==============================================================================
+  AvanzaEmulacion - Simula el ciclo de dispensarios sin puerto serial
+  =============================================================================
+  Llamado desde Timer1Timer cuando SwModoEmulacion=True.
+  Itera cada posicion y simula las transiciones de estado:
+    Estatus 9 (Autorizada)  -> 2s -> Estatus 2 (Despachando)
+    Estatus 2 (Despachando) -> avanza importe/volumen -> Estatus 3 al completar
+    Estatus 3 (Fin Venta)   -> 3s -> Estatus 1 (Inactivo) si EsperaFinVenta=0
+    Estatus 8 (Detenida)    -> no avanza, espera REANUDAR
+  Actualiza el JSON para que UDISBRIDGE vea los cambios.
+==============================================================================}
+
+procedure Togcvdispensarios_wayne2w.AvanzaEmulacion;
+var
+  i, xp: integer;
+  segs, deltaLts, deltaImp, xvol: Real;
+begin
+  try
+    for i:=1 to MaxPosCarga do begin
+      with TPosCarga[i] do begin
+        if SwDeshabil then Continue;
+
+        case Estatus of
+          9: begin
+            { Autorizada -> esperar 2 segundos, luego despachar }
+            segs:=SecondSpan(Now, EmuPos[i].HoraTransic);
+            if segs >= 2 then begin
+              EstatusAnt:=Estatus;
+              Estatus:=2;
+              SwCargando:=True;
+              swdesp:=true;
+              Importe:=0;
+              Volumen:=0;
+              if EmuPos[i].CombVenta in [1..4] then
+                Precio:=LPrecios[EmuPos[i].CombVenta]
+              else
+                Precio:=EmuPos[i].PrecioVenta;
+              EmuPos[i].HoraUltTick:=Now;
+              EmuPos[i].HoraTransic:=Now;
+              ActualizaCampoJSON(i,'Estatus',2);
+              ActualizaCampoJSON(i,'Importe',0);
+              ActualizaCampoJSON(i,'Volumen',0);
+              ActualizaCampoJSON(i,'Precio',Precio);
+              AgregaLog('EMU Pos '+IntToStr(i)+': Autorizada -> Despachando');
+            end;
+          end;
+
+          2: begin
+            { Despachando -> avanzar volumen e importe }
+            segs:=SecondSpan(Now, EmuPos[i].HoraUltTick);
+            if segs >= 0.5 then begin
+              EmuPos[i].HoraUltTick:=Now;
+              deltaLts:=EmuPos[i].FlujoLps * segs;
+
+              if EmuPos[i].PrecioVenta > 0 then begin
+                deltaImp:=deltaLts * EmuPos[i].PrecioVenta;
+
+                { Verificar si se alcanzo el preset }
+                if EmuPos[i].PresetTipo = 1 then begin
+                  { Preset por importe }
+                  if (Importe + deltaImp) >= EmuPos[i].PresetMonto then begin
+                    deltaImp:=EmuPos[i].PresetMonto - Importe;
+                    if EmuPos[i].PrecioVenta > 0 then
+                      deltaLts:=deltaImp / EmuPos[i].PrecioVenta;
+                  end;
+                end
+                else if EmuPos[i].PresetTipo = 2 then begin
+                  { Preset por litros }
+                  if (Volumen + deltaLts) >= EmuPos[i].PresetMonto then begin
+                    deltaLts:=EmuPos[i].PresetMonto - Volumen;
+                    deltaImp:=deltaLts * EmuPos[i].PrecioVenta;
+                  end;
+                end;
+
+                Importe:=Importe + deltaImp;
+                Volumen:=Volumen + deltaLts;
+                Precio:=EmuPos[i].PrecioVenta;
+
+                ActualizaCampoJSON(i,'Importe',Importe);
+                ActualizaCampoJSON(i,'Volumen',Volumen);
+
+                { Verificar si se completo la venta }
+                if EmuPos[i].PresetMonto > 0 then begin
+                  if ((EmuPos[i].PresetTipo = 1) and (Importe >= EmuPos[i].PresetMonto - 0.01)) or
+                     ((EmuPos[i].PresetTipo = 2) and (Volumen >= EmuPos[i].PresetMonto - 0.001)) then begin
+                    { Fin de despacho }
+                    EstatusAnt:=Estatus;
+                    Estatus:=3;
+                    SwCargando:=False;
+                    swdesp:=false;
+                    SwLeeVenta:=true;
+                    SwStatusFV:=true;
+                    HoraOcc:=Now;
+                    MangActual:=TMang[PosActual];
+                    CombActual:=EmuPos[i].CombVenta;
+                    EmuPos[i].HoraTransic:=Now;
+                    { Avanzar totalizadores }
+                    if PosActual in [1..MCxP] then begin
+                      TotalLitros[PosActual]:=TotalLitros[PosActual] + Volumen;
+                      ApplyTotalLitrosToJSON(i, TotalLitros);
+                    end;
+                    ActualizaCampoJSON(i,'Estatus',3);
+                    ActualizaCampoJSON(i,'HoraOcc',FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
+                    AgregaLog('EMU Pos '+IntToStr(i)+': Despacho completo $'+
+                      FormatFloat('0.00',Importe)+' / '+FormatFloat('0.000',Volumen)+' lts');
+                  end;
+                end;
+              end;
+            end;
+          end;
+
+          3: begin
+            { Fin de Venta -> esperar 3 segundos, luego inactivo }
+            segs:=SecondSpan(Now, EmuPos[i].HoraTransic);
+            if (EsperaFinVenta = 0) and (segs >= 3) then begin
+              EstatusAnt:=Estatus;
+              Estatus:=1;
+              SwCargando:=False;
+              SwPreset:=False;
+              SwPreset2:=False;
+              SwLeeVenta:=False;
+              SwStatusFV:=False;
+              EmuPos[i].PresetMonto:=0;
+              EmuPos[i].PresetTipo:=0;
+              EmuPos[i].HoraTransic:=Now;
+              ActualizaCampoJSON(i,'Estatus',1);
+              AgregaLog('EMU Pos '+IntToStr(i)+': Fin de Venta -> Inactivo');
+            end;
+          end;
+
+          8: begin
+            { Detenida - no avanza, espera comando REANUDAR }
+          end;
+        end; { case Estatus }
+      end; { with TPosCarga }
+    end; { for i }
+  except
+    on e:Exception do
+      AgregaLog('Error AvanzaEmulacion: '+e.Message);
   end;
 end;
 
