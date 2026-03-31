@@ -71,6 +71,11 @@ type
     DecimalesPresetWayne,
     DecimalesPresetWayneLitros,
     SnPosCarga              :integer;
+    CPRECActivo             :Boolean;
+    CPRECIndice             :Integer;
+    CPRECTotal              :Integer;
+    CPRECComando            :string;
+    CPRECCmndIdx            :Integer;
     SwReinicio,SwBcc:Boolean;
     SnImporte,
     SnLitros                :real;
@@ -292,6 +297,11 @@ begin
     detenido:=True;
     SwComandoN:=false;
     SwReinicio:=False;
+    CPRECActivo:=False;
+    CPRECIndice:=0;
+    CPRECTotal:=0;
+    CPRECComando:='';
+    CPRECCmndIdx:=0;
     estado:=-1;
     SwComandoB:=false;
     horaLog:=Now;
@@ -656,40 +666,12 @@ begin
 end;
 
 procedure Togcvdispensarios_wayne.IniciaPrecios(folio:Integer; msj:string);
-var
-  ss:string;
-  precioComb:Double;
-  xpos,i:Integer;
-  entro:Boolean;
 begin
   try
-    for i:=1 to NoElemStrSep(msj,'|') do begin
-      precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,i,'|'),-1);
-      if precioComb<=0 then
-        Continue;
-      LPrecios[i]:=precioComb;
-      if ValidaCifra(precioComb,2,2)='OK' then begin
-        if precioComb>=0.01 then begin
-          if WayneFusion='No' then begin
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
-            EsperaMiliSeg(250);
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
-            EsperaMiliSeg(250);
-          end
-          else begin
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
-            esperamiliseg(250);
-            ComandoConsola('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0');  // credito
-            esperamiliseg(250);
-          end;
-          entro:=True;
-        end;
-      end;
-    end;
-    if entro then
+    if EjecutaComando('CPREC '+msj)>0 then
       AddPeticionJSON(folio, 'True|')
     else
-      AddPeticionJSON(folio, 'False|No se encontraron precios validos|');
+      AddPeticionJSON(folio, 'False|No fue posible aplicar comando de cambio de precios|');
   except
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
@@ -976,7 +958,7 @@ begin
                  if (estatus = 3) and (swcargando) then
                    ActualizaCampoJSON(xpos,'Estatus',2)
                  else
-                   ActualizaCampoJSON(xpos,'Estatus',estatus);
+                 ActualizaCampoJSON(xpos,'Estatus',estatus);
                  if estatus=2 then begin
                    if not swcargando then
                      importeant:=0;
@@ -1457,6 +1439,7 @@ var ss,rsp,str1:string;
     xlimite,
     xprecio:real;
     swok,swerr,swAllTotals:boolean;
+    precioComb:Double;
 begin
   try
     Timer1.Enabled:=False;
@@ -1482,6 +1465,43 @@ begin
       if ContadorAlarma>=10 then begin
         if ContadorAlarma=10 then
           AgregaLog('Desconexion de Dispositivo Error Comunicacion Dispensarios');
+      end;
+
+      // --- CPREC: procesa UN cambio de precio por cada ciclo de Timer1 ---
+      if CPRECActivo then begin
+        while CPRECIndice <= CPRECTotal do begin
+          precioComb:=StrToFloatDef(ExtraeElemStrSep(CPRECComando,CPRECIndice,'|'),-1);
+          if (precioComb>0) then begin
+            LPrecios[CPRECIndice]:=precioComb;
+            if (ValidaCifra(precioComb,2,2)='OK') and (precioComb>=0.01) then begin
+              if WayneFusion='No' then begin
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // contado
+                EsperaMiliSeg(250);
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)); // credito
+                EsperaMiliSeg(250);
+              end
+              else begin
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
+                EsperaMiliSeg(250);
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // credito
+                EsperaMiliSeg(250);
+              end;
+              Inc(CPRECIndice);
+              Break; // Solo UN precio por ciclo de Timer1
+            end
+            else begin
+              Inc(CPRECIndice); // precio invalido, avanza al siguiente
+            end;
+          end
+          else begin
+            Inc(CPRECIndice); // precio <=0, avanza al siguiente
+          end;
+        end;
+        // Verifica si ya se procesaron todos los precios
+        if CPRECIndice>CPRECTotal then begin
+          CPRECActivo:=False;
+          AgregaLog('CPREC finalizado - todos los precios aplicados');
+        end;
       end;
 
       // Checa comandos
@@ -1720,6 +1740,24 @@ begin
                   SwAplicaCmnd:=True;
                 end;
               end;
+            end;
+          end
+          else if (ss='CPREC') then begin
+            if CPRECActivo then begin
+              // Ya hay un CPREC en proceso, dejar este comando pendiente para el siguiente ciclo
+              SwAplicaCmnd:=False;
+            end
+            else begin
+              // Inicializa el procesamiento incremental de CPREC (un precio por ciclo de Timer1)
+              CPRECComando:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' ');
+              CPRECTotal:=NoElemStrSep(CPRECComando,'|');
+              CPRECIndice:=1;
+              CPRECCmndIdx:=xcmnd;
+              CPRECActivo:=True;
+              // Marcar comando como respondido inmediatamente para sacarlo de la cola
+              rsp:='OK';
+              SwAplicaCmnd:=True;
+              AgregaLog('CPREC iniciado - total de precios a procesar: '+IntToStr(CPRECTotal));
             end;
           end
           else rsp:='Comando no Soportado o no Existe';
