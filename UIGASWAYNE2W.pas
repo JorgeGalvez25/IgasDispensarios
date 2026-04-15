@@ -2093,212 +2093,212 @@ begin
         if ContadorAlarma=10 then
           AgregaLog('Desconexion de Dispositivo - Error Comunicacion Dispensarios');
       end;
-      if (swespera)and((now-horaespera)>3*tmsegundo) then
-        swespera:=false;
-      if not SwEspera then begin
-        if not SwPasoBien then begin
+        if (swespera)and((now-horaespera)>3*tmsegundo) then
           swespera:=false;
-          inc(ContadorAlarma);
-          goto L01;
-        end;
-        SwPasoBien:=false;
-        SwEspera:=true;
-        HoraEspera:=Now;
-        AgregaLog('PosCiclo: '+IntToStr(PosCiclo)+' - '+'NumPaso: '+IntToStr(NumPaso));
-        if PosCiclo in [1..MaxPosCarga] then with TPosCarga[PosCiclo] do begin
-          StrCiclo:=StrCiclo+inttostr(PosCiclo);
-          while length(StrCiclo)>20 do
-            delete(StrCiclo,1,1);
-          try
-            case NumPaso of
-              0:if SwLeePrecios then begin
-                  if LeePrecios(PosCiclo) then
-                    SwLeePrecios:=false;
-                end;
-              1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
-                  try
-                    if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(55, 65))) then begin   // no polea los que estan deshabilitados
-                      EstatusAnt:=Estatus;
-                      Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
-                      ContadorAlarma:=0;
-                      if estatus=2 then
-                        swdesp:=true;
-                      if (swdesp)and(estatus in [1,3,5]) then begin
-                        AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
-                        swdesp:=false;
-                        SwStatusFV:=true;
-                        Estatus:=3;
-                      end;
-                      if (Estatusant=0)and(estatus=1) then begin
-                        Swleeventa:=true;
-                        for j:=1 to TPosCarga[PosCiclo].NoComb do
-                          SwLeeTotales[j]:=true;
-                        SinComunicacion := False;
-                      end;
-                      if (EstatusAnt in [3,4])and(Estatus=1) then begin
-                        swcargando:=false;
-                        if (EsperaFinVenta=1) and (volumen>0) then
-                          Estatus:=4
-                        else
-                          EsperaFinVenta:=0;
-                      end;
-                      if (estatusant = 0) and (estatus = 0) then
-                      begin
-                        SinComunicacion := True;
-                        HoraDesconexion := Now;
-                      end;
-                      EstatusDispensarios;
-                      if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
-                        AgregaLog('Desautorizo posicion: '+inttostr(PosCiclo));
-                        Esperamiliseg(300);
-                        DetenerDespacho(PosCiclo);
-                        Esperamiliseg(300);
-                        ReanudaDespacho(PosCiclo);
-                      end;
-                      ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
-                    end;
-                  except
-                    AgregaLog('Error Estatus Pos: '+inttostr(PosCiclo));
-                    AvanzaPosCiclo;
-                    NumPaso:=1;
-                    exit;
-                  end;
-                end;
-              2:if (swleeventa)and(estatus>0) then begin       // LEE VENTA TERMINADA
-                  if not swdeshabil then begin   // no polea los que estan deshabilitados
-                    AgregaLog('E> FIN DE VENTA: '+inttoclavenum(PosCiclo,2));
-                    if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
-                      swleeventa:=false;
-                      SwStatusFV:=false;
-                      HoraOcc:=Now;
-                      xvolumen:=ajustafloat(dividefloat(importe,precio),3);
-                      if abs(volumen-xvolumen)>0.5 then
-                        volumen:=xvolumen;
-                      AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
-                    end;
-                    ActualizaCampoJSON(PosCiclo,'HoraOcc',FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
-                    ActualizaCampoJSON(PosCiclo,'Volumen',Volumen);
-                    ActualizaCampoJSON(PosCiclo,'Precio',precio);
-                    ActualizaCampoJSON(PosCiclo,'Importe',importe);
-                  end;
-                end;
-              3:if (estatus>0)and(not swdeshabil) then begin        // LEE TOTALES
-                  if LeeTotalPosCiclo(PosCiclo,MangCiclo) then begin
-                    AgregaLog('E> Lee Totales: '+inttoclavenum(PosCiclo,2)+' MangCiclo:'+IntToStr(MangCiclo)+' NoComb:'+IntToStr(TPosCarga[PosCiclo].NoComb));
-                    if DameTotal(PosCiclo,MangCiclo,xTotalLitros)then
-                    begin
-                      TotalLitros[MangCiclo]:=xTotalLitros;
-                      ApplyTotalLitrosToJSON(PosCiclo,TotalLitros);
-                      AgregaLog('R> '+FormatFloat('###,###,##0.00',xTotalLitros));
-                      SwLeeTotales[MangCiclo]:=false;
-                    end;
-                  end;
-                end;
-              4:if (estatus=5)and(not swdeshabil)  then begin
-                  if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
-                    AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
-                    if not swpreset then begin
-                      if Autoriza(PosCiclo) then ;
-                    end
-                    else if (swpreset)and(PosPreset=PosMangLev) then begin
-                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                        if AutorizaPm(PosCiclo,PosPreset) then begin
-                          swpreset2:=true;
-                        end;
-                    end
-                    else if (swpreset)and(PosPreset=0) then begin
-                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                        if Autoriza(PosCiclo) then begin
-                          swpreset2:=true;
-                        end;
-                    end;
-                  end
-                  else begin // AUTORIZA PREPAGO
-                    AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
-                    if (SwPreset)and(PosPreset=PosMangLev) then begin
-                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                        if AutorizaPm(PosCiclo,PosPreset) then begin
-                          swpreset2:=true;
-                        end;
-                    end
-                    else if (swpreset)and(PosPreset=0) then begin
-                      if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                        if Autoriza(PosCiclo) then begin
-                          swpreset2:=true;
-                        end;
-                    end;
-                  end
-                end;
-              5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
-                  if not swdeshabil then begin   // no polea los que estan deshabilitados
-                    AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
-                    if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
-                    end;
-                    ActualizaCampoJSON(PosCiclo,'Volumen',volumen);
-                    ActualizaCampoJSON(PosCiclo,'Importe',importe);
-                    ActualizaCampoJSON(PosCiclo,'Precio',precio);
-                  end;
-                end;
-              6:ProcesaComandos;
-              7:begin          // CAMBIA PRECIO
-                  if not swdeshabil then begin   // no polea los que estan deshabilitados
-                    if (TCambioPrecN1) and (estatus=1) then begin
-                      AgregaLog('E> Cambia Precio: '+inttoclavenum(PosCiclo,2));
-                      if CambiaPrecios(PosCiclo) then
-                        TCambioPrecN1:=false;
-                    end;
-                  end;
-                end;
-            end;
-          finally
+        if not SwEspera then begin
+          if not SwPasoBien then begin
             swespera:=false;
+            inc(ContadorAlarma);
+            goto L01;
           end;
-    L01:
-          SwPasoBien:=true;
-          with TPosCarga[PosCiclo] do begin
-            case estatus of
-              2:swcargando:=true;
-              3:if NumPaso=1 then begin
-                  SwLeeVenta:=true;
-                  ContLeeVenta:=0;
-                end;
+          SwPasoBien:=false;
+          SwEspera:=true;
+          HoraEspera:=Now;
+          AgregaLog('PosCiclo: '+IntToStr(PosCiclo)+' - '+'NumPaso: '+IntToStr(NumPaso));
+          if PosCiclo in [1..MaxPosCarga] then with TPosCarga[PosCiclo] do begin
+            StrCiclo:=StrCiclo+inttostr(PosCiclo);
+            while length(StrCiclo)>20 do
+              delete(StrCiclo,1,1);
+            try
+              case NumPaso of
+                0:if SwLeePrecios then begin
+                    if LeePrecios(PosCiclo) then
+                      SwLeePrecios:=false;
+                  end;
+                1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
+                    try
+                      if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(55, 65))) then begin   // no polea los que estan deshabilitados
+                        EstatusAnt:=Estatus;
+                        Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
+                        ContadorAlarma:=0;
+                        if estatus=2 then
+                          swdesp:=true;
+                        if (swdesp)and(estatus in [1,3,5]) then begin
+                          AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
+                          swdesp:=false;
+                          SwStatusFV:=true;
+                          Estatus:=3;
+                        end;
+                        if (Estatusant=0)and(estatus=1) then begin
+                          Swleeventa:=true;
+                          for j:=1 to TPosCarga[PosCiclo].NoComb do
+                            SwLeeTotales[j]:=true;
+                          SinComunicacion := False;
+                        end;
+                        if (EstatusAnt in [3,4])and(Estatus=1) then begin
+                          swcargando:=false;
+                          if (EsperaFinVenta=1) and (volumen>0) then
+                            Estatus:=3
+                          else
+                            EsperaFinVenta:=0;
+                        end;
+                        if (estatusant = 0) and (estatus = 0) then
+                        begin
+                          SinComunicacion := True;
+                          HoraDesconexion := Now;
+                        end;
+                        EstatusDispensarios;
+                        if (((Estatusant=2) or (Estatusant=3)) and (Estatus=9)) then begin // Desautoriza
+                          AgregaLog('Desautorizo posicion: '+inttostr(PosCiclo));
+                          Esperamiliseg(300);
+                          DetenerDespacho(PosCiclo);
+                          Esperamiliseg(300);
+                          ReanudaDespacho(PosCiclo);
+                        end;
+                        ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
+                      end;
+                    except
+                      AgregaLog('Error Estatus Pos: '+inttostr(PosCiclo));
+                      AvanzaPosCiclo;
+                      NumPaso:=1;
+                      exit;
+                    end;
+                  end;
+                2:if (swleeventa)and(estatus>0) then begin       // LEE VENTA TERMINADA
+                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                      AgregaLog('E> FIN DE VENTA: '+inttoclavenum(PosCiclo,2));
+                      if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                        swleeventa:=false;
+                        SwStatusFV:=false;
+                        HoraOcc:=Now;
+                        xvolumen:=ajustafloat(dividefloat(importe,precio),3);
+                        if abs(volumen-xvolumen)>0.5 then
+                          volumen:=xvolumen;
+                        AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
+                      end;
+                      ActualizaCampoJSON(PosCiclo,'HoraOcc',FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
+                      ActualizaCampoJSON(PosCiclo,'Volumen',Volumen);
+                      ActualizaCampoJSON(PosCiclo,'Precio',precio);
+                      ActualizaCampoJSON(PosCiclo,'Importe',importe);
+                    end;
+                  end;
+                3:if (estatus>0)and(not swdeshabil) then begin        // LEE TOTALES
+                    if LeeTotalPosCiclo(PosCiclo,MangCiclo) then begin
+                      AgregaLog('E> Lee Totales: '+inttoclavenum(PosCiclo,2)+' MangCiclo:'+IntToStr(MangCiclo)+' NoComb:'+IntToStr(TPosCarga[PosCiclo].NoComb));
+                      if DameTotal(PosCiclo,MangCiclo,xTotalLitros)then
+                      begin
+                        TotalLitros[MangCiclo]:=xTotalLitros;
+                        ApplyTotalLitrosToJSON(PosCiclo,TotalLitros);
+                        AgregaLog('R> '+FormatFloat('###,###,##0.00',xTotalLitros));
+                        SwLeeTotales[MangCiclo]:=false;
+                      end;
+                    end;
+                  end;
+                4:if (estatus=5)and(not swdeshabil)  then begin
+                    if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
+                      AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
+                      if not swpreset then begin
+                        if Autoriza(PosCiclo) then ;
+                      end
+                      else if (swpreset)and(PosPreset=PosMangLev) then begin
+                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                          if AutorizaPm(PosCiclo,PosPreset) then begin
+                            swpreset2:=true;
+                          end;
+                      end
+                      else if (swpreset)and(PosPreset=0) then begin
+                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                          if Autoriza(PosCiclo) then begin
+                            swpreset2:=true;
+                          end;
+                      end;
+                    end
+                    else begin // AUTORIZA PREPAGO
+                      AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
+                      if (SwPreset)and(PosPreset=PosMangLev) then begin
+                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                          if AutorizaPm(PosCiclo,PosPreset) then begin
+                            swpreset2:=true;
+                          end;
+                      end
+                      else if (swpreset)and(PosPreset=0) then begin
+                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+                          if Autoriza(PosCiclo) then begin
+                            swpreset2:=true;
+                          end;
+                      end;
+                    end
+                  end;
+                5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
+                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                      AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
+                      if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                      end;
+                      ActualizaCampoJSON(PosCiclo,'Volumen',volumen);
+                      ActualizaCampoJSON(PosCiclo,'Importe',importe);
+                      ActualizaCampoJSON(PosCiclo,'Precio',precio);
+                    end;
+                  end;
+                6:ProcesaComandos;
+                7:begin          // CAMBIA PRECIO
+                    if not swdeshabil then begin   // no polea los que estan deshabilitados
+                      if (TCambioPrecN1) and (estatus=1) then begin
+                        AgregaLog('E> Cambia Precio: '+inttoclavenum(PosCiclo,2));
+                        if CambiaPrecios(PosCiclo) then
+                          TCambioPrecN1:=false;
+                      end;
+                    end;
+                  end;
+              end;
+            finally
+              swespera:=false;
             end;
+      L01:
+            SwPasoBien:=true;
+            with TPosCarga[PosCiclo] do begin
+              case estatus of
+                2:swcargando:=true;
+                3:if NumPaso=1 then begin
+                    SwLeeVenta:=true;
+                    ContLeeVenta:=0;
+                  end;
+              end;
 
-            inc(NumPaso);
-            if (NumPaso=2)and(not SwLeeVenta) then
-              NumPaso:=3;
-            if (NumPaso=3) then begin
-              if (swleeventa)and(contleeventa<3) then begin
-                NumPaso:=2;
-                inc(contleeventa);
-              end
-              else if (not LeeTotalPosCiclo(PosCiclo,MangCiclo)) then
-                NumPaso:=4;
-            end;
-            if (NumPaso=4) and (not estatus in [5,9]) then
-              NumPaso:=5;
-            if (NumPaso=5) and (estatus<>2) and (estatus<>8) then  // no esta ni estaba despachando
-              NumPaso:=6;
-            if (NumPaso=6) and (PosCiclo<MaxPosCarga) then
-              NumPaso:=7;
-            if (NumPaso=7) then begin
-              swprec:=TPosCarga[PosCiclo].TCambioPrecN1;
-              if not swprec then
-                NumPaso:=8;
-            end;
+              inc(NumPaso);
+              if (NumPaso=2)and(not SwLeeVenta) then
+                NumPaso:=3;
+              if (NumPaso=3) then begin
+                if (swleeventa)and(contleeventa<3) then begin
+                  NumPaso:=2;
+                  inc(contleeventa);
+                end
+                else if (not LeeTotalPosCiclo(PosCiclo,MangCiclo)) then
+                  NumPaso:=4;
+              end;
+              if (NumPaso=4) and (not estatus in [5,9]) then
+                NumPaso:=5;
+              if (NumPaso=5) and (estatus<>2) and (estatus<>8) then  // no esta ni estaba despachando
+                NumPaso:=6;
+              if (NumPaso=6) and (PosCiclo<MaxPosCarga) then
+                NumPaso:=7;
+              if (NumPaso=7) then begin
+                swprec:=TPosCarga[PosCiclo].TCambioPrecN1;
+                if not swprec then
+                  NumPaso:=8;
+              end;
 
 
-            if NumPaso>=8 then begin
-              AvanzaPosCiclo;
-              if TPosCarga[PosCiclo].SwLeePrecios then
-                NumPaso:=0
-              else
-                NumPaso:=1;
+              if NumPaso>=8 then begin
+                AvanzaPosCiclo;
+                if TPosCarga[PosCiclo].SwLeePrecios then
+                  NumPaso:=0
+                else
+                  NumPaso:=1;
+              end;
             end;
-          end;
-        end
-        else posciclo:=1;
-      end;
+          end
+          else posciclo:=1;
+        end;
       end; { fin modo normal (else SwModoEmulacion) }
     except
       on e:Exception do begin
