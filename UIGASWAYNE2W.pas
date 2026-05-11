@@ -1021,7 +1021,7 @@ begin
   try
     Timer1.Enabled:=False;
     try
-      iMaxIntentos:=2;
+      iMaxIntentos:=1;
       iBytesEsperados:=13;
       iNoIntento:= 0;
       bOk:=false;
@@ -2381,7 +2381,7 @@ begin
   try
     Timer1.Enabled:=False;
     try
-      iMaxIntentos:=2;
+      iMaxIntentos:=1;
       iBytesEsperados:=13;
       iNoIntento:= 0;
       bOk:=false;
