@@ -65,6 +65,7 @@ type
     DigGilbarco: string;
     PermiteModoNormal: Boolean;
     MapeoTotales:string;
+    MaxFallosTotales: integer;  // Umbral de fallos consecutivos de Lee Totales para activar fallback calculado
 
     GtwDivPresetLts,        // Divisor preset litros           **
     GtwDivPresetPesos,      // Divisor preset pesos            **
@@ -99,6 +100,10 @@ type
     procedure DetenerVenta(folio: Integer; msj: string);
     procedure ReanudarVenta(folio: Integer; msj: string);
     function EjecutaComando(xCmnd: string): integer;
+    function HayTotalEsperando(xpos: Integer): Boolean;
+    procedure CapturarVentaPendiente(xpos, xPosActual: Integer; xVolumen: Real);
+    procedure AplicarFallbackTotales(xpos: Integer);
+    procedure LimpiarVentaPendiente(xpos: Integer);
     procedure RespuestaComando(folio: Integer; msj: string);
     function ResultadoComando(xFolio: integer): string;
     procedure ObtenerLog(folio: Integer; r: Integer);
@@ -182,6 +187,10 @@ type
     SinComunicacion: Boolean;
     HoraDesconexion: TDateTime;
     TPosTotales: array[1..MCxP] of integer;
+    // --- Fallback de totales cuando la bomba no responde correctamente ---
+    PendingVentaLts: array[1..MCxP] of real;  // Delta de litros pendiente por slot de totalizador
+    PendingVentaActiva: boolean;              // Hay al menos un slot con delta pendiente
+    ContFallosTotales: integer;               // Intentos consecutivos fallidos de Lee Totales
   end;
 
   RegCmnd = record
@@ -314,6 +323,7 @@ begin
     DigGilbarco := config.ReadString('CONF', 'DigitosGilbarco', '');
     PermiteModoNormal := config.ReadString('CONF', 'PermiteModoNormal', 'No') = 'Si';
     MapeoTotales := config.ReadString('CONF', 'MapeoTotales', '');
+    MaxFallosTotales := config.ReadInteger('CONF', 'MaxFallosTotales', 3);
     ListaCmnd := TStringList.Create;
     detenido := True;
     estado := -1;
@@ -758,6 +768,126 @@ begin
     CmndNuevo := True;
   end;
   Result := FolioCmnd;
+end;
+
+function Togcvdispensarios_gilbarco2W.HayTotalEsperando(xpos: Integer): Boolean;
+// Indica si hay un comando 'TOTAL <xpos>' activo en TabCmnd esperando respuesta.
+// Se usa para acelerar el fallback de totales calculados cuando OG ya esta esperando.
+var
+  i: integer;
+  cmdNombre, cmdPos: string;
+begin
+  Result := False;
+  for i := 1 to 200 do
+  begin
+    if TabCmnd[i].SwActivo and (not TabCmnd[i].SwResp) then
+    begin
+      cmdNombre := ExtraeElemStrSep(TabCmnd[i].Comando, 1, ' ');
+      if cmdNombre = 'TOTAL' then
+      begin
+        cmdPos := ExtraeElemStrSep(TabCmnd[i].Comando, 2, ' ');
+        if StrToIntDef(cmdPos, -1) = xpos then
+        begin
+          Result := True;
+          Exit;
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure Togcvdispensarios_gilbarco2W.LimpiarVentaPendiente(xpos: Integer);
+// Limpia el delta pendiente y los contadores de fallos de la posicion indicada.
+var
+  k: integer;
+begin
+  with TPosCarga[xpos] do
+  begin
+    PendingVentaActiva := False;
+    ContFallosTotales := 0;
+    for k := 1 to MCxP do
+      PendingVentaLts[k] := 0;
+  end;
+end;
+
+procedure Togcvdispensarios_gilbarco2W.CapturarVentaPendiente(xpos, xPosActual: Integer; xVolumen: Real);
+// Acumula el volumen de una venta recien cerrada en el slot de totalizador
+// correspondiente, para usarlo como fallback si Lee Totales falla.
+// El mapeo manguera->combustible->slot se hace aqui (en el momento de la captura),
+// no en el momento del fallback, para que cada slot pueda acumular su propio delta
+// independiente. Esto soporta correctamente bombas multiproducto donde se cierran
+// ventas de distintos combustibles entre dos lecturas de totales fallidas.
+var
+  xc, xtt: integer;
+begin
+  if xPosActual <= 0 then Exit;
+  xc := CombustibleEnPosicion(xpos, xPosActual);
+  xtt := PosicionDeCombustibleTotales(xpos, xc);
+  if (xtt >= 1) and (xtt <= MCxP) then
+  begin
+    TPosCarga[xpos].PendingVentaLts[xtt] := TPosCarga[xpos].PendingVentaLts[xtt] + xVolumen;
+    TPosCarga[xpos].PendingVentaActiva := True;
+    AgregaLog('Venta pendiente Pos ' + inttoclavenum(xpos, 2) +
+              ' Mang ' + IntToStr(xPosActual) +
+              ' Comb ' + IntToStr(xc) +
+              ' SlotTot ' + IntToStr(xtt) +
+              ' +' + FormatFloat('###,##0.000', xVolumen) + ' lts');
+  end
+  else
+    AgregaLog('WARN CapturarVentaPendiente Pos ' + inttoclavenum(xpos, 2) +
+              ' Mang ' + IntToStr(xPosActual) + ' sin slot de totalizador valido');
+end;
+
+procedure Togcvdispensarios_gilbarco2W.AplicarFallbackTotales(xpos: Integer);
+// Incrementa el contador de fallos consecutivos de Lee Totales y, cuando se alcanza
+// el umbral, reconstruye TotalLitros[] sumando los deltas pendientes de las ventas
+// recientemente cerradas. Marca TotalesEstimados=True en el JSON para auditoria.
+// El umbral baja a 2 si OG ya tiene un comando TOTAL n esperando respuesta, para
+// reducir la latencia percibida por el POS.
+var
+  xLimite, k: integer;
+  hayDelta: boolean;
+begin
+  with TPosCarga[xpos] do
+  begin
+    Inc(ContFallosTotales);
+    AgregaLog('Totales incorrectos (intento ' + IntToStr(ContFallosTotales) + ') Pos ' + inttoclavenum(xpos, 2));
+
+    // Umbral dinamico: mas agresivo si OG ya tiene un TOTAL n esperando
+    if HayTotalEsperando(xpos) then
+      xLimite := 2
+    else
+      xLimite := MaxFallosTotales;
+
+    if (ContFallosTotales >= xLimite) and PendingVentaActiva then
+    begin
+      hayDelta := False;
+      for k := 1 to MCxP do
+      begin
+        if PendingVentaLts[k] > 0 then
+        begin
+          TotalLitros[k] := TotalLitros[k] + PendingVentaLts[k];
+          AgregaLog('Totales CALCULADOS (fallback) Pos ' + inttoclavenum(xpos, 2) +
+                    ' SlotTot ' + IntToStr(k) +
+                    ' +' + FormatFloat('###,##0.000', PendingVentaLts[k]) + ' lts');
+          hayDelta := True;
+        end;
+      end;
+
+      if hayDelta then
+      begin
+        ApplyTotalLitrosToJSON(xpos, TotalLitros);
+        ActualizaCampoJSON(xpos, 'TotalesEstimados', True);
+        AgregaLog('R*> ' + FormatFloat('###,###,##0.00', TotalLitros[1]) + ' / ' +
+                            FormatFloat('###,###,##0.00', TotalLitros[2]) + ' / ' +
+                            FormatFloat('###,###,##0.00', TotalLitros[3]));
+      end;
+
+      SwTotales := False;
+      HoraTotales := Now;
+      LimpiarVentaPendiente(xpos);
+    end;
+  end;
 end;
 
 procedure Togcvdispensarios_gilbarco2W.RespuestaComando(folio: Integer; msj: string);
@@ -1522,7 +1652,10 @@ begin
           TCambioPrecN1[j] := false;
           TCambioPrecN2[j] := false;
           TNuevoPrec[j] := 0;
+          PendingVentaLts[j] := 0;
         end;
+        PendingVentaActiva := False;
+        ContFallosTotales := 0;
         SwDeshabil := false;
         SwTotales := true;
         SwLeeVenta := False;
@@ -1570,6 +1703,7 @@ begin
         posObj.Add('Importe', 0);
         posObj.Add('Volumen', 0);
         posObj.Add('Precio', 0);
+        posObj.Add('TotalesEstimados', False);
 
         hosesArr := TlkJSONlist.Create;
         mangueras := posiciones.Child[i].Field['Hoses'];
@@ -2388,6 +2522,7 @@ begin
                             volumen := xvolumen;
                           AgregaLog('R> ' + FormatFloat('###,##0.00', Volumen) + ' / ' + FormatFloat('###,##0.00', precio) + ' / ' + FormatFloat('###,##0.00', importe));
                           swleeventa := false;
+                          CapturarVentaPendiente(PosCiclo, PosActual, Volumen);
                         end;
                       end
                       else
@@ -2401,6 +2536,7 @@ begin
                             volumen := xvolumen;
                           AgregaLog('R> ' + FormatFloat('###,##0.00', Volumen) + ' / ' + FormatFloat('###,##0.00', precio) + ' / ' + FormatFloat('###,##0.00', importe));
                           swleeventa := false;
+                          CapturarVentaPendiente(PosCiclo, PosActual, Volumen);
                         end;
                       end;
 
@@ -2440,10 +2576,14 @@ begin
                             end;
                           end;
                           ApplyTotalLitrosToJSON(PosCiclo, TotalLitros);
+                          ActualizaCampoJSON(PosCiclo, 'TotalesEstimados', False);
                           AgregaLog('R> ' + FormatFloat('###,###,##0.00', TotalLitros[1]) + ' / ' + FormatFloat('###,###,##0.00', TotalLitros[2]) + ' / ' + FormatFloat('###,###,##0.00', TotalLitros[3]));
                           SwTotales := false;
                           HoraTotales := Now;
-                        end;
+                          LimpiarVentaPendiente(PosCiclo);
+                        end
+                        else
+                          AplicarFallbackTotales(PosCiclo);
                       end
                       else
                       begin
@@ -2461,10 +2601,14 @@ begin
                             end;
                           end;
                           ApplyTotalLitrosToJSON(PosCiclo, TotalLitros);
+                          ActualizaCampoJSON(PosCiclo, 'TotalesEstimados', False);
                           AgregaLog('R> ' + FormatFloat('###,###,##0.00', TotalLitros[1]) + ' / ' + FormatFloat('###,###,##0.00', TotalLitros[2]) + ' / ' + FormatFloat('###,###,##0.00', TotalLitros[3]));
                           SwTotales := false;
                           HoraTotales := Now;
-                        end;
+                          LimpiarVentaPendiente(PosCiclo);
+                        end
+                        else
+                          AplicarFallbackTotales(PosCiclo);
                       end;
                     end;
                   end;
@@ -2963,7 +3107,9 @@ begin
       field := posObj.Field[campo];
 
       if field <> nil then
-        field.Value := valor;
+        field.Value := valor
+      else
+        AgregaLog('WARN ActualizaCampoJSON: campo "' + campo + '" no existe en JSON Pos ' + IntToStr(xpos));
 
       Exit;
     end;
