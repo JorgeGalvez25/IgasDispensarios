@@ -165,6 +165,7 @@ type
        TDiga      :array[1..MCxP] of integer;
        TMang      :array[1..MCxP] of integer;
        TotalLitros:array[1..MCxP] of real;
+       TotalLitrosInicio:array[1..MCxP] of real;
        SwDesp:boolean;
        SwA:boolean;
        Hora:TDateTime;
@@ -173,9 +174,12 @@ type
        SwPreset,
        SwCargaTotales,
        SwEsperandoTotales,
+       SwLecturaFinalPendiente,
+       SwTotalInicialVenta,
        IniciaCarga,
        SwPrepago:boolean;
        IntentosTotales:byte;
+       TotalesPendientes:integer;
        ActualizarPrecio:Boolean;
        Mensaje:string[30];
        swcargando:boolean;
@@ -720,12 +724,24 @@ begin
       preciopre:=0;
       importeant:=0;
       importenvo:=0;
-      for j:=1 to MCxP do
+      volumennvo:=0;
+      precionvo:=0;
+      for j:=1 to MCxP do begin
+        TComb[j]:=0;
+        TPos[j]:=0;
+        TDiga[j]:=0;
+        TMang[j]:=0;
         TotalLitros[j]:=0;
+        TotalLitrosInicio[j]:=0;
+      end;
       SwCargando:=false;
       SwCargaPreset:=false;
       SwCargaTotales:=true;
+      SwEsperandoTotales:=false;
+      SwLecturaFinalPendiente:=false;
+      SwTotalInicialVenta:=false;
       IntentosTotales:=0;
+      TotalesPendientes:=0;
       PosAutorizada:=0;
       SwDeshabilitado:=false;
       SwArosMag:=false;
@@ -790,12 +806,21 @@ begin
               TPos[NoComb]:=NoComb
             else
               TPos[NoComb]:=1;
-            TDiga[TPos[NoComb]]:=Con_DigitoAjuste;
-            TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+            if TPos[NoComb] in [1..MCxP] then begin
+              TDiga[TPos[NoComb]]:=Con_DigitoAjuste;
+              TMang[TPos[NoComb]]:=mangueras.Child[j].Field['HoseId'].Value;
+            end
+            else begin
+              TDiga[NoComb]:=Con_DigitoAjuste;
+              TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
+            end;
             
             // Add hose to JSON
             hoseObj := TlkJSONObject.Create;
-            hoseObj.Add('HoseId', TMang[NoComb]);
+            if TPos[NoComb] in [1..MCxP] then
+              hoseObj.Add('HoseId', TMang[TPos[NoComb]])
+            else
+              hoseObj.Add('HoseId', TMang[NoComb]);
             hoseObj.Add('ProductId', xcomb);
             hoseObj.Add('Total', 0);
             hosesArr.Add(hoseObj);
@@ -1033,7 +1058,7 @@ begin
 end;
 
 procedure Togcvdispensarios_team.TransaccionPosCarga(folio:Integer; msj: string);
-var xpos:Integer;
+var xpos,posLectura:Integer;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -1045,9 +1070,13 @@ begin
       AddPeticionJSON(folio, 'False|La posicion de carga no se encuentra registrada|');
       Exit;
     end;
-    with TPosCarga[xpos] do
-      AddPeticionJSON(folio, 'True|'+FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc)+'|'+IntToStr(TMang[PosActual])+'|'+IntToStr(CombustibleEnPosicion(xpos,PosActual))+'|'+
+    with TPosCarga[xpos] do begin
+      posLectura:=PosActual;
+      if not (posLectura in [1..MCxP]) then
+        posLectura:=1;
+      AddPeticionJSON(folio, 'True|'+FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc)+'|'+IntToStr(TMang[posLectura])+'|'+IntToStr(CombustibleEnPosicion(xpos,posLectura))+'|'+
               FormatFloat('0.000',volumen)+'|'+FormatFloat('0.00',precio)+'|'+FormatFloat('0.00',importe)+'|');
+    end;
   except
     on e:Exception do AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
@@ -1501,8 +1530,10 @@ begin
                
                // JSON Update Status
                ActualizaCampoJSON(xpos, 'Estatus', estatus);
-               ActualizaCampoJSON(xpos, 'Manguera', TMang[PosActual]);
-               ActualizaCampoJSON(xpos, 'Combustible', TComb[PosActual]);
+               if PosActual in [1..MCxP] then begin
+                 ActualizaCampoJSON(xpos, 'Manguera', TMang[PosActual]);
+                 ActualizaCampoJSON(xpos, 'Combustible', CombustibleEnPosicion(xpos,PosActual));
+               end;
 
                if (estatus=0)and(stcero<=3) then begin
                  inc(stcero);
@@ -1549,7 +1580,7 @@ begin
                  preciopre:=precionvo;
 
                  swinicio2:=false;
-                 volumen:=StrToFloat(copy(lin,5,6))/100;
+                 volumen:=StrToFloat(copy(lin,5,6))/1000;
                  simp:=copy(lin,11,8);
                  spre:=copy(lin,19,4);
                  importe:=StrToFloat(simp)/100;
@@ -1571,7 +1602,7 @@ begin
                      contdesp:=0;
                  end;
 
-                 if (Estatus in [1,7,8])and(swcargando) then begin
+                 if (Estatus in [1,7,8])and(swcargando or SwLecturaFinalPendiente) then begin
                    if (importenvo<importepre) then begin
                      AgregaLog('FIN DE VENTA CORREGIDO');
                      importe:=importepre;
@@ -1579,9 +1610,17 @@ begin
                      precio:=preciopre;
                    end
                    else
-                     AgregaLog('FIN DE VENTA');
+                     AgregaLog('FIN DE VENTA CON A1 FINAL');
                    swcargando:=false;
                    swdesp:=true;
+                   SwLecturaFinalPendiente:=false;
+
+                   // Después de la lectura final del display, forzar totalizadores frescos.
+                   SwCargaTotales:=true;
+                   SwEsperandoTotales:=true;
+                   TotalesPendientes:=NoComb;
+                   IntentosTotales:=0;
+                   HoraTotales:=0;
                  end;
                
                  if (estatus=8) then
@@ -1621,8 +1660,32 @@ begin
                // JSON Update Totals
                ApplyTotalLitrosToJSON(xpos, TotalLitros);
                
-               SwEsperandoTotales:=False;
-               HoraTotales:=Now;
+               if SwEsperandoTotales then begin
+                 if TotalesPendientes>0 then
+                   Dec(TotalesPendientes);
+                 if TotalesPendientes<=0 then begin
+                   SwEsperandoTotales:=False;
+                   HoraTotales:=Now;
+                   if SwTotalInicialVenta and SwDesp then begin
+                     xpr:=1;
+                     for j:=1 to NoComb do
+                       if TPos[j]=PosActual then
+                         xpr:=j;
+                     xdif:=TotalLitros[xpr]-TotalLitrosInicio[xpr];
+                     if xdif>=0 then begin
+                       volumen:=AjustaFloat(xdif,3);
+                       volumennvo:=volumen;
+                       ActualizaCampoJSON(xpos, 'Volumen', volumen);
+                       AgregaLog('VOLUMEN FINAL POR TOTALIZADOR: '+FormatFloat('0.000',volumen));
+                     end;
+                     SwTotalInicialVenta:=false;
+                   end;
+                 end;
+               end
+               else begin
+                 SwEsperandoTotales:=False;
+                 HoraTotales:=Now;
+               end;
              end;
            end;
          end;
@@ -1644,7 +1707,12 @@ begin
         repeat
           Inc(PosicionActual);
           with TPosCarga[PosicionActual] do if NoComb>0 then begin
-            if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
+            if SwLecturaFinalPendiente then begin
+              // Lectura final del importe: debe ir al frente para no cerrar con el importe anterior.
+              ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',true); // pesos final
+              Esperamiliseg(200);
+            end
+            else if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
               SwA:=false;
               //SwActualizar:=true;
               ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',false); // pesos
@@ -1666,18 +1734,22 @@ begin
         for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
           xmodo:=xmodo+ModoOpera[1];
           if not SwDesHabilitado then begin
-            case estatus of
-              0:xestado:=xestado+'0'; // Sin Comunicación
-              1:xestado:=xestado+'1'; // Inactivo (Idle)
-              5,8:xestado:=xestado+'2'; // Cargando (In Use)
-              7:if not swcargando then
-                  xestado:=xestado+'3' // Fin de Carga (Used)
-                else
-                  xestado:=xestado+'2';
-              3,4:xestado:=xestado+'5'; // Llamando (Calling)
-              2:xestado:=xestado+'9'; // Autorizado
-              6:xestado:=xestado+'8'; // Detenido (Stoped)
-              else xestado:=xestado+'0';
+            if SwLecturaFinalPendiente then
+              xestado:=xestado+'2' // Mantener como cargando hasta recibir A1 final.
+            else begin
+              case estatus of
+                0:xestado:=xestado+'0'; // Sin Comunicación
+                1:xestado:=xestado+'1'; // Inactivo (Idle)
+                5,8:xestado:=xestado+'2'; // Cargando (In Use)
+                7:if not swcargando then
+                    xestado:=xestado+'3' // Fin de Carga (Used)
+                  else
+                    xestado:=xestado+'2';
+                3,4:xestado:=xestado+'5'; // Llamando (Calling)
+                2:xestado:=xestado+'9'; // Autorizado
+                6:xestado:=xestado+'8'; // Detenido (Stoped)
+                else xestado:=xestado+'0';
+              end;
             end;
           end
           else xestado:=xestado+'7'; // Deshabilitado
@@ -1705,6 +1777,9 @@ begin
           Inc(PosicionActual);
           with TPosCarga[PosicionActual] do if NoComb>0 then begin
             if swcargatotales then begin
+              SwEsperandoTotales:=true;
+              TotalesPendientes:=NoComb;
+              IntentosTotales:=0;
               for i:=1 to NoComb do begin
                 if NoComb>1 then
                   ComandoConsolaBuff('N'+IntToClaveNum(PosicionActual,2)+inttostr(i),false) // Totales
@@ -1772,6 +1847,7 @@ begin
             try
               SnLitros:=0;
               SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+              if SnImporte=0 then SnImporte:=9999;
               if (SnImporte<1)or(SnImporte>9999) then
                 rsp:='Importe fuera de rango válido: de 1.00 a 9999.00';
             except
@@ -1819,9 +1895,11 @@ begin
           rsp:='OK';
           if (xpos in [1..MaxPosCarga]) then with TPosCarga[xpos] do begin
             TipoPago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '),0);
-            if (not SwCargando)and(Estatus in [1,7]) then begin // EOT
+            if (not SwCargando)and(Estatus in [1,7])and(not SwLecturaFinalPendiente) then begin // EOT
               finventa:=0;
               SwCargaTotales:=true;
+              SwEsperandoTotales:=true;
+              TotalesPendientes:=NoComb;
             end
             else
               rsp:='Posicion no esta en fin de venta';
@@ -1829,13 +1907,21 @@ begin
           else rsp:='Posicion de Carga no Existe';
         end
         else if (ss='TOTAL') then begin
-          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);;
+          xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
           rsp:='OK';
-          with TPosCarga[xpos] do begin
-            if (TabCmnd[xcmnd].SwNuevo) and (SecondsBetween(Now,HoraTotales)>10) then begin
+          if not (xpos in [1..MaxPosCarga]) then begin
+            rsp:='Posicion de Carga no Existe';
+            SwAplicaCmnd:=True;
+          end
+          else with TPosCarga[xpos] do begin
+            if TabCmnd[xcmnd].SwNuevo then begin
+              // Nunca responder TOTAL con una lectura cacheada: forzar A9 frescos.
               SwCargaTotales:=True;
               SwEsperandoTotales:=True;
+              TotalesPendientes:=NoComb;
+              IntentosTotales:=0;
               TabCmnd[xcmnd].SwNuevo:=false;
+              SwAplicaCmnd:=False;
             end;
             if not SwEsperandoTotales then begin
               rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
@@ -2043,6 +2129,7 @@ end;
 
 procedure Togcvdispensarios_team.pSerialTriggerAvail(CP: TObject; Count: Word);
 var I,xpos,xcomb:Word;
+    estatusAnterior:integer;
     C:Char;
     ss,s1:string;
     csok:boolean;
@@ -2091,8 +2178,15 @@ begin
           checksumb:=false;
         HoraRspB:=now;
         xpos:=DamePosTeam(LineaTimer,true);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A3 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
         with TPosCarga[xpos] do begin
           ContEsperaB:=0;
+          estatusAnterior:=estatus;
 
           // Estatus del dispensario
           if csok then begin
@@ -2117,6 +2211,19 @@ begin
               estatus:=8;
             if (estatus=1)and(finventa=2) then
               estatus:=7;
+
+            if (estatus=5) and (not swcargando) and (not SwTotalInicialVenta) then begin
+              SwDesp:=false;
+              for I:=1 to MCxP do
+                TotalLitrosInicio[I]:=TotalLitros[I];
+              SwTotalInicialVenta:=true;
+            end;
+
+            if ((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8]) then begin
+              SwLecturaFinalPendiente:=true;
+              SwA:=true;
+              AgregaLog('TEAM: venta finalizada, se programa A1 final en posicion '+IntToStr(xpos));
+            end;
             
             // Note: JSON Update happens in ProcesaLinea when B command is processed by LineaTimer
 
@@ -2130,6 +2237,12 @@ begin
       end
       else if copy(LineaTimer,1,2)='A1' then begin // COMANDO A
         xpos:=DamePosTeam(LineaTimer,true);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A1 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
         with TPosCarga[xpos] do begin
           s1:=ExtraeElemStrSep(LineaTimer,6,' ');
           if s1='00' then begin // litros
@@ -2159,9 +2272,9 @@ begin
                 xcomb:=CombustibleEnPosicion(xpos,posactual);
                 precio:=lprecios[xcomb];
                 //if volumen=0 then
-                volumen:=AjustaFloat(dividefloat(importe,precio),2);
+                volumen:=AjustaFloat(dividefloat(importe,precio),3);
                 LineaTimer:='A'+inttoclavenum(xpos,2)+'0'
-                             +FormatFloat('000000',volumen*100)
+                             +FormatFloat('000000',volumen*1000)
                              +FormatFloat('00000000',importe*100)
                              +FormatFloat('0000',precio*100);
                 AgregaLog(LineaTimer);
@@ -2180,6 +2293,12 @@ begin
       end
       else if copy(LineaTimer,1,2)='A5' then begin // COMANDO S
         xpos:=DamePosTeam(LineaTimer,true);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A5 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
         ss:=ExtraeElemStrSep(LineaTimer,6,' ');
         if ss='09' then
           LineaTimer:='L'+inttoclavenum(xpos,2)+'0'
@@ -2190,6 +2309,12 @@ begin
       end
       else if copy(LineaTimer,1,2)='A6' then begin // COMANDO U
         xpos:=DamePosTeam(LineaTimer,false);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A6 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
         LineaTimer:='U'+inttoclavenum(xpos,2)
                     +ExtraeElemStrSep(LineaTimer,6,' ')+ExtraeElemStrSep(LineaTimer,7,' ')
                     +ExtraeElemStrSep(LineaTimer,8,' ')+ExtraeElemStrSep(LineaTimer,9,' ')
@@ -2199,6 +2324,12 @@ begin
       end
       else if copy(LineaTimer,1,2)='A9' then begin // COMANDO N
         xpos:=DamePosTeam(LineaTimer,true);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A9 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
         LineaTimer:='N'+inttoclavenum(xpos,2)+inttostr(TPosCarga[xpos].AuxCmndN)
                     +ExtraeElemStrSep(LineaTimer,6,' ')+ExtraeElemStrSep(LineaTimer,7,' ')
                     +ExtraeElemStrSep(LineaTimer,8,' ')+ExtraeElemStrSep(LineaTimer,9,' ')
