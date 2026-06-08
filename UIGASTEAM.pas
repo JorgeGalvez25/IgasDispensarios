@@ -364,7 +364,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0; // If stopped, keep pinging via Timer2
+    Timer2.Enabled := (not conectado) or (estado <= 0);
   end;
 end;
 
@@ -1483,7 +1483,7 @@ end;
 procedure Togcvdispensarios_team.ProcesaLinea(checksum: boolean);
 label uno;
 var lin,ss,ss2,rsp,rsp2,descrsp,xestado,xmodo,
-    xdisp2,xmodo2,xestado2,precios:string;
+    xdisp2,xmodo2,xestado2,precios,xestadoPos:string;
     simp,spre,sval:string[20];
     i,j,xpos,ii,xdisp,xcmnd:integer;
     XMANG,XCTE,XVEHI,
@@ -1528,8 +1528,6 @@ begin
                estatusant:=estatus;
                estatus:=StrToIntDef(ss[xpos*2],0);
                
-               // JSON Update Status
-               ActualizaCampoJSON(xpos, 'Estatus', estatus);
                if PosActual in [1..MCxP] then begin
                  ActualizaCampoJSON(xpos, 'Manguera', TMang[PosActual]);
                  ActualizaCampoJSON(xpos, 'Combustible', CombustibleEnPosicion(xpos,PosActual));
@@ -1733,26 +1731,32 @@ begin
         lin:='';xestado:='';xmodo:='';
         for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
           xmodo:=xmodo+ModoOpera[1];
+          xestadoPos:='0';
+
           if not SwDesHabilitado then begin
             if SwLecturaFinalPendiente then
-              xestado:=xestado+'2' // Mantener como cargando hasta recibir A1 final.
+              xestadoPos:='2' // Mantener como cargando hasta recibir A1 final.
             else begin
               case estatus of
-                0:xestado:=xestado+'0'; // Sin Comunicación
-                1:xestado:=xestado+'1'; // Inactivo (Idle)
-                5,8:xestado:=xestado+'2'; // Cargando (In Use)
+                0:xestadoPos:='0'; // Sin Comunicación
+                1:xestadoPos:='1'; // Inactivo (Idle)
+                5,8:xestadoPos:='2'; // Cargando (In Use)
                 7:if not swcargando then
-                    xestado:=xestado+'3' // Fin de Carga (Used)
+                    xestadoPos:='3' // Fin de Carga (Used)
                   else
-                    xestado:=xestado+'2';
-                3,4:xestado:=xestado+'5'; // Llamando (Calling)
-                2:xestado:=xestado+'9'; // Autorizado
-                6:xestado:=xestado+'8'; // Detenido (Stoped)
-                else xestado:=xestado+'0';
+                    xestadoPos:='2';
+                3,4:xestadoPos:='5'; // Llamando (Calling)
+                2:xestadoPos:='9'; // Autorizado
+                6:xestadoPos:='8'; // Detenido (Stoped)
+                else xestadoPos:='0';
               end;
             end;
           end
-          else xestado:=xestado+'7'; // Deshabilitado
+          else xestadoPos:='7'; // Deshabilitado
+
+          xestado:=xestado+xestadoPos;
+          ActualizaCampoJSON(xpos, 'Estatus', StrToIntDef(xestadoPos, 0));
+
           xcomb:=CombustibleEnPosicion(xpos,PosActual);
           ss:=inttoclavenum(xpos,2)+'/'+inttostr(xcomb);
           ss:=ss+'/'+FormatFloat('###0.##',volumen);
