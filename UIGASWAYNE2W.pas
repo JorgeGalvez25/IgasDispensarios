@@ -64,6 +64,14 @@ type
     socketResponse : TCustomWinSocket;
     function  TransmiteComando1(DataBlock:string):boolean;
     function  TransmiteComando2(DataBlock:string):boolean;
+    function  EmuPrecioVenta(const xPosCarga, xComb: Integer): Real;
+    function  EmuCombustibleAleatorio(const xPosCarga: Integer): Integer;
+    function  EmuEsperaProxVentaSeg(const xPosCarga: Integer): Integer;
+    function  EmuImporteVentaFicticia: Real;
+    procedure EmuProgramaProxVenta(const xPosCarga: Integer; const Inicial: Boolean);
+    procedure EmuConfiguraVenta(const xPosCarga, xComb, xPresetTipo: Integer;
+      const xPresetMonto: Real; const xVentaFicticia: Boolean);
+    procedure EmuIniciaVentaFicticia(const xPosCarga: Integer);
   public
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
@@ -209,6 +217,8 @@ type
        FlujoLps     : Real;      // Flujo simulado en litros/segundo
        HoraUltTick  : TDateTime; // Hora del ultimo avance
        HoraTransic  : TDateTime; // Hora de la ultima transicion de estado
+       HoraProxVenta: TDateTime; // Proxima venta ficticia programada
+       VentaFicticia: Boolean;   // True cuando la venta fue generada por emulacion
      end;
 
 type
@@ -345,6 +355,7 @@ var
 begin
   try
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
+    Randomize;
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
@@ -559,7 +570,10 @@ begin
         MaxPosCarga:=xpos;
       if (xpos in [1..32]) then begin
         with TPosCarga[xpos] do begin
-          ModoOpera:='Prepago';
+          if posiciones.Child[i].Field['OperationMode'].Value='SELFSERVICE' then
+            ModoOpera:='Prepago'
+          else
+            ModoOpera:='Normal';
 
           posObj := TlkJSONObject.Create;
           posObj.Add('DispenserId', xpos);
@@ -1645,21 +1659,23 @@ begin
                       TPosCarga[xpos].Estatus:=9;
                       EmuPos[xpos].PresetMonto:=ximporte;
                       EmuPos[xpos].PresetTipo:=1;
+                      EmuPos[xpos].VentaFicticia:=False;
+                      EmuPos[xpos].HoraProxVenta:=0;
                       { Si combustible=0, usar el primero de la posicion }
-                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then begin
+                      if xp > 0 then begin
                         EmuPos[xpos].CombVenta:=xcomb;
-                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb];
+                        EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, xcomb);
                       end
                       else if TPosCarga[xpos].NoComb > 0 then begin
                         EmuPos[xpos].CombVenta:=TPosCarga[xpos].TComb[1];
                         if (TPosCarga[xpos].TComb[1] in [1..4]) then
-                          EmuPos[xpos].PrecioVenta:=LPrecios[TPosCarga[xpos].TComb[1]]
+                          EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, TPosCarga[xpos].TComb[1])
                         else
-                          EmuPos[xpos].PrecioVenta:=1;
+                          EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, EmuPos[xpos].CombVenta);
                       end
                       else begin
                         EmuPos[xpos].CombVenta:=1;
-                        EmuPos[xpos].PrecioVenta:=LPrecios[1];
+                        EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, 1);
                       end;
                       EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
                       EmuPos[xpos].HoraTransic:=Now;
@@ -1668,7 +1684,7 @@ begin
                       if xp > 0 then
                         TPosCarga[xpos].PosActual:=xp
                       else if TPosCarga[xpos].NoComb > 0 then
-                        TPosCarga[xpos].PosActual:=TPosCarga[xpos].TPosx[1]
+                        TPosCarga[xpos].PosActual:=1
                       else
                         TPosCarga[xpos].PosActual:=1;
                       ActualizaCampoJSON(xpos,'Estatus',9);
@@ -1734,21 +1750,23 @@ begin
                       TPosCarga[xpos].Estatus:=9;
                       EmuPos[xpos].PresetMonto:=xlitros;
                       EmuPos[xpos].PresetTipo:=2;
+                      EmuPos[xpos].VentaFicticia:=False;
+                      EmuPos[xpos].HoraProxVenta:=0;
                       { Si combustible=0, usar el primero de la posicion }
-                      if (xcomb in [1..4]) and (LPrecios[xcomb]>0) then begin
+                      if xp > 0 then begin
                         EmuPos[xpos].CombVenta:=xcomb;
-                        EmuPos[xpos].PrecioVenta:=LPrecios[xcomb];
+                        EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, xcomb);
                       end
                       else if TPosCarga[xpos].NoComb > 0 then begin
                         EmuPos[xpos].CombVenta:=TPosCarga[xpos].TComb[1];
                         if (TPosCarga[xpos].TComb[1] in [1..4]) then
-                          EmuPos[xpos].PrecioVenta:=LPrecios[TPosCarga[xpos].TComb[1]]
+                          EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, TPosCarga[xpos].TComb[1])
                         else
-                          EmuPos[xpos].PrecioVenta:=1;
+                          EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, EmuPos[xpos].CombVenta);
                       end
                       else begin
                         EmuPos[xpos].CombVenta:=1;
-                        EmuPos[xpos].PrecioVenta:=LPrecios[1];
+                        EmuPos[xpos].PrecioVenta:=EmuPrecioVenta(xpos, 1);
                       end;
                       EmuPos[xpos].FlujoLps:=0.35 + Random * 0.15;
                       EmuPos[xpos].HoraTransic:=Now;
@@ -1757,7 +1775,7 @@ begin
                       if xp > 0 then
                         TPosCarga[xpos].PosActual:=xp
                       else if TPosCarga[xpos].NoComb > 0 then
-                        TPosCarga[xpos].PosActual:=TPosCarga[xpos].TPosx[1]
+                        TPosCarga[xpos].PosActual:=1
                       else
                         TPosCarga[xpos].PosActual:=1;
                       ActualizaCampoJSON(xpos,'Estatus',9);
@@ -1803,6 +1821,10 @@ begin
                 TPosCarga[xpos].SwPreset:=false;
                 TPosCarga[xpos].SwPreset2:=false;
                 EmuPos[xpos].PresetMonto:=0;
+                EmuPos[xpos].PresetTipo:=0;
+                EmuPos[xpos].VentaFicticia:=False;
+                if UpperCase(Trim(TPosCarga[xpos].ModoOpera)) <> 'PREPAGO' then
+                  EmuProgramaProxVenta(xpos, False);
                 ActualizaCampoJSON(xpos,'Estatus',1);
                 AgregaLog('EMU FINV Pos '+IntToStr(xpos)+': Fin de Venta -> Inactivo');
               end
@@ -1856,6 +1878,10 @@ begin
                 TPosCarga[xpos].SwPreset:=false;
                 TPosCarga[xpos].SwPreset2:=false;
                 EmuPos[xpos].PresetMonto:=0;
+                EmuPos[xpos].PresetTipo:=0;
+                EmuPos[xpos].VentaFicticia:=False;
+                if UpperCase(Trim(TPosCarga[xpos].ModoOpera)) <> 'PREPAGO' then
+                  EmuProgramaProxVenta(xpos, False);
                 ActualizaCampoJSON(xpos,'Estatus',1);
                 AgregaLog('EMU DVC Pos '+IntToStr(xpos)+': Autorizada -> Inactivo');
               end;
@@ -2195,25 +2221,26 @@ begin
                     end;
                   end;
                 4:if (estatus=5)and(not swdeshabil)  then begin
-                    if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
-                      AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
-                      if not swpreset then begin
-                        if Autoriza(PosCiclo) then ;
-                      end
-                      else if (swpreset)and(PosPreset=PosMangLev) then begin
-                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                          if AutorizaPm(PosCiclo,PosPreset) then begin
-                            swpreset2:=true;
-                          end;
-                      end
-                      else if (swpreset)and(PosPreset=0) then begin
-                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                          if Autoriza(PosCiclo) then begin
-                            swpreset2:=true;
-                          end;
-                      end;
-                    end
-                    else begin // AUTORIZA PREPAGO
+                    //Descomentar en caso de trabajar sin consola gateway o bridge
+//                    if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
+//                      AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
+//                      if not swpreset then begin
+//                        if Autoriza(PosCiclo) then ;
+//                      end
+//                      else if (swpreset)and(PosPreset=PosMangLev) then begin
+//                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+//                          if AutorizaPm(PosCiclo,PosPreset) then begin
+//                            swpreset2:=true;
+//                          end;
+//                      end
+//                      else if (swpreset)and(PosPreset=0) then begin
+//                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
+//                          if Autoriza(PosCiclo) then begin
+//                            swpreset2:=true;
+//                          end;
+//                      end;
+//                    end
+//                    else begin // AUTORIZA PREPAGO
                       AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
                       if (SwPreset)and(PosPreset=PosMangLev) then begin
                         if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
@@ -2227,7 +2254,7 @@ begin
                             swpreset2:=true;
                           end;
                       end;
-                    end
+//                    end
                   end;
                 5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
                     if not swdeshabil then begin   // no polea los que estan deshabilitados
@@ -2542,11 +2569,17 @@ begin
     end;
 
     if xpos=0 then begin
-      for xpos:=1 to MaxPosCarga do
+      for xpos:=1 to MaxPosCarga do begin
         TPosCarga[xpos].ModoOpera:='Prepago';
+        if SwModoEmulacion then
+          EmuPos[xpos].HoraProxVenta:=0;
+      end;
     end
-    else if (xpos in [1..maxposcarga]) then
+    else if (xpos in [1..maxposcarga]) then begin
       TPosCarga[xpos].ModoOpera:='Prepago';
+      if SwModoEmulacion then
+        EmuPos[xpos].HoraProxVenta:=0;
+    end;
 
     AddPeticionJSON(folio, 'True|');
   except
@@ -2765,11 +2798,17 @@ begin
     end;
 
     if xpos=0 then begin
-      for xpos:=1 to MaxPosCarga do
-        TPosCarga[xpos].ModoOpera:='Prepago';
+      for xpos:=1 to MaxPosCarga do begin
+        TPosCarga[xpos].ModoOpera:='Normal';
+        if SwModoEmulacion then
+          EmuProgramaProxVenta(xpos, True);
+      end;
     end
-    else if (xpos in [1..maxposcarga]) then
-      TPosCarga[xpos].ModoOpera:='Prepago';
+    else if (xpos in [1..maxposcarga]) then begin
+      TPosCarga[xpos].ModoOpera:='Normal';
+      if SwModoEmulacion then
+        EmuProgramaProxVenta(xpos, True);
+    end;
 
     AddPeticionJSON(folio, 'True|');
   except
@@ -2972,7 +3011,11 @@ begin
           FlujoLps:=0.35 + Random * 0.15;
           HoraUltTick:=Now;
           HoraTransic:=Now;
+          HoraProxVenta:=0;
+          VentaFicticia:=False;
         end;
+        if UpperCase(Trim(TPosCarga[i].ModoOpera)) <> 'PREPAGO' then
+          EmuProgramaProxVenta(i, True);
         ActualizaCampoJSON(i,'Estatus',1);
       end;
     end;
@@ -3345,6 +3388,274 @@ begin
   end;
 end;
 
+
+function Togcvdispensarios_wayne2w.EmuPrecioVenta(const xPosCarga,
+  xComb: Integer): Real;
+var
+  i: Integer;
+begin
+  Result:=0;
+  try
+    if (xComb in [1..4]) and (LPrecios[xComb] > 0) then
+      Result:=LPrecios[xComb];
+
+    if (Result <= 0) and (xPosCarga in [1..MaxPosCarga]) then begin
+      with TPosCarga[xPosCarga] do begin
+        for i:=1 to NoComb do begin
+          if (TComb[i] = xComb) and (TPrecio[i] > 0) then begin
+            Result:=TPrecio[i];
+            Break;
+          end;
+        end;
+      end;
+    end;
+
+    { Fallback para que la emulacion avance aunque aun no hayan llegado precios }
+    if Result <= 0 then begin
+      case xComb of
+        1: Result:=24.00;
+        2: Result:=25.80;
+        3: Result:=26.00;
+      else
+        Result:=24.50;
+      end;
+    end;
+  except
+    Result:=24.50;
+  end;
+end;
+
+function Togcvdispensarios_wayne2w.EmuCombustibleAleatorio(
+  const xPosCarga: Integer): Integer;
+var
+  n, idx: Integer;
+begin
+  Result:=1;
+  try
+    if not (xPosCarga in [1..MaxPosCarga]) then
+      Exit;
+
+    with TPosCarga[xPosCarga] do begin
+      if NoComb <= 0 then
+        Exit;
+
+      if NoComb = 1 then begin
+        Result:=TComb[1];
+        Exit;
+      end;
+
+      { En Mexico normalmente Magna se vende mas; tomamos el primer combustible
+        como el mas frecuente y dejamos variacion para los demas. }
+      n:=Random(100);
+      if n < 70 then
+        idx:=1
+      else if n < 90 then
+        idx:=2
+      else
+        idx:=Random(NoComb) + 1;
+
+      if idx < 1 then
+        idx:=1;
+      if idx > NoComb then
+        idx:=NoComb;
+
+      Result:=TComb[idx];
+    end;
+  except
+    Result:=1;
+  end;
+end;
+
+function Togcvdispensarios_wayne2w.EmuEsperaProxVentaSeg(
+  const xPosCarga: Integer): Integer;
+var
+  h, minSeg, maxSeg: Integer;
+begin
+  try
+    h:=HourOf(Now);
+
+    { Ritmo por hora del dia: mas movimiento manana/tarde, menos de noche. }
+    if (((h >= 6) and (h <= 9)) or
+        ((h >= 13) and (h <= 15)) or
+        ((h >= 17) and (h <= 20))) then begin
+      minSeg:=35;
+      maxSeg:=120;
+    end
+    else if ((h >= 22) or (h <= 5)) then begin
+      minSeg:=160;
+      maxSeg:=420;
+    end
+    else begin
+      minSeg:=70;
+      maxSeg:=240;
+    end;
+
+    { Ajuste simple por tamano de estacion: mas posiciones, mas rotacion. }
+    if MaxPosCarga <= 4 then begin
+      minSeg:=minSeg + 25;
+      maxSeg:=maxSeg + 80;
+    end
+    else if MaxPosCarga >= 8 then begin
+      minSeg:=Round(minSeg * 0.75);
+      maxSeg:=Round(maxSeg * 0.85);
+    end;
+
+    if maxSeg < minSeg then
+      maxSeg:=minSeg + 30;
+
+    Result:=minSeg + Random(maxSeg - minSeg + 1) + Random(15);
+  except
+    Result:=120;
+  end;
+end;
+
+function Togcvdispensarios_wayne2w.EmuImporteVentaFicticia: Real;
+var
+  n: Integer;
+begin
+  n:=Random(100);
+
+  { Importes comunes de carga en Mexico, en multiplos cerrados. }
+  if n < 8 then
+    Result:=100 + (50 * Random(3))       { 100..200 }
+  else if n < 45 then
+    Result:=200 + (50 * Random(7))       { 200..500 }
+  else if n < 82 then
+    Result:=500 + (50 * Random(9))       { 500..900 }
+  else if n < 96 then
+    Result:=1000 + (100 * Random(5))     { 1000..1400 }
+  else
+    Result:=1500 + (100 * Random(6));    { 1500..2000 }
+end;
+
+procedure Togcvdispensarios_wayne2w.EmuProgramaProxVenta(
+  const xPosCarga: Integer; const Inicial: Boolean);
+var
+  espera: Integer;
+begin
+  try
+    if not SwModoEmulacion then
+      Exit;
+    if not (xPosCarga in [1..MaxPosCarga]) then
+      Exit;
+
+    if UpperCase(Trim(TPosCarga[xPosCarga].ModoOpera)) = 'PREPAGO' then begin
+      EmuPos[xPosCarga].HoraProxVenta:=0;
+      Exit;
+    end;
+
+    if Inicial then
+      espera:=10 + Random(80)
+    else
+      espera:=EmuEsperaProxVentaSeg(xPosCarga);
+
+    EmuPos[xPosCarga].HoraProxVenta:=IncSecond(Now, espera);
+  except
+    on e:Exception do
+      AgregaLog('Error EmuProgramaProxVenta: '+e.Message);
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.EmuConfiguraVenta(const xPosCarga,
+  xComb, xPresetTipo: Integer; const xPresetMonto: Real;
+  const xVentaFicticia: Boolean);
+var
+  xp, xCombVenta: Integer;
+  xPrecio: Real;
+begin
+  try
+    if not (xPosCarga in [1..MaxPosCarga]) then
+      Exit;
+
+    with TPosCarga[xPosCarga] do begin
+      if NoComb <= 0 then
+        Exit;
+
+      xp:=PosicionDeCombustible(xPosCarga, xComb);
+      if xp <= 0 then begin
+        xp:=1;
+        xCombVenta:=TComb[1];
+      end
+      else
+        xCombVenta:=xComb;
+
+      xPrecio:=EmuPrecioVenta(xPosCarga, xCombVenta);
+
+      HoraOcc:=Now;
+      EstatusAnt:=Estatus;
+      Estatus:=9;
+      SwPreset:=True;
+      SwPreset2:=True;
+      SwLeeVenta:=False;
+      SwStatusFV:=False;
+      SwCargando:=False;
+      swdesp:=False;
+      PosPreset:=xp;
+      TipoPreset:=xPresetTipo;
+      ValorPreset:=xPresetMonto;
+      PosActual:=xp;
+      EsperaFinVenta:=0;
+      Importe:=0;
+      Volumen:=0;
+      Precio:=xPrecio;
+      MontoPreset:='$ '+FormatoMoneda(xPresetMonto);
+
+      EmuPos[xPosCarga].PresetMonto:=xPresetMonto;
+      EmuPos[xPosCarga].PresetTipo:=xPresetTipo;
+      EmuPos[xPosCarga].CombVenta:=xCombVenta;
+      EmuPos[xPosCarga].PrecioVenta:=xPrecio;
+      EmuPos[xPosCarga].FlujoLps:=0.35 + Random * 0.25;
+      EmuPos[xPosCarga].HoraTransic:=Now;
+      EmuPos[xPosCarga].HoraUltTick:=Now;
+      EmuPos[xPosCarga].HoraProxVenta:=0;
+      EmuPos[xPosCarga].VentaFicticia:=xVentaFicticia;
+
+      ActualizaCampoJSON(xPosCarga,'Estatus',9);
+      ActualizaCampoJSON(xPosCarga,'Combustible',xCombVenta);
+      ActualizaCampoJSON(xPosCarga,'Manguera',TMang[xp]);
+      ActualizaCampoJSON(xPosCarga,'Importe',0);
+      ActualizaCampoJSON(xPosCarga,'Volumen',0);
+      ActualizaCampoJSON(xPosCarga,'Precio',xPrecio);
+    end;
+  except
+    on e:Exception do
+      AgregaLog('Error EmuConfiguraVenta: '+e.Message);
+  end;
+end;
+
+procedure Togcvdispensarios_wayne2w.EmuIniciaVentaFicticia(
+  const xPosCarga: Integer);
+var
+  xComb: Integer;
+  xImporte: Real;
+begin
+  try
+    if not (xPosCarga in [1..MaxPosCarga]) then
+      Exit;
+    if UpperCase(Trim(TPosCarga[xPosCarga].ModoOpera)) = 'PREPAGO' then
+      Exit;
+    if not (TPosCarga[xPosCarga].Estatus in [1,5]) then
+      Exit;
+    if TPosCarga[xPosCarga].SwDesHabil then
+      Exit;
+    if TPosCarga[xPosCarga].NoComb <= 0 then begin
+      EmuProgramaProxVenta(xPosCarga, False);
+      Exit;
+    end;
+
+    xComb:=EmuCombustibleAleatorio(xPosCarga);
+    xImporte:=EmuImporteVentaFicticia;
+    EmuConfiguraVenta(xPosCarga, xComb, 1, xImporte, True);
+
+    AgregaLog('EMU AUTO Pos '+IntToStr(xPosCarga)+': venta ficticia $'+
+      FormatFloat('0.00',xImporte)+' Comb:'+IntToStr(EmuPos[xPosCarga].CombVenta)+
+      ' Precio:'+FormatFloat('0.00',EmuPos[xPosCarga].PrecioVenta));
+  except
+    on e:Exception do
+      AgregaLog('Error EmuIniciaVentaFicticia: '+e.Message);
+  end;
+end;
+
 {==============================================================================
   AvanzaEmulacion - Simula el ciclo de dispensarios sin puerto serial
   =============================================================================
@@ -3367,6 +3678,16 @@ begin
       with TPosCarga[i] do begin
         if SwDeshabil then Continue;
 
+        { Generar ventas ficticias solo en modo emulacion y solo cuando
+          la posicion NO trabaja en prepago. }
+        if (Estatus in [1,5]) and
+           (UpperCase(Trim(ModoOpera)) <> 'PREPAGO') then begin
+          if EmuPos[i].HoraProxVenta = 0 then
+            EmuProgramaProxVenta(i, False)
+          else if Now >= EmuPos[i].HoraProxVenta then
+            EmuIniciaVentaFicticia(i);
+        end;
+
         case Estatus of
           9: begin
             { Autorizada -> esperar 2 segundos, luego despachar }
@@ -3378,10 +3699,8 @@ begin
               swdesp:=true;
               Importe:=0;
               Volumen:=0;
-              if EmuPos[i].CombVenta in [1..4] then
-                Precio:=LPrecios[EmuPos[i].CombVenta]
-              else
-                Precio:=EmuPos[i].PrecioVenta;
+              Precio:=EmuPrecioVenta(i, EmuPos[i].CombVenta);
+              EmuPos[i].PrecioVenta:=Precio;
               EmuPos[i].HoraUltTick:=Now;
               EmuPos[i].HoraTransic:=Now;
               ActualizaCampoJSON(i,'Estatus',2);
@@ -3469,7 +3788,12 @@ begin
               SwStatusFV:=False;
               EmuPos[i].PresetMonto:=0;
               EmuPos[i].PresetTipo:=0;
+              EmuPos[i].VentaFicticia:=False;
               EmuPos[i].HoraTransic:=Now;
+              if UpperCase(Trim(ModoOpera)) <> 'PREPAGO' then
+                EmuProgramaProxVenta(i, False)
+              else
+                EmuPos[i].HoraProxVenta:=0;
               ActualizaCampoJSON(i,'Estatus',1);
               AgregaLog('EMU Pos '+IntToStr(i)+': Fin de Venta -> Inactivo');
             end;
