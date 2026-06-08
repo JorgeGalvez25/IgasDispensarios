@@ -2677,19 +2677,37 @@ begin
   try
     mensaje:=Socket.ReceiveText;
 
-    if (Length(ExtraeElemStrSep(mensaje,2,'|'))=1) and (StrToIntDef(ExtraeElemStrSep(mensaje,2,'|'),-99) in [0,1]) then begin
-      pSerial.Open:=mensaje='1';
-      AddPeticionJSON(StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0),'1');
-      Responder(TlkJSON.GenerateText(rootJSON));
-      Exit;
-    end;
-
     if mensaje<>'' then begin
       AgregaLogPetRes('R '+mensaje);
 
       folio:=StrToIntDef(ExtraeElemStrSep(mensaje,1,'|'),0);
 
       comando:=UpperCase(ExtraeElemStrSep(mensaje,3,'|'));
+
+      if (Length(comando)=1) and (StrToIntDef(comando,-99) in [0,1]) then begin
+        if comando='1' then begin
+          if not pSerial.Open then
+            pSerial.Open:=True;
+          NumPaso:=0;
+          SwEsperaRsp:=False;
+          LineaBuff:='';
+          Timer2.Enabled:=False;
+          if estado>0 then
+            Timer1.Enabled:=True;
+          AddPeticionJSON(folio,'1');
+          Responder(TlkJSON.GenerateText(rootJSON));
+        end
+        else begin
+          if pSerial.Open then
+            pSerial.Open:=False;
+          Timer1.Enabled:=False;
+          AddPeticionJSON(folio,'1');
+          Responder(TlkJSON.GenerateText(rootJSON));
+          respJson:=False;
+          Timer2.Enabled:=True;
+        end;
+        Exit;
+      end;
 
       if NoElemStrSep(mensaje,'|')>3 then begin
         for i:=4 to NoElemStrSep(mensaje,'|') do
@@ -2818,7 +2836,7 @@ begin
       else
         Responder(TlkJSON.GenerateText(rootJSON));
 
-      if estado>0 then begin
+      if (estado>0) and (pSerial.Open) then begin
         Timer2.Enabled:=False;
         Timer1.Enabled:=True;
       end;
@@ -2829,7 +2847,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := (not conectado) or (estado<=0);
+    Timer2.Enabled := (not conectado) or (estado<=0) or (not pSerial.Open);
   end;
 end;
 
