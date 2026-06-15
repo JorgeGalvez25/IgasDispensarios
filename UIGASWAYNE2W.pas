@@ -181,6 +181,7 @@ type
        EsperaFinVenta :integer;
 
        SwStatusFV,
+       SwLecturaFinalPendiente,
        SwLeeVenta,
        SwLeePrecios,
        SwCambiaPrecio,
@@ -558,6 +559,7 @@ begin
       SwDeshabil:=false;
       SwLeeVenta:=true;
       SwStatusFV:=false;
+      SwLecturaFinalPendiente:=false;
       SwCambiaPrecio:=false;
       SwLeePrecios:=true;
     end;
@@ -1258,16 +1260,20 @@ begin
     for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
       xmodo:=xmodo+ModoOpera[1];
       if not SwDesHabil then begin
-        case estatus of
-          0:xestado:=xestado+'0'; // Sin Comunicaci�n
-          1:xestado:=xestado+'1'; // Inactivo (Idle)
-          2:xestado:=xestado+'2'; // Despachando (In Use)
-          3,4:xestado:=xestado+'3';
-          5:xestado:=xestado+'5'; // Llamando (Calling) Pistola Levantada
-          9:xestado:=xestado+'9'; // Autorizado
-          8:xestado:=xestado+'8'; // Detenido (Stoped)
-          else
-            xestado:=xestado+'0';
+        if SwLecturaFinalPendiente then
+          xestado:=xestado+'2' // Mantener como cargando hasta recibir la lectura final.
+        else begin
+          case estatus of
+            0:xestado:=xestado+'0'; // Sin Comunicaci�n
+            1:xestado:=xestado+'1'; // Inactivo (Idle)
+            2:xestado:=xestado+'2'; // Despachando (In Use)
+            3,4:xestado:=xestado+'3';
+            5:xestado:=xestado+'5'; // Llamando (Calling) Pistola Levantada
+            9:xestado:=xestado+'9'; // Autorizado
+            8:xestado:=xestado+'8'; // Detenido (Stoped)
+            else
+              xestado:=xestado+'0';
+          end;
         end;
       end
       else xestado:=xestado+'7'; // Deshabilitado
@@ -1818,6 +1824,7 @@ begin
                 TPosCarga[xpos].Estatus:=1;
                 TPosCarga[xpos].swcargando:=false;
                 TPosCarga[xpos].EsperaFinVenta:=0;
+                TPosCarga[xpos].SwLecturaFinalPendiente:=false;
                 TPosCarga[xpos].SwPreset:=false;
                 TPosCarga[xpos].SwPreset2:=false;
                 EmuPos[xpos].PresetMonto:=0;
@@ -1833,7 +1840,9 @@ begin
             end
             else begin
               if (TPosCarga[xpos].Estatus in [3,4]) then begin // EOT
-                if (not TPosCarga[xpos].swcargando) then
+                if TPosCarga[xpos].SwLecturaFinalPendiente then
+                  rsp:='Posicion aun tiene lectura final pendiente'
+                else if (not TPosCarga[xpos].swcargando) then
                   TPosCarga[xpos].esperafinventa:=0
                 else begin
                   if (TPosCarga[xpos].swcargando)and(TPosCarga[xpos].Estatus=1) then begin
@@ -2153,6 +2162,8 @@ begin
                           AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
                           swdesp:=false;
                           SwStatusFV:=true;
+                          SwLecturaFinalPendiente:=true;
+                          SwLeeVenta:=true;
                           Estatus:=3;
                         end;
                         if (Estatusant=0)and(estatus=1) then begin
@@ -2162,11 +2173,15 @@ begin
                           SinComunicacion := False;
                         end;
                         if (EstatusAnt in [3,4])and(Estatus=1) then begin
-                          swcargando:=false;
-                          if (EsperaFinVenta=1) and (volumen>0) then
+                          if SwLecturaFinalPendiente then
                             Estatus:=3
-                          else
-                            EsperaFinVenta:=0;
+                          else begin
+                            swcargando:=false;
+                            if (EsperaFinVenta=1) and (volumen>0) then
+                              Estatus:=3
+                            else
+                              EsperaFinVenta:=0;
+                          end;
                         end;
                         if (estatusant = 0) and (estatus = 0) then
                         begin
@@ -2181,7 +2196,10 @@ begin
                           Esperamiliseg(300);
                           ReanudaDespacho(PosCiclo);
                         end;
-                        ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
+                        if SwLecturaFinalPendiente then
+                          ActualizaCampoJSON(PosCiclo,'Estatus',2)
+                        else
+                          ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
                       end;
                     except
                       AgregaLog('Error Estatus Pos: '+inttostr(PosCiclo));
@@ -2201,11 +2219,21 @@ begin
                         if abs(volumen-xvolumen)>0.5 then
                           volumen:=xvolumen;
                         AgregaLog('R> '+FormatFloat('###,##0.00',Volumen)+' / '+FormatFloat('###,##0.00',precio)+' / '+FormatFloat('###,##0.00',importe));
+                        if SwLecturaFinalPendiente then begin
+                          SwLecturaFinalPendiente:=false;
+                          swcargando:=false;
+                          swdesp:=false;
+                          SwStatusFV:=false;
+                          if PosActual in [1..MCxP] then
+                            SwLeeTotales[PosActual]:=true;
+                        end;
                       end;
                       ActualizaCampoJSON(PosCiclo,'HoraOcc',FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
                       ActualizaCampoJSON(PosCiclo,'Volumen',Volumen);
                       ActualizaCampoJSON(PosCiclo,'Precio',precio);
                       ActualizaCampoJSON(PosCiclo,'Importe',importe);
+                      if not SwLecturaFinalPendiente then
+                        ActualizaCampoJSON(PosCiclo,'Estatus',estatus);
                     end;
                   end;
                 3:if (estatus>0)and(not swdeshabil) then begin        // LEE TOTALES
@@ -2995,6 +3023,7 @@ begin
           SwPreset2:=False;
           SwLeeVenta:=False;
           SwStatusFV:=False;
+          SwLecturaFinalPendiente:=False;
           SwCambiaPrecio:=False;
           SwLeePrecios:=False;
           Importe:=0;
@@ -3588,6 +3617,7 @@ begin
       SwPreset2:=True;
       SwLeeVenta:=False;
       SwStatusFV:=False;
+      SwLecturaFinalPendiente:=False;
       SwCargando:=False;
       swdesp:=False;
       PosPreset:=xp;
@@ -3782,6 +3812,7 @@ begin
               EstatusAnt:=Estatus;
               Estatus:=1;
               SwCargando:=False;
+              SwLecturaFinalPendiente:=False;
               SwPreset:=False;
               SwPreset2:=False;
               SwLeeVenta:=False;
