@@ -67,7 +67,7 @@ type
     SwEsperaRsp  :boolean;
     ContEsperaRsp:integer;
     FolioCmnd   :integer;
-    horaLog:TDateTime;
+    horaLog, horaAct:TDateTime;
     minutosLog:Integer;
     version:String;
     xTurnoSocket:Integer;
@@ -276,6 +276,7 @@ begin
     estado:=-1;
     SegundosFinv:=30;
     horaLog:=Now;
+    horaAct:=Now;
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
@@ -301,12 +302,14 @@ procedure Togcvdispensarios_bennett.ClientSocket1Connect(Sender: TObject;
   Socket: TCustomWinSocket);
 begin
   conectado:=True;
+  horaAct:=Now;
 end;
 
 procedure Togcvdispensarios_bennett.ClientSocket1Disconnect(Sender: TObject;
   Socket: TCustomWinSocket);
 begin
   conectado:=False;
+  socketResponse:=nil;
   Timer1.Enabled:=False;
   Timer2.Enabled:=True;
 end;
@@ -319,6 +322,7 @@ var
   metodoEnum:TMetodos;
 begin
   try
+    horaAct:=Now;
     mensaje:=Socket.ReceiveText;
     if mensaje<>'' then begin
       AgregaLogPetRes('R '+mensaje);
@@ -418,6 +422,16 @@ begin
     AgregaLogPetRes('E '+resp);
   except
     on e:Exception do begin
+      AgregaLog('Se perdio comunicacion con Bridge Responder: '+e.Message);
+      GuardarLog(0);
+      conectado:=False;
+      socketResponse:=nil;
+      try
+        ClientSocket1.Active:=False;
+      except
+      end;
+      Timer1.Enabled:=False;
+      Timer2.Enabled:=True;
       AgregaLogPetRes('False|Excepcion: '+e.Message+'|');
       GuardarLogPetRes(0);
     end;
@@ -569,6 +583,12 @@ begin
     try
       Timer2.Enabled:=False;
       if not conectado then begin
+        socketResponse:=nil;
+        try
+          ClientSocket1.Active:=False;
+        except
+        end;
+        Sleep(500);
         ClientSocket1.Active:=True;
         for i:=0 to 100 do begin
           Sleep(10);
@@ -1632,7 +1652,7 @@ begin
     end;
   finally
     try
-      if xTurnoSocket=3 then
+      if (conectado) and (xTurnoSocket=3) then
         Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e:Exception do begin
@@ -1991,6 +2011,18 @@ end;
 procedure Togcvdispensarios_bennett.Timer1Timer(Sender: TObject);
 begin
   try
+    if SecondsBetween(Now,horaAct)>=2 then begin
+      conectado:=False;
+      socketResponse:=nil;
+      try
+        ClientSocket1.Active:=False;
+      except
+      end;
+      Timer1.Enabled:=False;
+      Timer2.Enabled:=True;
+      Exit;
+    end;
+
     if not SwEsperaRsp then begin // NO HAY COMANDOS EN PROCESO
       ComandoConsola('B00');
     end
