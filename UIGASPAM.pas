@@ -59,6 +59,7 @@ type
     conectado, respJson:Boolean;
     rootJSON : TlkJSONbase;
     socketResponse : TCustomWinSocket;
+    GSentinelKey : string;
 
   public
     ListaLog:TStringList;
@@ -277,6 +278,7 @@ begin
     SwMapOff:=Mayusculas(config.ReadString('CONF','MapOff',''))='SI';
     MapCombs:=config.ReadString('CONF','MapeoCombustibles','');
     LigaCombs:=config.ReadString('CONF','LigueCombustibles','');
+    GSentinelKey:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     modoAuto:=Mayusculas(config.ReadString('CONF','modoAuto',''))='SI';
     jsonInitialize:=config.ReadString('CONF','jsonInitialize','');
@@ -2385,8 +2387,40 @@ begin
 end;
 
 procedure Togcvdispensarios_pam.Iniciar(folio:Integer);
+var
+    haspObj   : OleVariant;
+    haspPath  : string;
+    haspResult: string;
+    haspMessage:string;
 begin
   try
+    if GSentinelKey <> '' then begin
+      try
+        haspPath    := ExtractFilePath(ParamStr(0));
+        haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+        haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
+        haspMessage := ExtraeElemStrSep(haspResult,2,'|');
+        haspResult  := ExtraeElemStrSep(haspResult,1,'|');
+
+        AgregaLog('HASP CheckKey resultado: '+haspResult);
+        if haspResult <> 'True' then begin
+          AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
+          AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
+          GuardarLog(0);
+          Exit;
+        end;
+      except
+        on e:Exception do begin
+          AgregaLog('HASP: error al verificar llave: '+e.Message);
+          GuardarLog(0);
+          AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
+          Exit;
+        end;
+      end;
+    end
+    else
+      AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
+
     if (not pSerial.Open) then begin
       if (estado=-1) then begin
         AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
