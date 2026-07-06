@@ -43,6 +43,7 @@ type
     conectado, respJson: Boolean;
     rootJSON: TlkJSONbase;
     socketResponse: TCustomWinSocket;
+    GSentinelKey : string;
     function TransmiteComando(iComando, xNPos: integer; sDataBlock: string): boolean;
     function DataControlWordValue(chDataControlWord: char; iLongitud: integer): longint;
   public
@@ -324,6 +325,7 @@ begin
     PermiteModoNormal := config.ReadString('CONF', 'PermiteModoNormal', 'No') = 'Si';
     MapeoTotales := config.ReadString('CONF', 'MapeoTotales', '');
     MaxFallosTotales := config.ReadInteger('CONF', 'MaxFallosTotales', 3);
+    GSentinelKey:=config.ReadString('CONF','Licencia','');
     ListaCmnd := TStringList.Create;
     detenido := True;
     estado := -1;
@@ -601,8 +603,43 @@ begin
 end;
 
 procedure Togcvdispensarios_gilbarco2W.Iniciar(folio: Integer);
+var
+    haspObj   : OleVariant;
+    haspPath  : string;
+    haspResult: string;
+    haspMessage:string;
 begin
   try
+    if GSentinelKey <> '' then begin
+      try
+        haspPath    := ExtractFilePath(ParamStr(0));
+        haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+        haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
+        haspMessage := ExtraeElemStrSep(haspResult,2,'|');
+        haspResult  := ExtraeElemStrSep(haspResult,1,'|');
+
+        AgregaLog('HASP CheckKey resultado: '+haspResult);
+        if haspResult <> 'True' then begin
+          AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
+          AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
+          GuardarLog(0);
+          Exit;
+        end;
+      except
+        on e:Exception do begin
+          AgregaLog('HASP: error al verificar llave: '+e.Message);
+          GuardarLog(0);
+          AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
+          Exit;
+        end;
+      end;
+    end
+    else begin
+      AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
+      AddPeticionJSON(folio, 'False|SentinelKey no configurado en .ini');
+      Exit;
+    end;
+
     if (not pSerial.Open) then
     begin
       if (estado = -1) then
