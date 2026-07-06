@@ -324,13 +324,23 @@ begin
 end;
 
 function DesEmpacaWayne(xss:string):string;
-var long:integer;
+var 
+  long, i: integer;
+  bNormal, bInverso: byte;
 begin
   result:='';
   long:=length(xss);
-  if long=13 then
-    if (xss[1]=#0)and(xss[2]=#0)and(xss[13]=#255) then
-      result:=xss[3]+xss[5]+xss[7]+xss[9]+xss[11];
+
+  if (long=13) and (xss[1]=#0) and (xss[2]=#0) and (xss[13]=#255) then begin
+    for i := 0 to 4 do begin
+      bNormal  := ord(xss[3 + (i * 2)]);
+      bInverso := ord(xss[4 + (i * 2)]);
+
+      if (bNormal + bInverso) <> 255 then 
+        exit;
+    end;
+    result:=xss[3]+xss[5]+xss[7]+xss[9]+xss[11];
+  end;
 end;
 
 function ControlByte(xpos,xcmnd:integer):integer;
@@ -994,30 +1004,36 @@ begin
       DataBlock:=EmpacaWayne(stComando);
       if SegmActual=1 then begin
         if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-          ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-          ss1:=ExtraeElemStrSep(ss,5,' ');
-          Val1:=HexToInt(ss1);
-          ss1:=ExtraeElemStrSep(ss,4,' ');
-          Val2:=HexToInt(ss1);
-          xprecio:=256*val1+val2;
-          TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
-          Esperamiliseg(50);
-          if xp=TPosCarga[xPosCarga].nocomb then
-            result:=true;
+          sRespuesta := DesempacaWayne(sRespuesta);
+          if sRespuesta <> '' then begin
+            ss:=StrToHexSep(sRespuesta);
+            ss1:=ExtraeElemStrSep(ss,5,' ');
+            Val1:=HexToInt(ss1);
+            ss1:=ExtraeElemStrSep(ss,4,' ');
+            Val2:=HexToInt(ss1);
+            xprecio:=256*val1+val2;
+            TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
+            Esperamiliseg(50);
+            if xp=TPosCarga[xPosCarga].nocomb then
+              result:=true;
+          end;
         end;
       end
       else begin
         if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-          ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-          ss1:=ExtraeElemStrSep(ss,5,' ');
-          Val1:=HexToInt(ss1);
-          ss1:=ExtraeElemStrSep(ss,4,' ');
-          Val2:=HexToInt(ss1);
-          xprecio:=256*val1+val2;
-          TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
-          Esperamiliseg(50);
-          if xp=TPosCarga[xPosCarga].nocomb then
-            result:=true;
+          sRespuesta2 := DesempacaWayne(sRespuesta2);
+          if sRespuesta2 <> '' then begin
+            ss:=StrToHexSep(sRespuesta2);
+            ss1:=ExtraeElemStrSep(ss,5,' ');
+            Val1:=HexToInt(ss1);
+            ss1:=ExtraeElemStrSep(ss,4,' ');
+            Val2:=HexToInt(ss1);
+            xprecio:=256*val1+val2;
+            TPosCarga[xPosCarga].TPrecio[xp]:=dividefloat(xprecio,100);
+            Esperamiliseg(50);
+            if xp=TPosCarga[xPosCarga].nocomb then
+              result:=true;
+          end;
         end;
       end;
     end;
@@ -1103,124 +1119,128 @@ begin
     if SegmActual=1 then begin
       if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
         sRespuesta:=DesempacaWayne(sRespuesta);
-        StrBin:=ByteToBin(ord(sRespuesta[5]));
-        for i:=0 to 7 do
-          tbit[i]:=(strbin[8-i]='1');
-        if tbit[7] then begin
-          iStatus:=2;     // despachando
-          TPosCarga[xPosCarga].SwPreset:=false;
-          TPosCarga[xPosCarga].SwPreset2:=false;
-          if (tbit[0])and(tbit[1])and(tbit[2]) then begin
-            if (tposcarga[xposcarga].importe>0.001) then begin
-              iStatus:=3;        // fin venta
+        if sRespuesta <> '' then begin
+          StrBin:=ByteToBin(ord(sRespuesta[5]));
+          for i:=0 to 7 do
+            tbit[i]:=(strbin[8-i]='1');
+          if tbit[7] then begin
+            iStatus:=2;     // despachando
+            TPosCarga[xPosCarga].SwPreset:=false;
+            TPosCarga[xPosCarga].SwPreset2:=false;
+            if (tbit[0])and(tbit[1])and(tbit[2]) then begin
+              if (tposcarga[xposcarga].importe>0.001) then begin
+                iStatus:=3;        // fin venta
+              end
+              else begin
+                istatus:=9;        // autorizado
+              end;
             end
             else begin
-              istatus:=9;        // autorizado
+              xposact:=0;
+              if tbit[0] then
+                xposact:=1;
+              if tbit[1] then
+                inc(xposact,2);
+              if tbit[2] then
+                inc(xposact,4);
+              inc(xposact,1);
+              i:=DamePosOrdinal(xPosCarga,xposact);
+              if i in [1..4] then
+                TPosCarga[xPosCarga].PosActual:=i;
+            end;
+            if tbit[4] then
+              iStatus:=8;  // detenida
+          end
+          else if tbit[3] then begin
+            iStatus:=9;     // autorizado
+          end
+          else if tbit[4] then begin
+            iStatus:=8;     // detenida y ya en fin de venta
+            esperamiliseg(50);
+            if ReanudaDespacho(xPosCarga) then begin
+              iStatus:=3;
             end;
           end
-          else begin
-            xposact:=0;
-            if tbit[0] then
-              xposact:=1;
-            if tbit[1] then
-              inc(xposact,2);
-            if tbit[2] then
-              inc(xposact,4);
-            inc(xposact,1);
-            i:=DamePosOrdinal(xPosCarga,xposact);
-            if i in [1..4] then
-              TPosCarga[xPosCarga].PosActual:=i;
-          end;
-          if tbit[4] then
-            iStatus:=8;  // detenida
-        end
-        else if tbit[3] then begin
-          iStatus:=9;     // autorizado
-        end
-        else if tbit[4] then begin
-          iStatus:=8;     // detenida y ya en fin de venta
-          esperamiliseg(50);
-          if ReanudaDespacho(xPosCarga) then begin
-            iStatus:=3;
-          end;
-        end
-        else if (not tbit[0])or(not tbit[1])or(not tbit[2]) then begin
-          iStatus:=5;     // pistola levantada
-          i:=0;
-          if tbit[0] then i:=1;
-          if tbit[1] then i:=i+2;
-          if tbit[2] then i:=i+4;
-          TPosCarga[xPosCarga].PosMangLev:=DamePosOrdinal(xPosCarga,i+1);
-        end
-        else begin
-          iStatus:=1;    // inactivo
-          if (TPosCarga[xPosCarga].SwStatusFV) then begin
-            iStatus:=3;
+          else if (not tbit[0])or(not tbit[1])or(not tbit[2]) then begin
+            iStatus:=5;     // pistola levantada
+            i:=0;
+            if tbit[0] then i:=1;
+            if tbit[1] then i:=i+2;
+            if tbit[2] then i:=i+4;
+            TPosCarga[xPosCarga].PosMangLev:=DamePosOrdinal(xPosCarga,i+1);
           end
-          else if (TPosCarga[xPosCarga].SwPreset2) then
-            iStatus:=9;
+          else begin
+            iStatus:=1;    // inactivo
+            if (TPosCarga[xPosCarga].SwStatusFV) then begin
+              iStatus:=3;
+            end
+            else if (TPosCarga[xPosCarga].SwPreset2) then
+              iStatus:=9;
+          end;
         end;
       end;
     end
     else begin
       if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
         sRespuesta2:=DesempacaWayne(sRespuesta2);
-        StrBin:=ByteToBin(ord(sRespuesta2[5]));
-        for i:=0 to 7 do
-          tbit[i]:=(strbin[8-i]='1');
-        if tbit[7] then begin
-          iStatus:=2;     // despachando
-          TPosCarga[xPosCarga].SwPreset:=false;
-          TPosCarga[xPosCarga].SwPreset2:=false;
-          if (tbit[0])and(tbit[1])and(tbit[2]) then begin
-            if (tposcarga[xposcarga].importe>0.001) then begin
-              iStatus:=3;        // fin venta
+        if sRespuesta2 <> '' then begin
+          StrBin:=ByteToBin(ord(sRespuesta2[5]));
+          for i:=0 to 7 do
+            tbit[i]:=(strbin[8-i]='1');
+          if tbit[7] then begin
+            iStatus:=2;     // despachando
+            TPosCarga[xPosCarga].SwPreset:=false;
+            TPosCarga[xPosCarga].SwPreset2:=false;
+            if (tbit[0])and(tbit[1])and(tbit[2]) then begin
+              if (tposcarga[xposcarga].importe>0.001) then begin
+                iStatus:=3;        // fin venta
+              end
+              else begin
+                istatus:=9;        // autorizado
+              end;
             end
             else begin
-              istatus:=9;        // autorizado
+              xposact:=0;
+              if tbit[0] then
+                xposact:=1;
+              if tbit[1] then
+                inc(xposact,2);
+              if tbit[2] then
+                inc(xposact,4);
+              inc(xposact,1);
+              i:=DamePosOrdinal(xPosCarga,xposact);
+              if i in [1..4] then
+                TPosCarga[xPosCarga].PosActual:=i;
+            end;
+            if tbit[4] then
+              iStatus:=8;  // detenida
+          end
+          else if tbit[3] then begin
+            iStatus:=9;     // autorizado
+          end
+          else if tbit[4] then begin
+            iStatus:=8;     // detenida y ya en fin de venta
+            esperamiliseg(50);
+            if ReanudaDespacho(xPosCarga) then begin
+              iStatus:=3;
             end;
           end
-          else begin
-            xposact:=0;
-            if tbit[0] then
-              xposact:=1;
-            if tbit[1] then
-              inc(xposact,2);
-            if tbit[2] then
-              inc(xposact,4);
-            inc(xposact,1);
-            i:=DamePosOrdinal(xPosCarga,xposact);
-            if i in [1..4] then
-              TPosCarga[xPosCarga].PosActual:=i;
-          end;
-          if tbit[4] then
-            iStatus:=8;  // detenida
-        end
-        else if tbit[3] then begin
-          iStatus:=9;     // autorizado
-        end
-        else if tbit[4] then begin
-          iStatus:=8;     // detenida y ya en fin de venta
-          esperamiliseg(50);
-          if ReanudaDespacho(xPosCarga) then begin
-            iStatus:=3;
-          end;
-        end
-        else if (not tbit[0])or(not tbit[1])or(not tbit[2]) then begin
-          iStatus:=5;     // pistola levantada
-          i:=0;
-          if tbit[0] then i:=1;
-          if tbit[1] then i:=i+2;
-          if tbit[2] then i:=i+4;
-          TPosCarga[xPosCarga].PosMangLev:=DamePosOrdinal(xPosCarga,i+1);
-        end
-        else begin
-          iStatus:=1;    // inactivo
-          if (TPosCarga[xPosCarga].SwStatusFV) then begin
-            iStatus:=3;
+          else if (not tbit[0])or(not tbit[1])or(not tbit[2]) then begin
+            iStatus:=5;     // pistola levantada
+            i:=0;
+            if tbit[0] then i:=1;
+            if tbit[1] then i:=i+2;
+            if tbit[2] then i:=i+4;
+            TPosCarga[xPosCarga].PosMangLev:=DamePosOrdinal(xPosCarga,i+1);
           end
-          else if (TPosCarga[xPosCarga].SwPreset2) then
-            iStatus:=9;
+          else begin
+            iStatus:=1;    // inactivo
+            if (TPosCarga[xPosCarga].SwStatusFV) then begin
+              iStatus:=3;
+            end
+            else if (TPosCarga[xPosCarga].SwPreset2) then
+              iStatus:=9;
+          end;
         end;
       end;
     end;
@@ -1355,97 +1375,131 @@ begin
     DataBlock:=EmpacaWayne(stComando);
     if SegmActual=1 then begin
       if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-        ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-        rPesos:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivImporte);
-        if xposfis in [1..7] then begin
-          // leo precio
-          stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-            ss1:=ExtraeElemStrSep(ss,5,' ');
-            Val1:=HexToInt(ss1);
-            ss1:=ExtraeElemStrSep(ss,4,' ');
-            Val2:=HexToInt(ss1);
-            rprecio:=256*val1+val2;
-            rprecio:=dividefloat(rprecio,100);
-            if TPoscarga[xPosCarga].DivLitros=1000 then
-              rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
-            else
-              rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
-            result:=true;
+        sRespuesta:=DesempacaWayne(sRespuesta);
+        if sRespuesta <> '' then begin
+          ss:=StrToHexSep(sRespuesta);
+          rPesos:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivImporte);
+          if xposfis in [1..7] then begin
+            // leo precio
+            stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
+            DataBlock:=EmpacaWayne(stComando);
+            if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
+              sRespuesta:=DesempacaWayne(sRespuesta);
+              if sRespuesta <> '' then begin
+                ss:=StrToHexSep(sRespuesta);
+                ss1:=ExtraeElemStrSep(ss,5,' ');
+                Val1:=HexToInt(ss1);
+                ss1:=ExtraeElemStrSep(ss,4,' ');
+                Val2:=HexToInt(ss1);
+                rprecio:=256*val1+val2;
+                rprecio:=dividefloat(rprecio,100);
+                if TPoscarga[xPosCarga].DivLitros=1000 then
+                  rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
+                else
+                  rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
+                result:=true;
+              end else begin
+                AgregaLog('Se evitaron ceros (Trama de precio corrupta)');
+                rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
+              end;
+            end
+            else begin
+              AgregaLog('Se evitaron ceros');
+              rLitros:=rLitrosAnt;
+              rPrecio:=rPrecioAnt;
+              rPesos:=rPesosAnt;
+            end;
           end
           else begin
-            AgregaLog('Se evitaron ceros');
-            rLitros:=rLitrosAnt;
-            rPrecio:=rPrecioAnt;
-            rPesos:=rPesosAnt;
+            // leo volumen
+            stComando:= char(ControlByte(xPosCarga,7))+#38+#0+#0+#0;         // 0F 26 00 00 00
+            DataBlock:=EmpacaWayne(stComando);
+            if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
+              sRespuesta:=DesempacaWayne(sRespuesta);
+              if sRespuesta <> '' then begin
+                ss:=StrToHexSep(sRespuesta);
+                rlitros:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivLitros);
+                rPrecio:=ajustafloat(dividefloat(rPesos,rLitros),2);
+                result:=true;
+              end else begin
+                AgregaLog('Se evitaron ceros (Trama de volumen corrupta)');
+                rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
+              end;
+            end
+            else begin
+              AgregaLog('Se evitaron ceros');
+              rLitros:=rLitrosAnt;
+              rPrecio:=rPrecioAnt;
+              rPesos:=rPesosAnt;
+            end;
           end;
-        end
-        else begin
-          // leo volumen
-          stComando:= char(ControlByte(xPosCarga,7))+#38+#0+#0+#0;         // 0F 26 00 00 00
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-            rlitros:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivLitros);
-            rPrecio:=ajustafloat(dividefloat(rPesos,rLitros),2);
-            result:=true;
-          end
-          else begin
-            AgregaLog('Se evitaron ceros');
-            rLitros:=rLitrosAnt;
-            rPrecio:=rPrecioAnt;
-            rPesos:=rPesosAnt;
-          end;
+        end else begin
+          rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
         end;
       end;
     end
     else begin
       if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-        ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-        rPesos:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivImporte);
-        if xposfis in [1..7] then begin
-          // leo precio
-          stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-            ss1:=ExtraeElemStrSep(ss,5,' ');
-            Val1:=HexToInt(ss1);
-            ss1:=ExtraeElemStrSep(ss,4,' ');
-            Val2:=HexToInt(ss1);
-            rprecio:=256*val1+val2;
-            rprecio:=dividefloat(rprecio,100);
-            if TPoscarga[xPosCarga].DivLitros=1000 then
-              rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
-            else
-              rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
-            result:=true;
+        sRespuesta2:=DesempacaWayne(sRespuesta2);
+        if sRespuesta2 <> '' then begin
+          ss:=StrToHexSep(sRespuesta2);
+          rPesos:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivImporte);
+          if xposfis in [1..7] then begin
+            // leo precio
+            stComando:= char(ControlByte(xPosCarga,7))+#0+char(xposfis-1)+#0+#0;         //   0F 00 00 F2 03
+            DataBlock:=EmpacaWayne(stComando);
+            if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
+              sRespuesta2:=DesempacaWayne(sRespuesta2);
+              if sRespuesta2 <> '' then begin
+                ss:=StrToHexSep(sRespuesta2);
+                ss1:=ExtraeElemStrSep(ss,5,' ');
+                Val1:=HexToInt(ss1);
+                ss1:=ExtraeElemStrSep(ss,4,' ');
+                Val2:=HexToInt(ss1);
+                rprecio:=256*val1+val2;
+                rprecio:=dividefloat(rprecio,100);
+                if TPoscarga[xPosCarga].DivLitros=1000 then
+                  rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
+                else
+                  rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
+                result:=true;
+              end else begin
+                AgregaLog('Se evitaron ceros (Trama de precio corrupta)');
+                rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
+              end;
+            end
+            else begin
+              AgregaLog('Se evitaron ceros');
+              rLitros:=rLitrosAnt;
+              rPrecio:=rPrecioAnt;
+              rPesos:=rPesosAnt;
+            end;
           end
           else begin
-            AgregaLog('Se evitaron ceros');
-            rLitros:=rLitrosAnt;
-            rPrecio:=rPrecioAnt;
-            rPesos:=rPesosAnt;
+            // leo volumen
+            stComando:= char(ControlByte(xPosCarga,7))+#38+#0+#0+#0;         // 0F 26 00 00 00
+            DataBlock:=EmpacaWayne(stComando);
+            if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
+              sRespuesta2:=DesempacaWayne(sRespuesta2);
+              if sRespuesta2 <> '' then begin
+                ss:=StrToHexSep(sRespuesta2);
+                rlitros:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivLitros);
+                rPrecio:=ajustafloat(dividefloat(rPesos,rLitros),2);
+                result:=true;
+              end else begin
+                AgregaLog('Se evitaron ceros (Trama de volumen corrupta)');
+                rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
+              end;
+            end
+            else begin
+              AgregaLog('Se evitaron ceros');
+              rLitros:=rLitrosAnt;
+              rPrecio:=rPrecioAnt;
+              rPesos:=rPesosAnt;
+            end;
           end;
-        end
-        else begin
-          // leo volumen
-          stComando:= char(ControlByte(xPosCarga,7))+#38+#0+#0+#0;         // 0F 26 00 00 00
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-            rlitros:=dividefloat(ExtraeBCD(ss,3,5),TPoscarga[xPosCarga].DivLitros);
-            rPrecio:=ajustafloat(dividefloat(rPesos,rLitros),2);
-            result:=true;
-          end
-          else begin
-            AgregaLog('Se evitaron ceros');
-            rLitros:=rLitrosAnt;
-            rPrecio:=rPrecioAnt;
-            rPesos:=rPesosAnt;
-          end;
+        end else begin
+           rLitros:=rLitrosAnt; rPrecio:=rPrecioAnt; rPesos:=rPesosAnt;
         end;
       end;
     end;
@@ -1478,44 +1532,62 @@ begin
       DataBlock:=EmpacaWayne(stComando);
       if SegmActual=1 then begin
         if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-          ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-          val1:=ExtraeBCD(ss,4,5);
-          // leo parte2
-          stComando:= char(ControlByte(xPosCarga,7))+#2+chmang+#0+#0;
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-            val2:=ExtraeBCD(ss,4,5);
+          sRespuesta := DesempacaWayne(sRespuesta);
+          if sRespuesta <> '' then begin
+            ss:=StrToHexSep(sRespuesta);
+            val1:=ExtraeBCD(ss,4,5);
             // leo parte2
-            stComando:= char(ControlByte(xPosCarga,7))+#22+chmang+#0+#0;
+            stComando:= char(ControlByte(xPosCarga,7))+#2+chmang+#0+#0;
             DataBlock:=EmpacaWayne(stComando);
             if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
-              ss:=StrToHexSep(DesempacaWayne(sRespuesta));
-              val3:=ExtraeBCD(ss,4,5);
-              rTotalLitros:=(val1+val2*10000+val3*10000*10000)/100;
-              result:=true;
+              sRespuesta := DesempacaWayne(sRespuesta);
+              if sRespuesta <> '' then begin
+                ss:=StrToHexSep(sRespuesta);
+                val2:=ExtraeBCD(ss,4,5);
+                // leo parte3
+                stComando:= char(ControlByte(xPosCarga,7))+#22+chmang+#0+#0;
+                DataBlock:=EmpacaWayne(stComando);
+                if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then begin
+                  sRespuesta := DesempacaWayne(sRespuesta);
+                  if sRespuesta <> '' then begin
+                    ss:=StrToHexSep(sRespuesta);
+                    val3:=ExtraeBCD(ss,4,5);
+                    rTotalLitros:=(val1+val2*10000+val3*10000*10000)/100;
+                    result:=true;
+                  end;
+                end;
+              end;
             end;
           end;
         end;
       end
       else begin
         if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-          ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-          val1:=ExtraeBCD(ss,4,5);
-          // leo parte2
-          stComando:= char(ControlByte(xPosCarga,7))+#2+chmang+#0+#0;
-          DataBlock:=EmpacaWayne(stComando);
-          if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-            ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-            val2:=ExtraeBCD(ss,4,5);
+          sRespuesta2 := DesempacaWayne(sRespuesta2);
+          if sRespuesta2 <> '' then begin
+            ss:=StrToHexSep(sRespuesta2);
+            val1:=ExtraeBCD(ss,4,5);
             // leo parte2
-            stComando:= char(ControlByte(xPosCarga,7))+#22+chmang+#0+#0;
+            stComando:= char(ControlByte(xPosCarga,7))+#2+chmang+#0+#0;
             DataBlock:=EmpacaWayne(stComando);
             if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
-              ss:=StrToHexSep(DesempacaWayne(sRespuesta2));
-              val3:=ExtraeBCD(ss,4,5);
-              rTotalLitros:=(val1+val2*10000+val3*10000*10000)/100;
-              result:=true;
+              sRespuesta2 := DesempacaWayne(sRespuesta2);
+              if sRespuesta2 <> '' then begin
+                ss:=StrToHexSep(sRespuesta2);
+                val2:=ExtraeBCD(ss,4,5);
+                // leo parte3
+                stComando:= char(ControlByte(xPosCarga,7))+#22+chmang+#0+#0;
+                DataBlock:=EmpacaWayne(stComando);
+                if ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then begin
+                  sRespuesta2 := DesempacaWayne(sRespuesta2);
+                  if sRespuesta2 <> '' then begin
+                    ss:=StrToHexSep(sRespuesta2);
+                    val3:=ExtraeBCD(ss,4,5);
+                    rTotalLitros:=(val1+val2*10000+val3*10000*10000)/100;
+                    result:=true;
+                  end;
+                end;
+              end;
             end;
           end;
         end;
