@@ -1163,14 +1163,6 @@ begin
     Timer2.Enabled:=False;
     numPaso:=0;
     SetEstadoJSON(estado);
-    
-    ActivaModoPrepago(0, '0'); // Internal call with dummy folio? Or keep old ActivaModoPrepago logic
-    // Just execute the command directly if needed, or use the folio method
-    // Since ActivaModoPrepago now requires folio, we can pass 0 or a dummy
-    // But better:
-    for MaxPosCarga:=1 to MaxPosCarga do
-      TPosCarga[MaxPosCarga].ModoOpera:='Prepago';
-    EjecutaComando('AMP 0');
 
     AddPeticionJSON(folio, 'True|');
   except
@@ -1613,7 +1605,7 @@ begin
                    swdesp:=true;
                    SwLecturaFinalPendiente:=false;
 
-                   // Después de la lectura final del display, forzar totalizadores frescos.
+                   // Despuï¿½s de la lectura final del display, forzar totalizadores frescos.
                    SwCargaTotales:=true;
                    SwEsperandoTotales:=true;
                    TotalesPendientes:=NoComb;
@@ -1738,7 +1730,7 @@ begin
               xestadoPos:='2' // Mantener como cargando hasta recibir A1 final.
             else begin
               case estatus of
-                0:xestadoPos:='0'; // Sin Comunicación
+                0:xestadoPos:='0'; // Sin Comunicaciï¿½n
                 1:xestadoPos:='1'; // Inactivo (Idle)
                 5,8:xestadoPos:='2'; // Cargando (In Use)
                 7:if not swcargando then
@@ -1853,7 +1845,7 @@ begin
               SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
               if SnImporte=0 then SnImporte:=9999;
               if (SnImporte<1)or(SnImporte>9999) then
-                rsp:='Importe fuera de rango válido: de 1.00 a 9999.00';
+                rsp:='Importe fuera de rango vï¿½lido: de 1.00 a 9999.00';
             except
               rsp:='Error en Importe';
             end;
@@ -1889,7 +1881,7 @@ begin
                 TPosCarga[SnPosCarga].boucher:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,7,' ');
                 EnviaPreset(rsp,xcomb,false);
               end
-              else rsp:='Combustible no existe en esta posición';
+              else rsp:='Combustible no existe en esta posiciï¿½n';
             end;
           end;
         end
@@ -1938,47 +1930,49 @@ begin
           end;
         end
         else if (ss='CPREC') then begin
-          precios:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' ');
-          for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
-            xcomb:=CombustibleEnPosicion(xpos,1);
-            precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-            if precioComb>0 then
-              LPrecios[xcomb]:=precioComb;
-            ii:=Trunc(LPrecios[xcomb]*100+0.5);
-            ss:='U'+IntToClaveNum(xpos,2)+inttoclavenum(ii,4);
-            if NoComb=1 then begin
-              if precioComb<=0 then
-                Continue;
-              ss:=ss+inttoclavenum(ii,4)+inttoclavenum(ii,4);
+          precios := ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 2, ' ');
+          
+          // 1. Primero, actualizar la memoria global de precios (LPrecios)
+          // Se asume un mï¿½ximo de 4 productos segï¿½n tu arreglo LPrecios[1..4]
+          for ii := 1 to 4 do begin
+            precioComb := StrToFloatDef(ExtraeElemStrSep(precios, ii, '|'), -1);
+            if precioComb > 0 then
+              LPrecios[ii] := precioComb;
+          end;
+
+          // 2. Iterar sobre las posiciones para encolar los cambios
+          for xpos := 1 to MaxPosCarga do with TPosCarga[xpos] do begin
+            ss := 'U' + IntToClaveNum(xpos, 2);
+
+            // Determinar Manguera 1
+            xcomb := CombustibleEnPosicion(xpos, 1);
+            ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
+            ss := ss + IntToClaveNum(ii, 4);
+
+            if NoComb = 1 then begin
+              // Para 1 manguera, se rellena con el mismo precio
+              ss := ss + IntToClaveNum(ii, 4) + IntToClaveNum(ii, 4);
             end
-            else if NoComb=2 then begin
-              xcomb:=CombustibleEnPosicion(xpos,2);
-              precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              if precioComb>0 then
-                LPrecios[xcomb]:=precioComb;
-              if StrToFloatDef(ExtraeElemStrSep(precios,2,'|'),-1)<=0 then
-                Continue;
-              ii:=Trunc(LPrecios[xcomb]*100+0.5);
-              ss:=ss+inttoclavenum(ii,4)+'0000';
+            else if NoComb = 2 then begin
+              // Determinar Manguera 2
+              xcomb := CombustibleEnPosicion(xpos, 2);
+              ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
+              ss := ss + IntToClaveNum(ii, 4) + '0000'; // Tercera vacï¿½a
             end
             else begin
-              xcomb:=CombustibleEnPosicion(xpos,2);
-              precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              if precioComb>0 then
-                LPrecios[xcomb]:=precioComb;
-              ii:=Trunc(LPrecios[xcomb]*100+0.5);
-              ss:=ss+inttoclavenum(ii,4);
-              xcomb:=CombustibleEnPosicion(xpos,3);
-              precioComb:=StrToFloatDef(ExtraeElemStrSep(precios,xcomb,'|'),-1);
-              if precioComb>0 then
-                LPrecios[xcomb]:=precioComb;
-              if StrToFloatDef(ExtraeElemStrSep(precios,3,'|'),-1)<=0 then
-                Continue;
-              ii:=Trunc(LPrecios[xcomb]*100+0.5);
-              ss:=ss+inttoclavenum(ii,4);
+              // Determinar Manguera 2
+              xcomb := CombustibleEnPosicion(xpos, 2);
+              ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
+              ss := ss + IntToClaveNum(ii, 4);
+              
+              // Determinar Manguera 3
+              xcomb := CombustibleEnPosicion(xpos, 3);
+              ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
+              ss := ss + IntToClaveNum(ii, 4);
             end;
+
+            // Encolar comando (Ya no bloqueamos el hilo con EsperaMiliSeg)
             ComandoConsolaBuff(ss, False);
-            EsperaMiliSeg(300);
           end;
         end;
         if rsp='' then
@@ -2053,6 +2047,11 @@ begin
     try
        Inc(xTurnoSocket);
        if xTurnoSocket>3 then xTurnoSocket:=1;
+
+       if (ContCmndU > 0) or (ListaCmnd.Count > 0) then begin
+         HoraComandoB := now;
+         HoraRspB := now;
+       end;
 
       if (now-HoraComandoB>5*TmSegundo)or(now-HoraRspB>5*TmSegundo) then begin
         AgregaLog('Reset');
@@ -2231,7 +2230,7 @@ begin
             
             // Note: JSON Update happens in ProcesaLinea when B command is processed by LineaTimer
 
-            // Producto: solo cuando està ocupado
+            // Producto: solo cuando estï¿½ ocupado
             ss:=ExtraeElemStrSep(LineaTimer,7,' ');
             if strtointdef(ss[2],0)>0 then
               posactual:=strtointdef(ss[2],0);
@@ -2536,11 +2535,11 @@ begin
   rsp:='OK';
   xpos:=SnPosCarga;
   if not (TPosCarga[xpos].estatus=1) then begin
-    rsp:='Posición no Disponible';
+    rsp:='Posiciï¿½n no Disponible';
     exit;
   end;
   if TPosCarga[xpos].SwDesHabilitado then begin
-    rsp:='Posición Deshabilitada';
+    rsp:='Posiciï¿½n Deshabilitada';
     exit;
   end;
   if SnLitros>=0.5 then
