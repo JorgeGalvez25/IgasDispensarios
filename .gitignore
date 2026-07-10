@@ -12,6 +12,7 @@
 *.tds
 *.tvsconfig
 *.identcache
+*.rar
 
 # IDE project settings
 *.bdsproj
