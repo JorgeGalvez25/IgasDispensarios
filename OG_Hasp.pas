@@ -1,4 +1,3 @@
-
 unit OG_Hasp;
 
 interface
@@ -48,31 +47,22 @@ var
 begin
   Result := THaspKeyOG.Create;
 
-//  strpcopy(keyIdScope, '<haspscope><hasp id="' + keyId + '"/></haspscope>');
-//
-//  Result.Status := hasp_login_scope(HASP_DEFAULT_FID, keyIdScope, @vendorCode[1], haspHandle);
-//  Result.StatusMessage := Result.GetMesage(Result.Status);
-//
-//  if Result.Status <> HASP_STATUS_OK then
-//    Exit;
-//
-//  Result.HaspHandle := haspHandle;
-//
-//  Result.ReadOnly;
-//
-//  if Result.Status <> HASP_STATUS_OK then
-//    Exit;
-//
-//  Result.ReadWrite;
+  strpcopy(keyIdScope, '<haspscope><hasp id="' + keyId + '"/></haspscope>');
 
-  Result.Status:=HASP_STATUS_OK;
+  Result.Status := hasp_login_scope(HASP_DEFAULT_FID, keyIdScope, @vendorCode[1], haspHandle);
   Result.StatusMessage := Result.GetMesage(Result.Status);
-  Result.Vencimiento:=0;
-  Result.PermisoCRE:='PL/9580/EXP/ES/2015';
-  Result.Key3DES:='8FDEEECF8548D9052CCE98A0B2A9736A';
-//  Result.PermisoCRE:='PL/21121/EXP/ES/2018';
-//  Result.Key3DES:='BA7531BE5316010FE34B3EFE352C546A';
-  Result.CENAM:='';
+
+  if Result.Status <> HASP_STATUS_OK then
+    Exit;
+
+  Result.HaspHandle := haspHandle;
+
+  Result.ReadOnly;
+
+  if Result.Status <> HASP_STATUS_OK then
+    Exit;
+
+  Result.ReadWrite;
 end;
 
 { THaspKeyOG }
