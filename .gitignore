@@ -13,6 +13,7 @@
 *.tvsconfig
 *.identcache
 *.rar
+*.drc
 
 # IDE project settings
 *.bdsproj
