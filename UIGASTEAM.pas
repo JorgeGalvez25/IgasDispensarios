@@ -438,7 +438,6 @@ begin
           Shutdown(folio);
         TERMINATE_e:
           Terminar(folio);
-        // STATE_e handled via JSON
         TRACE_e:
           GuardarLog(folio);
         SAVELOGREQ_e:

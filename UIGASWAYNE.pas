@@ -2758,6 +2758,9 @@ begin
 
       case metodoEnum of
 
+        NOTHING_e:
+          AddPeticionJSON(folio, 'True|');
+
         INITIALIZE_e:
           Inicializar(folio,parametro);
 
@@ -2826,7 +2829,10 @@ begin
 
         LOGREQ_e:
           ObtenerLogPetRes(folio, StrToIntDef(parametro, 0));
+      else
+        AddPeticionJSON(folio, 'False|Comando desconocido|');
       end;
+      
       socketResponse:=Socket;
     end;
   except

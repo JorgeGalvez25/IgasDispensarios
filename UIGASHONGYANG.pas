@@ -377,8 +377,6 @@ begin
           Shutdown(folio);
         TERMINATE_e:
           Terminar(folio);
-        STATE_e:
-          AddPeticionJSON(folio, ObtenerEstado);
         TRACE_e:
           GuardarLog(folio);
         SAVELOGREQ_e:

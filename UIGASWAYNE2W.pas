@@ -2323,26 +2323,6 @@ begin
                     end;
                   end;
                 4:if (estatus=5)and(not swdeshabil)  then begin
-                    //Descomentar en caso de trabajar sin consola gateway o bridge
-//                    if (ModoOpera='Normal') then begin // AUTORIZA VENTA tanque lleno
-//                      AgregaLog('E> Autoriza: '+inttoclavenum(PosCiclo,2));
-//                      if not swpreset then begin
-//                        if Autoriza(PosCiclo) then ;
-//                      end
-//                      else if (swpreset)and(PosPreset=PosMangLev) then begin
-//                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-//                          if AutorizaPm(PosCiclo,PosPreset) then begin
-//                            swpreset2:=true;
-//                          end;
-//                      end
-//                      else if (swpreset)and(PosPreset=0) then begin
-//                        if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-//                          if Autoriza(PosCiclo) then begin
-//                            swpreset2:=true;
-//                          end;
-//                      end;
-//                    end
-//                    else begin // AUTORIZA PREPAGO
                       AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
                       if (SwPreset)and(PosPreset=PosMangLev) then begin
                         if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
@@ -3446,6 +3426,9 @@ begin
 
       case metodoEnum of
 
+        NOTHING_e:
+          AddPeticionJSON(folio, 'True|');
+
         INITIALIZE_e:
           Inicializar(folio,parametro);
 
@@ -3514,7 +3497,11 @@ begin
 
         LOGREQ_e:
           ObtenerLogPetRes(folio, StrToIntDef(parametro, 0));
+
+      else
+        AddPeticionJSON(folio, 'False|Comando desconocido|');
       end;
+
       socketResponse:=Socket;
     end;
   except

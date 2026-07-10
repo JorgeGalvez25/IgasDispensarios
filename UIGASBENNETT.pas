@@ -371,10 +371,6 @@ begin
           Desbloquear(folio, parametro);
         PAYMENT_e:
           FinVenta(folio, parametro);
-        TRANSACTION_e:
-          AddPeticionJSON(folio, TransaccionPosCarga(parametro));
-        STATUS_e:
-          AddPeticionJSON(folio, EstadoPosiciones(parametro));
         TOTALS_e:
           TotalesBomba(folio, parametro);
         HALT_e:
@@ -385,8 +381,6 @@ begin
           Shutdown(folio);
         TERMINATE_e:
           Terminar(folio);
-        STATE_e:
-          AddPeticionJSON(folio, ObtenerEstado);
         TRACE_e:
           GuardarLog(folio);
         SAVELOGREQ_e:
@@ -1654,7 +1648,7 @@ begin
     end;
   finally
     try
-      if (conectado) and (xTurnoSocket=3) then
+      if (conectado) then
         Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e:Exception do begin

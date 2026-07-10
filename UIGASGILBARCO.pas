@@ -2286,7 +2286,7 @@ begin
                   rsp := 'Posicion no esta despachando';
               end;
             end
-            else  // EOT
+            else if TPosCarga[xpos].Estatus<>1 then
               rsp := 'Posicion aun no esta en fin de venta';
           end
           else
@@ -2556,7 +2556,7 @@ begin
                         begin // Termina Venta
                           swcargando := false;
                           if EsperaFinVenta = 1 then
-                            Estatus := 4
+                            Estatus := 3
                           else
                             SwTotales := true;
                         end;
@@ -2839,7 +2839,8 @@ L01:
     end;
   finally
     try
-      Responder(TlkJSON.GenerateText(rootJSON));
+      if (conectado) and (xTurnoSocket=3) then
+        Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e: Exception do
       begin
@@ -3068,6 +3069,9 @@ begin
 
       case metodoEnum of
 
+        NOTHING_e:
+          AddPeticionJSON(folio, 'True|');
+
         INITIALIZE_e:
           Inicializar(folio, parametro);
 
@@ -3136,7 +3140,11 @@ begin
 
         LOGREQ_e:
           ObtenerLogPetRes(folio, StrToIntDef(parametro, 0));
+          
+      else
+        AddPeticionJSON(folio, 'False|Comando desconocido|');
       end;
+
       socketResponse := Socket;
     end;
   except
