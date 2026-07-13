@@ -100,15 +100,13 @@ type
    procedure SacaDeCola(var xstr:string);
    function HexToBinario(ss:string):string;
    procedure PublicaEstatusDispensarios;
+   function TraduceEstatusExterno(xestatus:integer):integer;
    procedure ProcesaComandosExternos;
    function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
-   procedure TransaccionPosCarga(folio:Integer; msj:string); // Modified
-   procedure EstadoPosiciones(folio:Integer; msj: string); // Modified
    procedure Detener(folio:Integer); // Modified
    procedure Iniciar(folio:Integer); // Modified
    procedure Shutdown(folio:Integer); // Modified
    procedure Terminar(folio:Integer); // Modified
-   function ObtenerEstado: string;
    procedure GuardarLog(folio:Integer=0); // Modified
    procedure RespuestaComando(folio:Integer; msj:string); // Modified
    procedure ObtenerLog(folio:Integer; r:Integer); // Modified
@@ -216,7 +214,7 @@ const idSTX = #2;
 type
   TMetodos = (
     NOTHING_e, INITIALIZE_e, PARAMETERS_e, LOGIN_e, LOGOUT_e, PRICES_e, AUTHORIZE_e, SELFSERVICE_e, FULLSERVICE_e,
-    PAYMENT_e, TRANSACTION_e, STATUS_e, TOTALS_e, HALT_e, RUN_e, SHUTDOWN_e, TERMINATE_e, STATE_e,
+    PAYMENT_e, TOTALS_e, HALT_e, RUN_e, SHUTDOWN_e, TERMINATE_e,
     TRACE_e, SAVELOGREQ_e, RESPCMND_e, LOG_e, LOGREQ_e, BLOCK_e, UNBLOCK_e, STOP_e, START_e);
 
 
@@ -290,7 +288,7 @@ begin
     // Initialize JSON
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(-1);
-    
+
     detenido:=True;
     estado:=-1;
     SegundosFinv:=30;
@@ -363,10 +361,6 @@ begin
           DesactivaModoPrepago(folio, parametro);
         PAYMENT_e:
           FinVenta(folio, parametro);
-        TRANSACTION_e:
-          TransaccionPosCarga(folio, parametro);
-        STATUS_e:
-          EstadoPosiciones(folio, parametro);
         TOTALS_e:
           TotalesBomba(folio, parametro);
         HALT_e:
@@ -1316,9 +1310,7 @@ begin
         for xp:=2 to 3 do
           if posestatus[xp]>posestatus[posactual] then
             posactual:=xp;
-      
-        // Update JSON here for real-time status
-        ActualizaCampoJSON(PosCarga, 'Estatus', estatus);
+
         ActualizaCampoJSON(PosCarga, 'Importe', importe);
         ActualizaCampoJSON(PosCarga, 'Volumen', volumen);
         ActualizaCampoJSON(PosCarga, 'Precio', precio);
@@ -1577,6 +1569,12 @@ begin
     ss:=StrToHexSep(xResp);
     try
       preciofisico:=ExtraeBCD(ss,5,6);
+
+      if preciofisico > 0 then begin
+        LPrecios[Combustible] := preciofisico;
+        precio := preciofisico;
+      end;
+
       LeerPrecio:=false;
     except
       AgregaLog('Error ProcesoComandoV: '+xresp);
@@ -1739,33 +1737,36 @@ begin
   end;
 end;
 
+function Togcvdispensarios_hongyang.TraduceEstatusExterno(xestatus:integer):integer;
+begin
+  case xestatus of
+    0:result:=0; // Sin Comunicacion
+    1:result:=1; // Inactivo (Idle)
+    5:result:=2; // Cargando / Despachando (In Use)
+    7,8:result:=3; // Fin de Carga (Used)
+    3,4:result:=5; // Llamando (Calling)
+    2:result:=9; // Autorizado
+    6:result:=8; // Detenido (Stoped)
+    else result:=0;
+  end;
+end;
+
 procedure Togcvdispensarios_hongyang.PublicaEstatusDispensarios;
-var xpos,xmang:integer;
-    lin,xestado,
-    xmodo,ss        :string;
+var xpos,xmang,xestadoDig:integer;
+    xestado,xmodo:string;
 begin
   try
-    lin:='';xestado:='';xmodo:='';
+    xestado:='';xmodo:='';
     PosicionesLibres:=True;
     for xpos:=1 to MaxPosiciones do with TPosCarga[xpos] do begin
       xmang:=PosManguera[PosActual2];
       with TMangueras[xmang] do begin
         xmodo:=xmodo+ModoOpera[1];
-        case estatus of
-          0:xestado:=xestado+'0'; // Sin Comunicacion
-          1:xestado:=xestado+'1'; // Inactivo (Idle)
-          5:xestado:=xestado+'2'; // Cargando (In Use)
-          7,8:xestado:=xestado+'3'; // Fin de Carga (Used)
-          3,4:xestado:=xestado+'5'; // Llamando (Calling)
-          2:xestado:=xestado+'9'; // Autorizado
-          6:xestado:=xestado+'8'; // Detenido (Stoped)
-          else xestado:=xestado+'0';
-        end;
-        ss:=inttoclavenum(xpos,2)+'/'+inttostr(combustible);
-        ss:=ss+'/'+FormatFloat('###0.##',volumen);
-        ss:=ss+'/'+FormatFloat('#0.##',precio);
-        ss:=ss+'/'+FormatFloat('####0.##',importe);
-        lin:=lin+'#'+ss;
+        if estatus in [2,3,4] then
+          AgregaLog('>>Estatus inesperado '+inttostr(estatus)+' en posicion '+inttostr(xpos)+' manguera '+inttostr(xmang)+' - revisar secuencia si se repite');
+        xestadoDig:=TraduceEstatusExterno(estatus);
+        xestado:=xestado+inttostr(xestadoDig);
+        ActualizaCampoJSON(xpos, 'Estatus', xestadoDig);
         if (SwDisponible) and (estatus<>1) then
           AgregaLog('>>Se ocupo posicion '+inttostr(xpos)+' con manguera '+IntToStr(xmang))
         else if (not SwDisponible) and (estatus=1) then
@@ -1775,11 +1776,6 @@ begin
           PosicionesLibres:=False;
       end;
     end;
-    if lin='' then
-      lin:=xestado+'#'
-    else
-      lin:=xestado+lin;
-    lin:=lin+'&'+xmodo;
     LinEstadoGen:=xestado;
   except
     on e:Exception do begin
@@ -2245,58 +2241,6 @@ begin
   end;
 end;
 
-procedure Togcvdispensarios_hongyang.TransaccionPosCarga(
-  folio: Integer; msj: string);
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos<0 then begin
-      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
-      Exit;
-    end;
-
-    if xpos>MaxPosiciones then begin
-      AddPeticionJSON(folio, 'False|La posicion de carga no se encuentra registrada|');
-      Exit;
-    end;
-
-    with TPosCarga[xpos] do with TMangueras[PosManguera[PosActual2]] do
-      AddPeticionJSON(folio, 'True|'+FormatDateTime('yyyy-mm-dd',HoraFv)+'T'+FormatDateTime('hh:nn',HoraFv)+'|'+IntToStr(PosMangueraDisp[PosActual2])+'|'+IntToStr(Combustible)+'|'+
-              FormatFloat('0.000',volumen)+'|'+FormatFloat('0.00',precio)+'|'+FormatFloat('0.00',importe)+'|');
-  except
-    on e:Exception do
-      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
-  end;
-end;
-
-procedure Togcvdispensarios_hongyang.EstadoPosiciones(folio: Integer; msj: string);
-var
-  xpos:Integer;
-begin
-  try
-    xpos:=StrToIntDef(msj,-1);
-    if xpos<0 then begin
-      AddPeticionJSON(folio, 'False|Favor de indicar correctamente la posicion de carga|');
-      Exit;
-    end;
-
-    if LinEstadoGen='' then begin
-      AddPeticionJSON(folio, 'False|Error de comunicacion|');
-      Exit;
-    end;
-
-    if xpos>0 then
-      AddPeticionJSON(folio, 'True|'+LinEstadoGen[xpos]+'|')
-    else
-      AddPeticionJSON(folio, 'True|'+LinEstadoGen+'|');
-  except
-    on e:Exception do
-      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
-  end;
-end;
-
 procedure Togcvdispensarios_hongyang.Detener(folio: Integer);
 begin
   try
@@ -2375,10 +2319,8 @@ begin
       estado:=1;
       CmndProc:='A';
       Timer1.Enabled:=True;
-      Timer2.Enabled:=False; // Disable secondary timer
+      Timer2.Enabled:=False;
       numPaso:=0;
-      if modoPreset then
-        EjecutaComando('AMP 00');
 
       SetEstadoJSON(estado);
       AddPeticionJSON(folio, 'True|');
@@ -2416,11 +2358,6 @@ begin
     SetEstadoJSON(estado);
     AddPeticionJSON(folio, 'True|');
   end;
-end;
-
-function Togcvdispensarios_hongyang.ObtenerEstado: string;
-begin
-  Result:='True|'+IntToStr(estado)+'|';
 end;
 
 procedure Togcvdispensarios_hongyang.GuardarLog(folio: Integer);
