@@ -4,9 +4,8 @@ interface
 
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, SvcMgr, Dialogs,
-  ScktComp, IniFiles, ULIBGRAL, OoMisc, AdPort, DB, RxMemDS, Variants,
-  ExtCtrls, uLkJSON, CRCs, IdHashMessageDigest, IdHash, ActiveX, ComObj,
-  LbCipher, LbString;
+  IniFiles, ScktComp, ULIBGRAL, uLkJSON, CRCs, Variants, ExtCtrls, OoMisc,
+  AdPort, IdHashMessageDigest, IdHash, ActiveX, ComObj, LbCipher, LbString;
 
   const
     MCxP=4;
@@ -1831,56 +1830,61 @@ var
     haspMessage:string;
 begin
   try
-    if GSentinelKey <> '' then begin
-      try
-        haspPath    := ExtractFilePath(ParamStr(0));
-        haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-        haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
-        haspMessage := ExtraeElemStrSep(haspResult,2,'|');
-        haspResult  := ExtraeElemStrSep(haspResult,1,'|');
+    CoInitialize(nil);
+    try
+      if GSentinelKey <> '' then begin
+        try
+          haspPath    := ExtractFilePath(ParamStr(0));
+          haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+          haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
+          haspMessage := ExtraeElemStrSep(haspResult,2,'|');
+          haspResult  := ExtraeElemStrSep(haspResult,1,'|');
 
-        AgregaLog('HASP CheckKey resultado: '+haspResult);
-        if haspResult <> 'True' then begin
-          AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
-          AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
-          GuardarLog(0);
-          Exit;
+          AgregaLog('HASP CheckKey resultado: '+haspResult);
+          if haspResult <> 'True' then begin
+            AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
+            AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
+            GuardarLog(0);
+            Exit;
+          end;
+        except
+          on e:Exception do begin
+            AgregaLog('HASP: error al verificar llave: '+e.Message);
+            GuardarLog(0);
+            AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
+            Exit;
+          end;
         end;
-      except
-        on e:Exception do begin
-          AgregaLog('HASP: error al verificar llave: '+e.Message);
-          GuardarLog(0);
-          AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
-          Exit;
-        end;
-      end;
-    end
-    else begin
-      AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
-      AddPeticionJSON(folio, 'False|SentinelKey no configurado en .ini');
-      Exit;
-    end;
-
-    if (not pSerial.Open) then begin
-      if (estado=-1) then begin
-        AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
-        Exit;
       end
-      else if detenido then
-        pSerial.Open:=True;
-    end;
+      else begin
+        AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
+        AddPeticionJSON(folio, 'False|SentinelKey no configurado en .ini');
+        Exit;
+      end;
 
-    detenido:=False;
-    estado:=1;
-    Timer1.Enabled:=True;
-    Timer2.Enabled:=False;
-    numPaso:=0;
-    SetEstadoJSON(estado);
-    
-    AddPeticionJSON(folio, 'True|');
-  except
-    on e:Exception do
-      AddPeticionJSON(folio, 'False|'+e.Message+'|');
+      if (not pSerial.Open) then begin
+        if (estado=-1) then begin
+          AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
+          Exit;
+        end
+        else if detenido then
+          pSerial.Open:=True;
+      end;
+
+      detenido:=False;
+      estado:=1;
+      Timer1.Enabled:=True;
+      Timer2.Enabled:=False;
+      numPaso:=0;
+      SetEstadoJSON(estado);
+
+      AddPeticionJSON(folio, 'True|');
+    except
+      on e:Exception do
+        AddPeticionJSON(folio, 'False|'+e.Message+'|');
+    end;
+  finally
+    CoUninitialize;
   end;
 end;
 

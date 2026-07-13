@@ -49,7 +49,7 @@ type
     modoPreset:Boolean;
     FolioCmnd   :integer;
     ListaComandos:TStringList;
-    fechaInicio:TDateTime;
+    HoraArranque:TDateTime;
     horaReinicio:TDateTime;
     horaLog:TDateTime;
     minutosLog:Integer;
@@ -298,7 +298,7 @@ begin
     ListaLog:=TStringList.Create;
     ListaLogPetRes:=TStringList.Create;
     ListaComandos:=TStringList.Create;
-    fechaInicio:=now;
+    HoraArranque:=now;
     horaReinicio:=Now;
 
     while not Terminated do
@@ -794,9 +794,10 @@ procedure Togcvdispensarios_hongyang.GuardarLogPetRes(folio: Integer);
 begin
   try
     AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio>0 then
-      AddPeticionJSON(folio, 'True|');
+      AddPeticionJSON(folio,'True|');
   except
     on e:Exception do begin
       AgregaLog('False|Excepcion: '+e.Message+'|');
@@ -2329,59 +2330,64 @@ var
     haspMessage:string;
 begin
   try
-    if GSentinelKey <> '' then begin
-      try
-        haspPath    := ExtractFilePath(ParamStr(0));
-        haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
-        haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
-        haspMessage := ExtraeElemStrSep(haspResult,2,'|');
-        haspResult  := ExtraeElemStrSep(haspResult,1,'|');
+    CoInitialize(nil);
+    try
+      if GSentinelKey <> '' then begin
+        try
+          haspPath    := ExtractFilePath(ParamStr(0));
+          haspObj     := CreateOleObject('HaspDelphiAdapter.HaspAdapter');
+          haspResult  := haspObj.CheckKey(haspPath, GSentinelKey);
+          haspMessage := ExtraeElemStrSep(haspResult,2,'|');
+          haspResult  := ExtraeElemStrSep(haspResult,1,'|');
 
-        AgregaLog('HASP CheckKey resultado: '+haspResult);
-        if haspResult <> 'True' then begin
-          AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
-          AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
-          GuardarLog(0);
-          Exit;
+          AgregaLog('HASP CheckKey resultado: '+haspResult);
+          if haspResult <> 'True' then begin
+            AgregaLog('HASP: llave invalida, servicio no iniciado - ' + haspMessage);
+            AddPeticionJSON(folio, 'False|Llave de seguridad HASP no valida:' + haspMessage + '|');
+            GuardarLog(0);
+            Exit;
+          end;
+        except
+          on e:Exception do begin
+            AgregaLog('HASP: error al verificar llave: '+e.Message);
+            GuardarLog(0);
+            AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
+            Exit;
+          end;
         end;
-      except
-        on e:Exception do begin
-          AgregaLog('HASP: error al verificar llave: '+e.Message);
-          GuardarLog(0);
-          AddPeticionJSON(folio, 'False|Error al verificar llave HASP: '+e.Message+'|');
-          Exit;
-        end;
-      end;
-    end
-    else begin
-      AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
-      AddPeticionJSON(folio, 'False|SentinelKey no configurado en .ini');
-      Exit;
-    end;
-
-    if (not pSerial.Open) then begin
-      if (estado=-1) then begin
-        AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
-        Exit;
       end
-      else if detenido then
-        pSerial.Open:=True;
-    end;
+      else begin
+        AgregaLog('HASP: SentinelKey no configurado en .ini, se omite validacion');
+        AddPeticionJSON(folio, 'False|SentinelKey no configurado en .ini');
+        Exit;
+      end;
 
-    detenido:=False;
-    estado:=1;
-    CmndProc:='A';
-    Timer1.Enabled:=True;
-    Timer2.Enabled:=False; // Disable secondary timer
-    numPaso:=0;
-    if modoPreset then
-      EjecutaComando('AMP 00');
-    
-    SetEstadoJSON(estado);
-    AddPeticionJSON(folio, 'True|');
-  except
-    on e:Exception do
-      AddPeticionJSON(folio, 'False|'+e.Message+'|');
+      if (not pSerial.Open) then begin
+        if (estado=-1) then begin
+          AddPeticionJSON(folio, 'False|No se han recibido los parametros de inicializacion|');
+          Exit;
+        end
+        else if detenido then
+          pSerial.Open:=True;
+      end;
+
+      detenido:=False;
+      estado:=1;
+      CmndProc:='A';
+      Timer1.Enabled:=True;
+      Timer2.Enabled:=False; // Disable secondary timer
+      numPaso:=0;
+      if modoPreset then
+        EjecutaComando('AMP 00');
+
+      SetEstadoJSON(estado);
+      AddPeticionJSON(folio, 'True|');
+    except
+      on e:Exception do
+        AddPeticionJSON(folio, 'False|'+e.Message+'|');
+    end;
+  finally
+    CoUninitialize;
   end;
 end;
 
@@ -2420,19 +2426,16 @@ end;
 procedure Togcvdispensarios_hongyang.GuardarLog(folio: Integer);
 begin
   try
+    horaLog:=Now;
     AgregaLog('Version: '+version);
-    if folio=0 then begin // Called internally
-      ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-      GuardarLogPetRes(0);
-      GuardaLogComandos;
-    end
-    else begin // Called via socket
-      ListaLog.SaveToFile(rutaLog+'\LogDispInicio'+FiltraStrNum(FechaHoraToStr(now))+'.txt');
-      AddPeticionJSON(folio, 'True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
-    end;
+    AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
+    ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
+    GuardarLogPetRes(0);
+    if folio>0 then
+      AddPeticionJSON(folio, 'True|'+rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt|');
   except
-    on e:Exception do
-      if folio > 0 then AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+    on e:Exception do if folio>0 then
+      AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
 end;
 
