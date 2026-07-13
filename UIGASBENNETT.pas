@@ -1637,7 +1637,7 @@ begin
             TabCmnd[claveCmnd].SwNuevo:=false;
             TabCmnd[claveCmnd].SwResp:=true;
             TabCmnd[claveCmnd].Respuesta:=rsp;
-            AgregaLogPetRes('C '+LlenaStr(TabCmnd[claveCmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[claveCmnd].Respuesta);
+            AgregaLog('C '+LlenaStr(TabCmnd[claveCmnd].Comando,'I',40,' ')+' Respuesta: '+TabCmnd[claveCmnd].Respuesta);
           end;
         end;
       end;
