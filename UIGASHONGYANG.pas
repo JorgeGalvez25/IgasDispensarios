@@ -1988,7 +1988,7 @@ begin
       end;
     end;
   finally
-    Timer2.Enabled := estado<=0;
+    Timer2.Enabled := (not conectado) or (estado<=0);
   end;
 end;
 
