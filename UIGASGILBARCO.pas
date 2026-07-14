@@ -190,7 +190,7 @@ type
     SinComunicacion: Boolean;
     HoraDesconexion: TDateTime;
     TPosTotales: array[1..MCxP] of integer;
-    // --- Fallback de totales cuando la bomba no responde correctamente ---
+    // fallback de totales cuando la bomba no responde bien
     PendingVentaLts: array[1..MCxP] of real;  // Delta de litros pendiente por slot de totalizador
     PendingVentaActiva: boolean;              // Hay al menos un slot con delta pendiente
     ContFallosTotales: integer;               // Intentos consecutivos fallidos de Lee Totales
@@ -811,8 +811,7 @@ begin
 end;
 
 function Togcvdispensarios_gilbarco2W.HayTotalEsperando(xpos: Integer): Boolean;
-// Indica si hay un comando 'TOTAL <xpos>' activo en TabCmnd esperando respuesta.
-// Se usa para acelerar el fallback de totales calculados cuando OG ya esta esperando.
+// hay un TOTAL <xpos> pendiente de respuesta?
 var
   i: integer;
   cmdNombre, cmdPos: string;
@@ -851,12 +850,8 @@ begin
 end;
 
 procedure Togcvdispensarios_gilbarco2W.CapturarVentaPendiente(xpos, xPosActual: Integer; xVolumen: Real);
-// Acumula el volumen de una venta recien cerrada en el slot de totalizador
-// correspondiente, para usarlo como fallback si Lee Totales falla.
-// El mapeo manguera->combustible->slot se hace aqui (en el momento de la captura),
-// no en el momento del fallback, para que cada slot pueda acumular su propio delta
-// independiente. Esto soporta correctamente bombas multiproducto donde se cierran
-// ventas de distintos combustibles entre dos lecturas de totales fallidas.
+// acumula el litraje de una venta cerrada en su slot de totalizador,
+// por si Lee Totales falla despues (bombas multiproducto acumulan cada quien su delta)
 var
   xc, xtt: integer;
 begin
@@ -879,11 +874,8 @@ begin
 end;
 
 procedure Togcvdispensarios_gilbarco2W.AplicarFallbackTotales(xpos: Integer);
-// Incrementa el contador de fallos consecutivos de Lee Totales y, cuando se alcanza
-// el umbral, reconstruye TotalLitros[] sumando los deltas pendientes de las ventas
-// recientemente cerradas. Marca TotalesEstimados=True en el JSON para auditoria.
-// El umbral baja a 2 si OG ya tiene un comando TOTAL n esperando respuesta, para
-// reducir la latencia percibida por el POS.
+// sube el contador de fallos de Lee Totales; al llegar al umbral reconstruye
+// TotalLitros[] con los deltas pendientes y marca TotalesEstimados=True en el JSON
 var
   xLimite, k: integer;
   hayDelta: boolean;
@@ -2890,7 +2882,7 @@ begin
       begin
         case estatus of
           0:
-            xestado := xestado + '0'; // Sin Comunicaci�n
+            xestado := xestado + '0'; // Sin Comunicación
           1:
             xestado := xestado + '1'; // Inactivo (Idle)
           2:

@@ -16,7 +16,7 @@ type
     pSerial: TApdComPort;
     Timer1: TTimer;
     ClientSocket1: TClientSocket;
-    Timer2: TTimer; // Timer for JSON sync and connection keep-alive
+    Timer2: TTimer;
     procedure ServiceExecute(Sender: TService);
     procedure Timer1Timer(Sender: TObject);
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
@@ -48,7 +48,6 @@ type
     Con_DigitoAjuste:Integer;
     CodigoTeam:String;
     
-    // JSON and Socket Control
     rootJSON : TlkJSONbase;
     conectado, respJson:Boolean;
     socketResponse : TCustomWinSocket;
@@ -80,8 +79,6 @@ type
     function CombustibleEnPosicion(xpos,xposcarga:integer):integer;
     function CRC16(Data: string): string;
     procedure ProcesaLinea(checksum:boolean);
-    
-    // Refactored for ClientSocket/JSON Architecture
     procedure AutorizarVenta(folio:Integer; msj: string);
     procedure DetenerVenta(folio:Integer; msj: string);
     procedure ReanudarVenta(folio:Integer; msj: string);
@@ -99,8 +96,8 @@ type
     procedure IniciaPrecios(folio:Integer; msj: string);
     procedure Bloquear(folio:Integer; msj: string);
     procedure Desbloquear(folio:Integer; msj: string);
-    procedure TransaccionPosCarga(folio:Integer; msj: string); // Changed to proc
-    procedure EstadoPosiciones(folio:Integer; msj: string);    // Changed to proc
+    procedure TransaccionPosCarga(folio:Integer; msj: string);
+    procedure EstadoPosiciones(folio:Integer; msj: string);
     procedure TotalesBomba(folio:Integer; msj: string);
     procedure Detener(folio:Integer);
     procedure Iniciar(folio:Integer);
@@ -108,8 +105,6 @@ type
     procedure Terminar(folio:Integer);
     procedure ObtenerLog(folio:Integer; r: Integer);
     procedure ObtenerLogPetRes(folio:Integer; r: Integer);
-    
-    // Internal Team Logic
     function ComandoB(xdisp,xlado:integer):string;
     function ComandoA(xdisp,xlado,xtipo:integer):string;
     function ComandoS(xdisp,xlado:integer;ximpo:real):string;
@@ -130,8 +125,6 @@ type
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;
     function MD5(const usuario: string): string;
-    
-    // JSON Helpers
     procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure ApplyTotalLitrosToJSON(const xpos: Integer; const TotalLitros: array of Real);
@@ -274,14 +267,12 @@ begin
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
     
-    // Changed to ClientSocket logic
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
     ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     ListaCmnd:=TStringList.Create;
-    // ServerSocket1.Active:=True; // Removed
     detenido:=True;
     estado:=-1;
     horaLog:=Now;                       
@@ -291,7 +282,6 @@ begin
 
     ConfTeam:=config.ReadString('CONF','ConfTeam','');
     
-    // JSON Initialization
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(estado);
 
@@ -315,10 +305,6 @@ begin
   GuardarLog(0);
 end;
 
-// =============================================================================
-// SOCKET AND JSON LOGIC
-// =============================================================================
-
 procedure Togcvdispensarios_team.ClientSocket1Connect(Sender: TObject;
   Socket: TCustomWinSocket);
 begin
@@ -330,7 +316,7 @@ procedure Togcvdispensarios_team.ClientSocket1Disconnect(Sender: TObject;
 begin
   conectado:=False;
   Timer1.Enabled:=False;
-  Timer2.Enabled:=True; // Enable idle/reconnect timer
+  Timer2.Enabled:=True;
 end;
 
 procedure Togcvdispensarios_team.Timer2Timer(Sender: TObject);
@@ -355,7 +341,7 @@ begin
         Responder(TlkJSON.GenerateText(rootJSON));
 
       if estado>0 then begin
-        // If service is running, Timer1 handles logic, Timer2 mostly just pushes JSON if needed or just syncs
+        // si ya esta corriendo, el ciclo lo maneja Timer1
         Timer2.Enabled:=False; 
         Timer1.Enabled:=True;
       end;
@@ -480,10 +466,6 @@ begin
   end;
 end;
 
-// =============================================================================
-// JSON HELPERS
-// =============================================================================
-
 procedure Togcvdispensarios_team.ActualizaCampoJSON(xpos: Integer;
   campo: string; valor: Variant);
 var
@@ -503,7 +485,6 @@ begin
       posObj := TlkJSONObject(posArr.Child[i]);
       if posObj = nil then Continue;
 
-      // Find by DispenserId
       if (posObj.Field['DispenserId'] <> nil) and (posObj.Field['DispenserId'].Value = xpos) then
       begin
          field := posObj.Field[campo];
@@ -514,7 +495,7 @@ begin
     end;
   except
     on e:Exception do begin
-       // Silent fail or log
+       // no se pudo actualizar, se ignora
     end;
   end;
 end;
@@ -546,7 +527,6 @@ begin
     respJson:=True;
   except
     on e:Exception do begin
-       // Log
     end;
   end;
 end;
@@ -576,11 +556,10 @@ var
   posIndex0    : Integer;
   i: integer;
 begin
-  // This helper finds the position in JSON and updates the 'Total' field of each hose
   posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
   if posCargaList = nil then Exit;
 
-  // We need to find the array index for DispenserID = xpos
+  // busca el indice con DispenserId = xpos
   posIndex0 := -1;
   for i := 0 to posCargaList.Count - 1 do begin
     if TlkJSONObject(posCargaList.Child[i]).Field['DispenserId'].Value = xpos then begin
@@ -601,14 +580,11 @@ begin
     hoseObj := TlkJSONobject(hosesList.Child[hoseIdx]);
     totalNode := hoseObj.Field['Total'];
     if totalNode <> nil then
-      totalNode.Value := TotalLitros[hoseIdx]; // Note: TotalLitros is 0-based in array parameter, mapped to hoses
+      totalNode.Value := TotalLitros[hoseIdx]; // TotalLitros llega base 0
   end;
 end;
 
 
-// =============================================================================
-// COMMAND IMPLEMENATION (Refactored)
-// =============================================================================
 
 procedure Togcvdispensarios_team.Inicializar(folio:Integer; msj: string);
 var
@@ -629,8 +605,7 @@ begin
     js := TlkJSON.ParseText(json);
     consolas := js.Field['Consoles'];
 
-    // Assuming first console for Team
-    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value);
+    datosPuerto:=VarToStr(consolas.Child[0].Field['Connection'].Value); // se toma la primera consola
 
     resultado:=IniciaPSerial(datosPuerto);
 
@@ -648,7 +623,6 @@ begin
       Exit;
     end;
 
-    // Config variables
     Con_DigitoAjuste:=0;
     TresDecimTotTeam:='No';
     CodigoTeam:='00000000';
@@ -688,7 +662,6 @@ var i,j,k,xpos,xcomb:Integer;
     mangueras:TlkJSONbase;
     cPos:string;
     
-    // JSON generation vars
     posArr  : TlkJSONlist;
     posObj      : TlkJSONObject;
     hosesArr    : TlkJSONlist;
@@ -701,7 +674,6 @@ begin
     end;
 
     MaxPosCarga:=0;
-    // Reset Internal Arrays
     for i:=1 to 100 do with TPosCarga[i] do begin
       dispensario:=0;
       lado:=0;
@@ -766,10 +738,9 @@ begin
       if xpos>MaxPosCarga then
         MaxPosCarga:=xpos;
       
-      // Init JSON Object for Position
       posObj := TlkJSONObject.Create;
       posObj.Add('DispenserId', xpos);
-      posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',Now)+'T'+FormatDateTime('hh:nn',Now)); // Default
+      posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',Now)+'T'+FormatDateTime('hh:nn',Now));
       posObj.Add('Manguera', 0);
       posObj.Add('Combustible', 0);
       posObj.Add('Estatus', 0);
@@ -816,7 +787,6 @@ begin
               TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
             end;
             
-            // Add hose to JSON
             hoseObj := TlkJSONObject.Create;
             if TPos[NoComb] in [1..MCxP] then
               hoseObj.Add('HoseId', TMang[TPos[NoComb]])
@@ -1133,7 +1103,7 @@ begin
     if not detenido then begin
       pSerial.Open:=False;
       Timer1.Enabled:=False;
-      Timer2.Enabled:=True; // Switch to idle timer
+      Timer2.Enabled:=True;
       detenido:=True;
       estado:=0;
       SetEstadoJSON(estado);
@@ -1301,10 +1271,6 @@ begin
   AddPeticionJSON(folio, logStr);
 end;
 
-
-// =============================================================================
-// INTERNAL LOGIC (Unchanged mostly, but linked to JSON updates)
-// =============================================================================
 
 procedure Togcvdispensarios_team.AgregaLog(lin: string);
 var lin2:string; i:integer;
@@ -1616,7 +1582,7 @@ begin
                  volumennvo:=volumen;
                  precionvo:=precio;
                  
-                 // JSON Update Reading
+                 // actualiza lectura en el JSON
                  ActualizaCampoJSON(xpos, 'Volumen', volumen);
                  ActualizaCampoJSON(xpos, 'Importe', importe);
                  ActualizaCampoJSON(xpos, 'Precio', precio);
@@ -1641,7 +1607,7 @@ begin
                    swdesp:=true;
                    SwLecturaFinalPendiente:=false;
 
-                   // Despu�s de la lectura final del display, forzar totalizadores frescos.
+                   // Después de la lectura final del display, forzar totalizadores frescos.
                    SwCargaTotales:=true;
                    SwEsperandoTotales:=true;
                    TotalesPendientes:=NoComb;
@@ -1683,7 +1649,7 @@ begin
                else
                  TotalLitros[ii]:=StrToFloat(ss)/100;
                  
-               // JSON Update Totals
+               // actualiza totales en el JSON
                ApplyTotalLitrosToJSON(xpos, TotalLitros);
                
                if SwEsperandoTotales then begin
@@ -1766,7 +1732,7 @@ begin
               xestadoPos:='2' // Mantener como cargando hasta recibir A1 final.
             else begin
               case estatus of
-                0:xestadoPos:='0'; // Sin Comunicaci�n
+                0:xestadoPos:='0'; // Sin Comunicación
                 1:xestadoPos:='1'; // Inactivo (Idle)
                 5,8:xestadoPos:='2'; // Cargando (In Use)
                 7:if not swcargando then
@@ -1881,7 +1847,7 @@ begin
               SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
               if SnImporte=0 then SnImporte:=9999;
               if (SnImporte<1)or(SnImporte>9999) then
-                rsp:='Importe fuera de rango v�lido: de 1.00 a 9999.00';
+                rsp:='Importe fuera de rango válido: de 1.00 a 9999.00';
             except
               rsp:='Error en Importe';
             end;
@@ -1917,7 +1883,7 @@ begin
                 TPosCarga[SnPosCarga].boucher:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,7,' ');
                 EnviaPreset(rsp,xcomb,false);
               end
-              else rsp:='Combustible no existe en esta posici�n';
+              else rsp:='Combustible no existe en esta posición';
             end;
           end;
         end
@@ -1969,7 +1935,7 @@ begin
           precios := ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 2, ' ');
           
           // 1. Primero, actualizar la memoria global de precios (LPrecios)
-          // Se asume un m�ximo de 4 productos seg�n tu arreglo LPrecios[1..4]
+          // Se asume un máximo de 4 productos según tu arreglo LPrecios[1..4]
           for ii := 1 to 4 do begin
             precioComb := StrToFloatDef(ExtraeElemStrSep(precios, ii, '|'), -1);
             if precioComb > 0 then
@@ -1993,7 +1959,7 @@ begin
               // Determinar Manguera 2
               xcomb := CombustibleEnPosicion(xpos, 2);
               ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
-              ss := ss + IntToClaveNum(ii, 4) + '0000'; // Tercera vac�a
+              ss := ss + IntToClaveNum(ii, 4) + '0000'; // Tercera vacía
             end
             else begin
               // Determinar Manguera 2
@@ -2151,7 +2117,7 @@ begin
     except
     end;
   finally
-    // Trigger socket push on timer cycle (simulated KeepAlive + DataPush like Wayne)
+    // envia el JSON por el socket cada ciertos ciclos
     try
       if xTurnoSocket=3 then
         Responder(TlkJSON.GenerateText(rootJSON));
@@ -2264,9 +2230,9 @@ begin
               AgregaLog('TEAM: venta finalizada, se programa A1 final en posicion '+IntToStr(xpos));
             end;
             
-            // Note: JSON Update happens in ProcesaLinea when B command is processed by LineaTimer
+            // el JSON se actualiza en ProcesaLinea cuando llega el comando B
 
-            // Producto: solo cuando est� ocupado
+            // Producto: solo cuando esta ocupado
             ss:=ExtraeElemStrSep(LineaTimer,7,' ');
             if strtointdef(ss[2],0)>0 then
               posactual:=strtointdef(ss[2],0);
@@ -2571,11 +2537,11 @@ begin
   rsp:='OK';
   xpos:=SnPosCarga;
   if not (TPosCarga[xpos].estatus=1) then begin
-    rsp:='Posici�n no Disponible';
+    rsp:='Posición no Disponible';
     exit;
   end;
   if TPosCarga[xpos].SwDesHabilitado then begin
-    rsp:='Posici�n Deshabilitada';
+    rsp:='Posición Deshabilitada';
     exit;
   end;
   if SnLitros>=0.5 then

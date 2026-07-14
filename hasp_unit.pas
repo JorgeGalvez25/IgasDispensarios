@@ -747,7 +747,7 @@ function hasp_cleanup() : hasp_status_t; stdcall;
   implementation
 {-----------------------------------------------------------------------------}
 
-{$L hasp_windows_delphi_demo.obj }
+{$L hasp_windows_delphi.obj }
 
 function hasp_login;                stdcall; external;
 function hasp_logout;               stdcall; external;

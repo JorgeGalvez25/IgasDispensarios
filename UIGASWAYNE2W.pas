@@ -487,7 +487,7 @@ begin
     AgregaLogPetRes('E '+resp);
   except
     on e:Exception do begin
-      AgregaLog('Se perdiï¿½ comunicaciï¿½n con Bridge Responder');
+      AgregaLog('Se perdio comunicacion con Bridge Responder');
       GuardarLog(0);
       conectado:=False;
       ClientSocket1.Active:=False;
@@ -1286,7 +1286,7 @@ begin
           xestado:=xestado+'2' // Mantener como cargando hasta recibir la lectura final.
         else begin
           case estatus of
-            0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
+            0:xestado:=xestado+'0'; // Sin Comunicacion
             1:xestado:=xestado+'1'; // Inactivo (Idle)
             2:xestado:=xestado+'2'; // Despachando (In Use)
             3,4:xestado:=xestado+'3';
@@ -3082,7 +3082,7 @@ begin
       end;
     end
     else
-      AgregaLog('HASP: Se omitió validación de SentinelKey por modo emulado');
+      AgregaLog('HASP: Se omitiÃ³ validaciÃ³n de SentinelKey por modo emulado');
 
     if not SwModoEmulacion then begin
       { Modo normal: abrir puerto serial }

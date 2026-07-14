@@ -1469,7 +1469,7 @@ begin
           AgregaLog('Desconexion de Dispositivo Error Comunicacion Dispensarios');
       end;
 
-      // --- CPREC: procesa UN cambio de precio por cada ciclo de Timer1 ---
+      // CAMBIO DE PRECIOS (CPREC), uno por ciclo de timer
       if CPRECActivo then begin
         while CPRECIndice <= CPRECTotal do begin
           precioComb:=StrToFloatDef(ExtraeElemStrSep(CPRECComando,CPRECIndice,'|'),-1);
@@ -1489,20 +1489,19 @@ begin
                 EsperaMiliSeg(250);
               end;
               Inc(CPRECIndice);
-              Break; // Solo UN precio por ciclo de Timer1
+              Break; // uno por ciclo
             end
             else begin
-              Inc(CPRECIndice); // precio invalido, avanza al siguiente
+              Inc(CPRECIndice); // precio invalido
             end;
           end
           else begin
-            Inc(CPRECIndice); // precio <=0, avanza al siguiente
+            Inc(CPRECIndice); // precio <=0
           end;
         end;
-        // Verifica si ya se procesaron todos los precios
         if CPRECIndice>CPRECTotal then begin
           CPRECActivo:=False;
-          AgregaLog('CPREC finalizado - todos los precios aplicados');
+          AgregaLog('CPREC Finalizado');
         end;
       end;
 
@@ -1746,20 +1745,17 @@ begin
           end
           else if (ss='CPREC') then begin
             if CPRECActivo then begin
-              // Ya hay un CPREC en proceso, dejar este comando pendiente para el siguiente ciclo
-              SwAplicaCmnd:=False;
+              SwAplicaCmnd:=False; // ya hay uno en proceso, se queda pendiente
             end
             else begin
-              // Inicializa el procesamiento incremental de CPREC (un precio por ciclo de Timer1)
               CPRECComando:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' ');
               CPRECTotal:=NoElemStrSep(CPRECComando,'|');
               CPRECIndice:=1;
               CPRECCmndIdx:=xcmnd;
               CPRECActivo:=True;
-              // Marcar comando como respondido inmediatamente para sacarlo de la cola
-              rsp:='OK';
+              rsp:='OK'; // se responde de una vez, no se espera a que termine
               SwAplicaCmnd:=True;
-              AgregaLog('CPREC iniciado - total de precios a procesar: '+IntToStr(CPRECTotal));
+              AgregaLog('CPREC Iniciado Total='+IntToStr(CPRECTotal));
             end;
           end
           else rsp:='Comando no Soportado o no Existe';

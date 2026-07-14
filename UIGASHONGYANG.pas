@@ -12,15 +12,15 @@ type
   Togcvdispensarios_hongyang = class(TService)
     pSerial: TApdComPort;
     Timer1: TTimer;
-    Timer2: TTimer; // Added for JSON/Keepalive loop
-    ClientSocket1: TClientSocket; // Changed from ServerSocket to ClientSocket
+    Timer2: TTimer;
+    ClientSocket1: TClientSocket;
     procedure ServiceExecute(Sender: TService);
     procedure pSerialTriggerAvail(CP: TObject; Count: Word);
     procedure Timer1Timer(Sender: TObject);
-    procedure Timer2Timer(Sender: TObject); // Added
-    procedure ClientSocket1Connect(Sender: TObject; Socket: TCustomWinSocket); // Added
-    procedure ClientSocket1Disconnect(Sender: TObject; Socket: TCustomWinSocket); // Added
-    procedure ClientSocket1Read(Sender: TObject; Socket: TCustomWinSocket); // Changed to Client Read
+    procedure Timer2Timer(Sender: TObject);
+    procedure ClientSocket1Connect(Sender: TObject; Socket: TCustomWinSocket);
+    procedure ClientSocket1Disconnect(Sender: TObject; Socket: TCustomWinSocket);
+    procedure ClientSocket1Read(Sender: TObject; Socket: TCustomWinSocket);
   private
     ContadorAlarma:integer;
     SegundosFinv:Integer;
@@ -31,7 +31,6 @@ type
     SwAplicaCmnd:Boolean;
     NumPaso:Integer;
     PosicionesLibres:Boolean;
-    // New variables for Client/JSON logic
     conectado, respJson:Boolean;
     rootJSON : TlkJSONbase;
     xTurnoSocket:Integer;
@@ -57,20 +56,20 @@ type
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
-    procedure Responder(resp:string); // Modified signature
+    procedure Responder(resp:string);
     procedure AgregaLog(lin:string);
     function IniciaPSerial(datosPuerto:string):string;
-    procedure Inicializar(folio:Integer; msj:string); // Modified signature
+    procedure Inicializar(folio:Integer; msj:string);
     function AgregaPosCarga(posiciones: TlkJSONbase):string;
-    procedure Login(folio:Integer; mensaje:string); // Modified
-    procedure Logout(folio:Integer); // Modified
-    procedure GuardarLogPetRes(folio:Integer=0); // Modified
+    procedure Login(folio:Integer; mensaje:string);
+    procedure Logout(folio:Integer);
+    procedure GuardarLogPetRes(folio:Integer=0);
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     function MD5(const usuario: string): string;
     function ConvierteBCD(xvalor:real;xlong:integer):string;
     function CalculaBCC(ss:string):char;
     function StrToHexSep(ss:string):string;
-    procedure IniciaPrecios(folio:Integer; msj:string); // Modified
+    procedure IniciaPrecios(folio:Integer; msj:string);
     function ExtraeBCD(xstr:string;xini,xfin:integer):real;
     function ComandoA(xaddr,xlado:integer):string;
     function ComandoC(xaddr,xlado:integer):string;    // Modo prepago
@@ -82,10 +81,10 @@ type
     function ComandoL(xaddr,xlado,xlitros:integer):string;
     procedure ComandoConsola(ss:string);
     function EjecutaComando(xCmnd:string):integer;
-    procedure AutorizarVenta(folio:Integer; msj:string); // Modified
-    procedure ActivaModoPrepago(folio:Integer; msj:string); // Modified
-    procedure DesactivaModoPrepago(folio:Integer; msj:string); // Modified
-    procedure FinVenta(folio:Integer; msj:string); // Modified
+    procedure AutorizarVenta(folio:Integer; msj:string);
+    procedure ActivaModoPrepago(folio:Integer; msj:string);
+    procedure DesactivaModoPrepago(folio:Integer; msj:string);
+    procedure FinVenta(folio:Integer; msj:string);
     procedure ProcesoComandoA(xResp:string);
     procedure ProcesoComandoC(xResp:string);
     procedure ProcesoComandoD(xResp:string);
@@ -103,25 +102,24 @@ type
    function TraduceEstatusExterno(xestatus:integer):integer;
    procedure ProcesaComandosExternos;
    function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
-   procedure Detener(folio:Integer); // Modified
-   procedure Iniciar(folio:Integer); // Modified
-   procedure Shutdown(folio:Integer); // Modified
-   procedure Terminar(folio:Integer); // Modified
-   procedure GuardarLog(folio:Integer=0); // Modified
-   procedure RespuestaComando(folio:Integer; msj:string); // Modified
-   procedure ObtenerLog(folio:Integer; r:Integer); // Modified
-   procedure ObtenerLogPetRes(folio:Integer; r:Integer); // Modified
+   procedure Detener(folio:Integer);
+   procedure Iniciar(folio:Integer);
+   procedure Shutdown(folio:Integer);
+   procedure Terminar(folio:Integer);
+   procedure GuardarLog(folio:Integer=0);
+   procedure RespuestaComando(folio:Integer; msj:string);
+   procedure ObtenerLog(folio:Integer; r:Integer);
+   procedure ObtenerLogPetRes(folio:Integer; r:Integer);
    function ResultadoComando(xFolio:integer):string;
-   procedure TotalesBomba(folio:Integer; msj: string); // Modified
+   procedure TotalesBomba(folio:Integer; msj: string);
    procedure IniciarPrecios;
-   procedure Bloquear(folio:Integer; msj:string); // Modified
-   procedure Desbloquear(folio:Integer; msj:string); // Modified
+   procedure Bloquear(folio:Integer; msj:string);
+   procedure Desbloquear(folio:Integer; msj:string);
    procedure GuardaLogComandos;
    function Encrypt(data,key3DES:string):string;
    function Decrypt(data,key3DES:string):string;
    function ReiniciarPuerto(forzado:Boolean=True):Boolean;
 
-   // JSON Helper functions from Wayne
    procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
    procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
    procedure SetEstadoJSON(const AEstado: Integer);
@@ -273,7 +271,6 @@ begin
   try
     config:= TIniFile.Create(ExtractFilePath(ParamStr(0)) +'PDISPENSARIOS.ini');
     rutaLog:=config.ReadString('CONF','RutaLog','C:\ImagenCo');
-    // Change: Read Host and Port for ClientSocket
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
     ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     
@@ -285,7 +282,6 @@ begin
     ContadorAlarma:=0;
     ListaCmnd:=TStringList.Create;
     
-    // Initialize JSON
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(-1);
 
@@ -314,7 +310,6 @@ begin
   end;
 end;
 
-// Changed from ServerSocket1ClientRead to ClientSocket1Read
 procedure Togcvdispensarios_hongyang.ClientSocket1Read(
   Sender: TObject; Socket: TCustomWinSocket);
   var
@@ -449,7 +444,6 @@ begin
   aCrc.Destroy;
 end;
 
-// Modified to send via ClientSocket
 procedure Togcvdispensarios_hongyang.Responder(resp: string);
 begin
   try
@@ -693,7 +687,6 @@ begin
       if xpos>MaxPosiciones then
         MaxPosiciones:=xpos;
       
-      // JSON Object Creation
       posObj := TlkJSONObject.Create;
       posObj.Add('DispenserId', xpos);
       posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',Now)+'T'+FormatDateTime('hh:nn',Now));
@@ -744,7 +737,6 @@ begin
           ContBrinca:=xmang;
         end;
         
-        // JSON Hose Creation
         hoseObj := TlkJSONObject.Create;
         hoseObj.Add('HoseId', TPosCarga[xpos].PosMangueraDisp[xpcomb]);
         hoseObj.Add('ProductId', xcomb);
@@ -755,7 +747,6 @@ begin
       posArr.Add(posObj);
     end;
     
-    // Add PosCarga array to rootJSON
     TlkJSONobject(rootJSON).Add('PosCarga', posArr);
     
   except
@@ -1813,7 +1804,6 @@ var xmang:integer;
 begin
   try
     try
-      // JSON Load Balancing (from Wayne)
       Inc(xTurnoSocket);
       if xTurnoSocket>3 then
         xTurnoSocket:=1;
@@ -1929,7 +1919,7 @@ begin
             estatus:=0;
             descestat:='Sin Comunicacion';
             contparo:=5;
-            // JSON update on error
+            // se marca sin comunicacion en el JSON
             ActualizaCampoJSON(PosCarga, 'Estatus', 0);
           end;
         end;
@@ -1941,7 +1931,6 @@ begin
       end;
     end;
   finally
-    // Send JSON updates similar to Wayne
     try
       if xTurnoSocket=3 then
         Responder(TlkJSON.GenerateText(rootJSON));
@@ -1955,7 +1944,6 @@ begin
   end;
 end;
 
-// Added Timer2 for connection management
 procedure Togcvdispensarios_hongyang.Timer2Timer(Sender: TObject);
 var
   i:Integer;
@@ -2252,7 +2240,7 @@ begin
     if not detenido then begin
       pSerial.Open:=False;
       Timer1.Enabled:=False;
-      Timer2.Enabled:=True; // Enable secondary timer
+      Timer2.Enabled:=True;
       detenido:=True;
       estado:=0;
       SetEstadoJSON(estado);
@@ -2681,7 +2669,6 @@ begin
     IncMinute(horaReinicio,1);
 end;
 
-// HELPER FUNCTIONS FOR JSON (From Wayne Driver)
 
 procedure Togcvdispensarios_hongyang.ActualizaCampoJSON(xpos: Integer;
   campo: string; valor: Variant);

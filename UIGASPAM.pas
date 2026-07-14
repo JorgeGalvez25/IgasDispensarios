@@ -104,7 +104,6 @@ type
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
     
-    // Commands refactored for JSON/Socket
     function AgregaPosCarga(posiciones: TlkJSONbase): string;
     procedure IniciaPrecios(folio:Integer; msj: string);
     procedure AutorizarVenta(folio:Integer; msj: string);
@@ -140,7 +139,6 @@ type
     function Encrypt(data,key3DES:string):string;
     function Decrypt(data,key3DES:string):string;
     
-    // JSON Helpers
     procedure ActualizaCampoJSON(xpos:Integer; campo:string; valor:Variant);
     procedure AddPeticionJSON(const aFolio: Integer; const aResultado : string);
     procedure SetEstadoJSON(const AEstado: Integer);
@@ -501,7 +499,6 @@ begin
   end;
 end;
 
-// Helper to update JSON fields
 procedure Togcvdispensarios_pam.ActualizaCampoJSON(xpos: Integer;
   campo: string; valor: Variant);
 var
@@ -527,11 +524,9 @@ begin
       if (posObj.Field['DispenserId'] <> nil) and
          (posObj.Field['DispenserId'].Value = xpos) then
       begin
-        // Found the dispenser by ID
       end
       else if (posObj.Field['DispenserId'] = nil) and (i + 1 = xpos) then
       begin
-        // Fallback by index
       end
       else
         Continue;
@@ -876,7 +871,7 @@ begin
                  estatusant:=estatus;
                  estatus:=StrToIntDef(ss[xpos],0);
                  
-                 // Update JSON status
+                 // actualiza estatus en el JSON
                  ActualizaCampoJSON(xpos, 'Estatus', estatus);
 
                  if (estatus=0)and(SwActivo) then begin
@@ -1193,7 +1188,7 @@ begin
                            CombActual:=StrToInt(ExtraeElemStrSep(LigaCombs,2,':'));
                        end;
                        
-                       // JSON Updates
+                       // actualiza lecturas en el JSON
                        ActualizaCampoJSON(xpos, 'Volumen', volumen);
                        ActualizaCampoJSON(xpos, 'Precio', precio);
                        ActualizaCampoJSON(xpos, 'Importe', importe);
@@ -1705,8 +1700,6 @@ begin
       end;
     end;
   finally
-    // Ensure we trigger socket response if on proper cycle
-
   end;
 end;
 
@@ -1944,7 +1937,6 @@ begin
       HoraTotales:=0;
     end;
 
-    // Build the initial JSON structure for state reporting
     posArr := TlkJSONlist.Create;
 
     for i:=0 to posiciones.Count-1 do begin
@@ -1958,7 +1950,6 @@ begin
         existe:=false;
         ModoOpera:='Prepago';
 
-        // Create JSON node for this dispenser
         posObj := TlkJSONObject.Create;
         posObj.Add('DispenserId', xpos);
         posObj.Add('HoraOcc', FormatDateTime('yyyy-mm-dd',HoraOcc)+'T'+FormatDateTime('hh:nn',HoraOcc));
@@ -1997,7 +1988,6 @@ begin
             SwMapea[NoComb]:=not SwMapOff;
             SwTotales[NoComb]:=true;
             
-            // Add Hose to JSON
             hoseObj := TlkJSONObject.Create;
             hoseObj.Add('HoseId',TMang[NoComb]);
             hoseObj.Add('ProductId', xcomb);
@@ -2656,8 +2646,6 @@ begin
       config.WriteString('CONF','jsonInitialize',msj);
     end;
 
-    // Use parameters from Wayne style parsing if applicable, or parse raw msj
-    // Assuming msj is JSON|Variables
     json:=ExtraeElemStrSep(msj,1,'|');
     variables:=ExtraeElemStrSep(msj,2,'|');
 
