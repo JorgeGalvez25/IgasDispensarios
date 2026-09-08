@@ -9,9 +9,6 @@ uses
 
 const
   MCxP = 4;
-  ValorX = '9573';
-  ValorOn = '93715';
-  ValorOff = '92476';
 
 type
   Togcvdispensarios_gilbarco2W = class(TService)
