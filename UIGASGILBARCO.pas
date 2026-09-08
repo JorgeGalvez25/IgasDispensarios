@@ -2061,7 +2061,7 @@ end;
 
 procedure Togcvdispensarios_gilbarco2W.ProcesaComandos;
 var
-  ss, rsp, ss2, precios: string;
+  ss, rsp, ss2, precios, cantidadPreset: string;
   xcmnd, xpos, xcomb, i, xc, xp, xfolio: integer;
   ximporte, xlitros: real;
   precioComb: Double;
@@ -2088,7 +2088,14 @@ begin
             if (TPosCarga[xpos].estatus in [1, 5]) then
             begin
               try
-                ximporte := StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 3, ' '));
+                cantidadPreset := ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 3, ' ');
+                ximporte := StrToFloat(cantidadPreset);
+                i := Pos('.', cantidadPreset);
+                if (i > 0) and (Length(cantidadPreset) - i = 5) then
+                begin
+                  cantidadPreset := Copy(cantidadPreset, 1, i + 2);
+                  ximporte := StrToFloat(cantidadPreset);
+                end;
                 xlitros := 0;
                 if TPosCarga[xpos].DigitosGilbarco = 8 then
                   rsp := ValidaCifra(ximporte, 6, 2)
@@ -2187,7 +2194,14 @@ begin
             if (TPosCarga[xpos].estatus in [1, 5]) then
             begin
               try
-                xlitros := StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 3, ' '));
+                cantidadPreset := ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 3, ' ');
+                xlitros := StrToFloat(cantidadPreset);
+                i := Pos('.', cantidadPreset);
+                if (i > 0) and (Length(cantidadPreset) - i = 5) then
+                begin
+                  cantidadPreset := Copy(cantidadPreset, 1, i + 2);
+                  xlitros := StrToFloat(cantidadPreset);
+                end;
                 ximporte := 0;
                 rsp := ValidaCifra(xlitros, 3, 2);
                 if rsp = 'OK' then
