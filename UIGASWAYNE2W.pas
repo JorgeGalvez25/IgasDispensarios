@@ -1690,7 +1690,7 @@ begin
 end;
 
 procedure Togcvdispensarios_wayne2w.ProcesaComandos;
-var ss,rsp,scmnd,precios      :string;
+var ss,rsp,scmnd,precios,cantidadPreset :string;
     xcmnd,xpos,xcomb,
     xp,xfolio,i               :integer;
     ximporte,xlitros,nprec  :real;
@@ -1711,7 +1711,13 @@ begin
           if (xpos in [1..MaxPosCarga]) then begin
             if (TPosCarga[xpos].estatus in [1,5]) then begin
               try
-                xImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+                cantidadPreset:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' ');
+                xImporte:=StrToFLoat(cantidadPreset);
+                i:=Pos('.',cantidadPreset);
+                if (i>0)and(Length(cantidadPreset)-i=5) then begin
+                  cantidadPreset:=Copy(cantidadPreset,1,i+2);
+                  xImporte:=StrToFLoat(cantidadPreset);
+                end;
                 rsp:=ValidaCifra(xImporte,4,2);
                 if rsp='OK' then
                   if (xImporte<=0) then
@@ -1802,7 +1808,13 @@ begin
           if (xpos in [1..MaxPosCarga]) then begin
             if (TPosCarga[xpos].estatus in [1,5]) then begin
               try
-                xLitros:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
+                cantidadPreset:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' ');
+                xLitros:=StrToFLoat(cantidadPreset);
+                i:=Pos('.',cantidadPreset);
+                if (i>0)and(Length(cantidadPreset)-i=5) then begin
+                  cantidadPreset:=Copy(cantidadPreset,1,i+2);
+                  xLitros:=StrToFLoat(cantidadPreset);
+                end;
                 rsp:=ValidaCifra(xLitros,3,2);
                 if rsp='OK' then
                   if (xLitros<0.10) then
