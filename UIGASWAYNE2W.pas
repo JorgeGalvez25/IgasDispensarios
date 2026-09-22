@@ -9,6 +9,7 @@ uses
 
   const
     MCxP=4;  
+    MaxReintentosTotal = 3; // portado desde version X
 
 type
   Togcvdispensarios_wayne2w = class(TService)
@@ -171,6 +172,7 @@ type
        TMang        :array[1..MCxP] of integer;
        TotalLitros  :array[1..MCxP] of real;
        SwLeeTotales :array[1..MCxP] of boolean;
+       ReintentosTotal :array[1..MCxP] of integer; // portado desde version X
 
        TCambioPrecN1:boolean;
        TNuevoPrec   :array[1..MCxP] of real;
@@ -184,6 +186,7 @@ type
        EsperaFinVenta :integer;
 
        SwStatusFV,
+       SwVentaPagada, // portado desde version X
        SwLecturaFinalPendiente,
        SwLeeVenta,
        SwLeePrecios,
@@ -568,6 +571,7 @@ begin
         TotalLitros[j]:=0;
         TNuevoPrec[j]:=0;
         SwLeeTotales[j]:=true;
+        ReintentosTotal[j]:=0;
         TPrecio[j]:=0;
       end;
       SwDeshabil:=false;
@@ -575,6 +579,7 @@ begin
       ModoOpera:='Prepago';
       SwLeeVenta:=true;
       SwStatusFV:=false;
+      SwVentaPagada:=false;
       SwLecturaFinalPendiente:=false;
       SwCambiaPrecio:=false;
       SwLeePrecios:=true;
@@ -1166,8 +1171,12 @@ begin
             TPosCarga[xPosCarga].SwPreset:=false;
             TPosCarga[xPosCarga].SwPreset2:=false;
             if (tbit[0])and(tbit[1])and(tbit[2]) then begin
-              if (tposcarga[xposcarga].importe>0.001) then begin
+              if (tposcarga[xposcarga].importe>0.001) and
+                 (not TPosCarga[xPosCarga].SwVentaPagada) then begin
                 iStatus:=3;        // fin venta
+              end
+              else if TPosCarga[xPosCarga].SwVentaPagada then begin
+                iStatus:=1;        // venta ya confirmada mediante PAYMENT
               end
               else begin
                 istatus:=9;        // autorizado
@@ -1209,7 +1218,8 @@ begin
           end
           else begin
             iStatus:=1;    // inactivo
-            if (TPosCarga[xPosCarga].SwStatusFV) then begin
+            if (TPosCarga[xPosCarga].SwStatusFV) and
+               (not TPosCarga[xPosCarga].SwVentaPagada) then begin
               iStatus:=3;
             end
             else if (TPosCarga[xPosCarga].SwPreset2) then
@@ -1230,8 +1240,12 @@ begin
             TPosCarga[xPosCarga].SwPreset:=false;
             TPosCarga[xPosCarga].SwPreset2:=false;
             if (tbit[0])and(tbit[1])and(tbit[2]) then begin
-              if (tposcarga[xposcarga].importe>0.001) then begin
+              if (tposcarga[xposcarga].importe>0.001) and
+                 (not TPosCarga[xPosCarga].SwVentaPagada) then begin
                 iStatus:=3;        // fin venta
+              end
+              else if TPosCarga[xPosCarga].SwVentaPagada then begin
+                iStatus:=1;        // venta ya confirmada mediante PAYMENT
               end
               else begin
                 istatus:=9;        // autorizado
@@ -1273,7 +1287,8 @@ begin
           end
           else begin
             iStatus:=1;    // inactivo
-            if (TPosCarga[xPosCarga].SwStatusFV) then begin
+            if (TPosCarga[xPosCarga].SwStatusFV) and
+               (not TPosCarga[xPosCarga].SwVentaPagada) then begin
               iStatus:=3;
             end
             else if (TPosCarga[xPosCarga].SwPreset2) then
@@ -1982,15 +1997,20 @@ begin
               if (TPosCarga[xpos].Estatus in [3,4]) then begin // EOT
                 if TPosCarga[xpos].SwLecturaFinalPendiente then
                   rsp:='Posicion aun tiene lectura final pendiente'
-                else if (not TPosCarga[xpos].swcargando) then
-                  TPosCarga[xpos].esperafinventa:=0
                 else begin
-                  if (TPosCarga[xpos].swcargando)and(TPosCarga[xpos].Estatus=1) then begin
-                    TPosCarga[xpos].swcargando:=false;
-                    TPosCarga[xpos].esperafinventa:=0;
-                    rsp:='OK';
-                  end
-                  else rsp:='Posicion no esta despachando';
+                  // PAYMENT confirma la venta reportada. Sin esta marca, el
+                  // mismo estatus fisico y el importe conservado vuelven a
+                  // clasificarla como fin de venta en el siguiente sondeo.
+                  // (portado desde version X)
+                  with TPosCarga[xpos] do begin
+                    EsperaFinVenta:=0;
+                    SwCargando:=false;
+                    SwLeeVenta:=false;
+                    SwStatusFV:=false;
+                    SwVentaPagada:=true;
+                    Estatus:=1;
+                  end;
+                  ActualizaCampoJSON(xpos,'Estatus',1);
                 end;
               end
               else  // EOT
@@ -2236,6 +2256,7 @@ label L01;
 var xvolumen,n1,n2,n3:real;
     xcomb,xpos,xp,xgrade,i,j:integer;
     xtotallitros:real;
+    msgTotalError:string; // portado desde version X
 begin
   try
     try
@@ -2298,8 +2319,13 @@ begin
                         EstatusAnt:=Estatus;
                         Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
                         ContadorAlarma:=0;
-                        if estatus=2 then
+                        if estatus=2 then begin
                           swdesp:=true;
+                          // Una nueva venta vuelve a habilitar la deteccion de su
+                          // propio fin de venta, aunque la anterior ya se pago.
+                          // (portado desde version X)
+                          SwVentaPagada:=false;
+                        end;
                         if (swdesp)and(estatus in [1,3,5]) then begin
                           AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
                           swdesp:=false;
@@ -2387,6 +2413,28 @@ begin
                         ApplyTotalLitrosToJSON(PosCiclo,TotalLitros);
                         AgregaLog('R> '+FormatFloat('###,###,##0.00',xTotalLitros));
                         SwLeeTotales[MangCiclo]:=false;
+                        ReintentosTotal[MangCiclo]:=0;
+                      end
+                      else begin
+                        // Reintenta la lectura del totalizador antes de darla
+                        // por perdida indefinidamente. (portado desde version X)
+                        Inc(ReintentosTotal[MangCiclo]);
+                        if ReintentosTotal[MangCiclo]>=MaxReintentosTotal then begin
+                          SwLeeTotales[MangCiclo]:=false;
+                          ReintentosTotal[MangCiclo]:=0;
+                          msgTotalError:='Sin respuesta de totalizador Pos '+
+                                         IntToStr(PosCiclo)+' Manguera '+IntToStr(MangCiclo);
+                          AgregaLog(msgTotalError);
+                          // Libera tambien las solicitudes TOTAL que estaban
+                          // esperando esta lectura, para que el cliente reciba
+                          // un error y no acumule consultas pendientes.
+                          for j:=1 to 200 do
+                            if TabCmnd[j].SwActivo and (not TabCmnd[j].SwResp) and
+                               (TabCmnd[j].Comando='TOTAL '+IntToStr(PosCiclo)) then begin
+                              TabCmnd[j].SwResp:=true;
+                              TabCmnd[j].Respuesta:=msgTotalError;
+                            end;
+                        end;
                       end;
                     end;
                   end;
