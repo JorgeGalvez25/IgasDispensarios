@@ -9,7 +9,7 @@ uses
 
   const
     MCxP=4;  
-    MaxReintentosTotal = 3; // portado desde version X
+    MaxReintentosTotal = 3;
 
 type
   Togcvdispensarios_wayne2w = class(TService)
@@ -276,8 +276,11 @@ function LeeTotalPosCiclo(xPos:integer; var xmang:integer):boolean;
 begin
   with TPosCarga[xPos] do begin
     xMang:=NoComb;
-    while (not SwLeeTotales[xMang])and(xMang>0) do
+    while xMang>0 do begin
+      if SwLeeTotales[xMang] then
+        Break;
       dec(xMang);
+    end;
     result:=xMang>0;
   end;
 end;
@@ -2095,6 +2098,11 @@ begin
           with TPosCarga[xpos] do begin
             SwAplicaCmnd:=False;
             if TabCmnd[xcmnd].SwNuevo then begin
+              // Una solicitud nueva dispone de tres intentos completos. Si ya
+              // habia una lectura en curso, no reinicia el contador: varias
+              // solicitudes TOTAL simultaneas comparten la misma lectura.
+              if not SwLeeTotales[PosActual] then
+                ReintentosTotal[PosActual]:=0;
               SwLeeTotales[PosActual]:=True;
               TabCmnd[xcmnd].SwNuevo:=false;
             end
@@ -2431,8 +2439,11 @@ begin
                           for j:=1 to 200 do
                             if TabCmnd[j].SwActivo and (not TabCmnd[j].SwResp) and
                                (TabCmnd[j].Comando='TOTAL '+IntToStr(PosCiclo)) then begin
+                              TabCmnd[j].SwNuevo:=false;
                               TabCmnd[j].SwResp:=true;
                               TabCmnd[j].Respuesta:=msgTotalError;
+                              AgregaLog(LlenaStr(TabCmnd[j].Comando,'I',40,' ')+
+                                        ' Respuesta: '+TabCmnd[j].Respuesta);
                             end;
                         end;
                       end;
@@ -3278,6 +3289,7 @@ begin
     Timer2.Enabled:=False;
     SetEstadoJSON(estado);
     AddPeticionJSON(folio, 'True|');
+    Responder(TlkJSON.GenerateText(rootJSON));
   except
     on e:Exception do begin
       AgregaLog('Excepcion Iniciar: '+e.Message+'|');
