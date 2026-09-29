@@ -1114,12 +1114,10 @@ begin
             repeat
                ServiceThread.ProcessRequests(False);
             until ( ( bListo ) or ( timerexpired(etTimeOut) ) );
-            AgregaLog('sRespuesta Length: '+IntToStr(length(sRespuesta)));
+            AgregaLog('R  ('+IntToStr(length(sRespuesta))+') '+StrToHexSep(sRespuesta));
             if ( bListo ) then begin
-              if length(sRespuesta)=13 then begin
+              if length(sRespuesta)=13 then
                 bOk:=true;
-                AgregaLog('R  '+StrToHexSep(sRespuesta));
-              end;
             end;
             if ( not bOk ) then begin
                if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
@@ -2648,12 +2646,10 @@ begin
             repeat
                ServiceThread.ProcessRequests(False);
             until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
-            AgregaLog('sRespuesta2 Length: '+IntToStr(length(sRespuesta2)));
+            AgregaLog('R  ('+IntToStr(length(sRespuesta2))+') '+StrToHexSep(sRespuesta2));
             if ( bListo2 ) then begin
-              if length(sRespuesta2)=13 then begin
+              if length(sRespuesta2)=13 then
                 bOk:=true;
-                AgregaLog('R  '+StrToHexSep(sRespuesta2));
-              end;
             end;
             if ( not bOk ) then begin
                if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
