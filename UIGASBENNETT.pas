@@ -93,6 +93,7 @@ type
     function ResultadoComando(xFolio:integer):string;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
+    function PosRegistrada(xpos:integer):boolean;
     
     procedure Inicializar(folio:Integer; msj:string);
     procedure Parametros(folio:Integer; json:string);
@@ -179,6 +180,7 @@ type
        CombActual:Integer;
        MangActual:Integer;
        HoraTotales:TDateTime;
+       SwRegistrada:Boolean; // True si la posicion fue enviada en INITIALIZE
      end;
 
      RegCmnd = record
@@ -730,7 +732,7 @@ var
 begin
   try
     for xpos:=1 to MaxPosCargaActiva do begin
-      with TPosCarga[xpos] do if xpos<=MaximoDePosiciones then begin
+      with TPosCarga[xpos] do if (xpos<=MaximoDePosiciones)and(SwRegistrada) then begin
         for i:=1 to NoComb do begin
           precioComb:=StrToFloatDef(ExtraeElemStrSep(msj,TComb[i],'|'),-1);
           if precioComb=-1 then begin
@@ -804,12 +806,19 @@ begin
       SwPresetHora:=false;
       HoraTotales:=0;
       HoraOcc:=0;
+      SwRegistrada:=false;
+      ModoOpera:='Prepago';
     end;
 
     posArr := TlkJSONlist.Create;
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
+      if (xpos<1)or(xpos>MaximoDePosiciones) then begin
+        Result:='False|DispenserId '+IntToStr(xpos)+' fuera de rango|';
+        Exit;
+      end;
+      TPosCarga[xpos].SwRegistrada:=true;
       if xpos>MaxPosCarga then
         MaxPosCarga:=xpos;
         
@@ -1023,6 +1032,11 @@ begin
              IniciarPrecios;           
            for xpos:=1 to MaxPosCargaActiva do begin
              with TPosCarga[xpos] do begin
+               if not SwRegistrada then begin // hueco: posicion no configurada
+                 estatus:=0;
+                 estatusant:=0;
+                 Continue;
+               end;
                SwCmndB:=true;
                PosActual:=StrToIntDef(sslin[xpos*2-1],0);
                if PosActual=0 then
@@ -1117,7 +1131,7 @@ begin
            end;
            // Checa las posiciones que estan solicitando autorizacion
            for xpos:=1 to MaxPosCargaActiva do begin
-             with TPosCarga[xpos] do if xpos<=MaximoDePosiciones then begin
+             with TPosCarga[xpos] do if (xpos<=MaximoDePosiciones)and(SwRegistrada) then begin
                if contpreset>0 then
                  dec(contpreset);
                case Estatus of
@@ -1322,6 +1336,11 @@ begin
 
     lin:='';xestado:='';xmodo:='';
     for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
+      if not SwRegistrada then begin // hueco: mantiene alineada la cadena de estados
+        xestado:=xestado+'0';
+        xmodo:=xmodo+'P';
+        Continue;
+      end;
       xmodo:=xmodo+ModoOpera[1];
       if not SwDesHabilitado then begin
         case estatus of
@@ -1380,7 +1399,7 @@ begin
             SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
             xpos:=SnPosCarga;
             rsp:='OK';
-            if (SnPosCarga in [1..MaxPosCarga]) then begin
+            if PosRegistrada(SnPosCarga) then begin
               if (TPosCarga[SnPosCarga].estatus in [1,3])or(TPosCarga[SnPosCarga].SwOCC) then begin
                 // Valida que se haya aplicado el PRESET
                 if TabCmnd[claveCmnd].SwNuevo then begin
@@ -1454,7 +1473,7 @@ begin
             xpos:=SnPosCarga;
             if (xpos<=MaximoDePosiciones) then begin
               rsp:='OK';
-              if (SnPosCarga in [1..MaxPosCarga]) then begin
+              if PosRegistrada(SnPosCarga) then begin
                 if (TPosCarga[SnPosCarga].estatus in [1,3])or(TPosCarga[SnPosCarga].SwOCC) then begin
                   // Valida que se haya aplicado el PRESET
                   if TabCmnd[claveCmnd].SwNuevo then begin
@@ -1544,7 +1563,7 @@ begin
             xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
             if (xpos<=MaximoDePosiciones) then begin
               rsp:='OK';
-              if (xpos in [1..MaxPosCarga]) then begin
+              if PosRegistrada(xpos) then begin
                 TPosCarga[xpos].tipopago:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,3,' '),0);
                 if TPosCarga[xpos].Estatus in [7,8,1] then begin // EOT
                   if (not TPosCarga[xpos].swcargando) then begin
@@ -1566,7 +1585,7 @@ begin
           else if ss='EFV' then begin
             xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
             rsp:='OK';
-            if (xpos in [1..MaxPosCarga]) then
+            if PosRegistrada(xpos) then
               if (TPosCarga[xpos].Estatus=5) then
                 TPosCarga[xpos].finventa:=1
               else rsp:='Posicion debe estar Despachando'
@@ -1576,7 +1595,7 @@ begin
           else if (ss='DVC')or(ss='PARAR') then begin
             rsp:='OK';
             xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-            if (xpos<=MaximoDePosiciones) then begin
+            if PosRegistrada(xpos) then begin
               if TPosCarga[xpos].ModoOpera='Normal' then begin
                 if Bennett8Digitos<>'Si' then
                   ComandoConsolaBuff('P'+IntToClaveNum(xpos,2)+FiltraStrNum(FormatFloat('0000.00',9999.00)),false)
@@ -1594,7 +1613,7 @@ begin
           else if (ss='REANUDAR') then begin
             rsp:='OK';
             xpos:=strtointdef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
-            if xpos in [1..MaxPosCarga] then begin
+            if PosRegistrada(xpos) then begin
               if (TPosCarga[xpos].estatus in [6]) then begin
                 ComandoConsolaBuff('S'+IntToClaveNum(xpos,2),False);
               end;
@@ -1604,7 +1623,11 @@ begin
             SnPosCarga:=StrToIntDef(ExtraeElemStrSep(TabCmnd[claveCmnd].Comando,2,' '),0);
             xpos:=SnPosCarga;
             rsp:='OK';
-            with TPosCarga[xpos] do begin
+            if not PosRegistrada(xpos) then begin
+              rsp:='Posicion de Carga no Existe';
+              SwAplicaCmnd:=True;
+            end
+            else with TPosCarga[xpos] do begin
               if estatus=1 then begin
                 if (SecondsBetween(Now,HoraTotales)>10) then begin
                   SwCargaTotales:=True;
@@ -1822,6 +1845,12 @@ begin
   end;
 end;
 
+function Togcvdispensarios_bennett.PosRegistrada(xpos:integer):boolean;
+begin
+  Result:=(xpos>=1)and(xpos<=MaxPosCarga)and(xpos<=MaximoDePosiciones)
+          and TPosCarga[xpos].SwRegistrada;
+end;
+
 procedure Togcvdispensarios_bennett.Iniciar(folio:Integer);
 var
     haspObj   : OleVariant;
@@ -1877,8 +1906,8 @@ begin
       Timer2.Enabled:=False;
       numPaso:=0;
       SetEstadoJSON(estado);
-
       AddPeticionJSON(folio, 'True|');
+      Responder(TlkJSON.GenerateText(rootJSON));
     except
       on e:Exception do
         AddPeticionJSON(folio, 'False|'+e.Message+'|');
@@ -2149,7 +2178,7 @@ begin
       for xpos:=1 to MaxPosCarga do
         TPosCarga[xpos].ModoOpera:='Prepago';
     end
-    else if (xpos in [1..maxposcarga]) then
+    else if PosRegistrada(xpos) then
       TPosCarga[xpos].ModoOpera:='Prepago';
 
     AddPeticionJSON(folio, 'True|');
@@ -2174,7 +2203,7 @@ begin
       for xpos:=1 to MaxPosCarga do
         TPosCarga[xpos].ModoOpera:='Prepago';
     end
-    else if (xpos in [1..maxposcarga]) then
+    else if PosRegistrada(xpos) then
       TPosCarga[xpos].ModoOpera:='Prepago';
 
     AddPeticionJSON(folio, 'True|');
@@ -2210,7 +2239,7 @@ begin
       Exit;
     end;
 
-    if xpos>MaxPosCarga then begin
+    if not PosRegistrada(xpos) then begin
       Result:='False|La posicion de carga no se encuentra registrada|';
       Exit;
     end;
@@ -2240,8 +2269,12 @@ begin
       Exit;
     end;
 
-    if xpos>0 then
-      Result:='True|'+LinEstadoGen[xpos]+'|'
+    if xpos>0 then begin
+      if (not PosRegistrada(xpos))or(xpos>Length(LinEstadoGen)) then
+        Result:='False|La posicion de carga no se encuentra registrada|'
+      else
+        Result:='True|'+LinEstadoGen[xpos]+'|';
+    end
     else
       Result:='True|'+LinEstadoGen+'|';
   except
@@ -2305,14 +2338,16 @@ begin
         else
           AddPeticionJSON(folio, 'False|Existen posiciones cargando combustible|');
       end
-      else if (xpos in [1..maxposcarga]) then begin
+      else if PosRegistrada(xpos) then begin
         if not TPosCarga[xpos].swcargando then begin
           TPosCarga[xpos].SwDesHabilitado:=True;
           AddPeticionJSON(folio, 'True|');
         end
         else
           AddPeticionJSON(folio, 'False|Posicion esta cargando combustible|');
-      end;
+      end
+      else
+        AddPeticionJSON(folio, 'False|Posicion de Carga no Existe|');
     end
     else AddPeticionJSON(folio, 'False|Posicion no Existe|');
   except
@@ -2339,10 +2374,12 @@ begin
           TPosCarga[xpos].SwDesHabilitado:=False;
         AddPeticionJSON(folio, 'True|');
       end
-      else if (xpos in [1..maxposcarga]) then begin
+      else if PosRegistrada(xpos) then begin
         TPosCarga[xpos].SwDesHabilitado:=False;
         AddPeticionJSON(folio, 'True|');
-      end;
+      end
+      else
+        AddPeticionJSON(folio, 'False|Posicion de Carga no Existe|');
     end
     else AddPeticionJSON(folio, 'False|Posicion no Existe|');
   except
@@ -2507,19 +2544,21 @@ var
   xpos,i:Integer;
   ss:String;
 begin
-  for i:=1 to 4 do begin
-    if LPrecios[i]>0 then begin
-      for xpos:=1 to MaxPosCargaActiva do begin
-        with TPosCarga[xpos] do begin
-          // precio contado
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
-          ComandoConsolaBuff(ss,false);
-          esperamiliseg(100);
-          // precio credito
-          ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
-          ComandoConsolaBuff(ss,false);
-          esperamiliseg(100);
-        end;
+  for xpos:=1 to MaxPosCargaActiva do begin
+    with TPosCarga[xpos] do if SwRegistrada then begin
+      for i:=1 to NoComb do begin
+        if not (TComb[i] in [1..4]) then
+          Continue;
+        if LPrecios[TComb[i]]<=0 then
+          Continue;
+        // precio contado
+        ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioContado+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
+        ComandoConsolaBuff(ss,false);
+        esperamiliseg(100);
+        // precio credito
+        ss:='U'+IntToClaveNum(xpos,2)+NivelPrecioCredito+IntToStr(TPos[i])+FiltraStrNum(FormatoNumeroSinComas(LPrecios[TComb[i]],5,2));
+        ComandoConsolaBuff(ss,false);
+        esperamiliseg(100);
       end;
     end;
   end;
