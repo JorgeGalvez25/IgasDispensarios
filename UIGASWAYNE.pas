@@ -106,7 +106,6 @@ type
     horaDespacho:TDateTime;
     minutosLog:Integer;
     ListaComandos:TStringList;
-    version:string;
     reinicioDiario:Boolean;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
@@ -265,7 +264,7 @@ var
 
 implementation
 
-uses StrUtils, TypInfo, DateUtils, Math;
+uses StrUtils, TypInfo, DateUtils, Math, UVersionModulo;
 
 {$R *.DFM}
 
@@ -957,6 +956,9 @@ begin
                  end;
                  estatusant:=estatus;
                  estatus:=StrToIntDef(ss[xpos],0);
+                 // Estado 7 se trata como inactivo
+                 if estatus=7 then
+                   estatus:=0;
                  if (estatus = 3) and (swcargando) then
                    ActualizaCampoJSON(xpos,'Estatus',2)
                  else
@@ -2419,7 +2421,7 @@ procedure Togcvdispensarios_wayne.GuardarLog(folio: Integer);
 begin
   try
     horaLog:=Now;
-    AgregaLog('Version: '+version);
+    AgregaLog(InfoVersionModulo('UIGASWAYNE'));
     AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes(0);
@@ -2434,7 +2436,7 @@ end;
 procedure Togcvdispensarios_wayne.GuardarLogPetRes(folio: Integer);
 begin
   try
-    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes(InfoVersionModulo('UIGASWAYNE'));
     AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio>0 then
