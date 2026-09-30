@@ -10,6 +10,8 @@ uses
   const
     MCxP=4;  
     MaxReintentosTotal = 3;
+    MaxFallasEstatus = 3;   // Sondeos sin respuesta antes de reportar sin comunicacion
+    SegReintentoSinCom = 10; // Segundos entre sondeos de una posicion sin comunicacion
 
 type
   Togcvdispensarios_wayne2w = class(TService)
@@ -39,6 +41,7 @@ type
     WtwDivLitros:Integer;
     GtwTimeout:Integer;
     GtwTiempoCmnd:Integer;
+    GtwIntentos:Integer;
     WtwPosIniExt:Integer;
     PosCiclo,MangCiclo,
     ls,ContLeeVenta,
@@ -83,7 +86,6 @@ type
     estado:Integer;
     mapeoMangueras:String;
     xTurnoSocket:Integer;
-    version:String;
     ListaCmnd    :TStrings;
     FolioCmnd   :integer;
     horaLog:TDateTime;
@@ -202,6 +204,7 @@ type
        HoraOcc:TDateTime;
        Avanzar:Integer;
        SinComunicacion: Boolean;
+       FallasEstatus: Integer;
        HoraDesconexion: TDateTime;
      end;
 
@@ -257,7 +260,7 @@ var
 implementation
 
 uses
-  TypInfo, StrUtils, Math, DateUtils;
+  TypInfo, StrUtils, Math, DateUtils, UVersionModulo;
 
 {$R *.DFM}
 
@@ -758,8 +761,9 @@ begin
 
     WtwDivImporte:=100;
     WtwDivLitros:=100;
-    GtwTimeout:=1000;
-    GtwTiempoCmnd:=1000;
+    GtwTimeout:=300;
+    GtwTiempoCmnd:=50;
+    GtwIntentos:=2;
     WtwPosIniExt:=999;
     SwModoEmulacion:=False;
     for i:=1 to NoElemStrEnter(variables) do begin
@@ -772,6 +776,8 @@ begin
         GtwTimeout:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0)
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='GTWTIEMPOCMND' then
         GtwTiempoCmnd:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0)
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='GTWINTENTOS' then
+        GtwIntentos:=Max(1,StrToIntDef(ExtraeElemStrSep(variable,2,'='),2))
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WTWPOSINIEXT' then
         WtwPosIniExt:=StrToIntDef(ExtraeElemStrSep(variable,2,'='),0)
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='MODOEMULACION' then
@@ -1086,10 +1092,11 @@ var ss:string;
     iNoIntento    :integer;
     bOk           :boolean;
 begin
+  result:=false;
   try
     Timer1.Enabled:=False;
     try
-      iMaxIntentos:=1;
+      iMaxIntentos:=GtwIntentos;
       iBytesEsperados:=13;
       iNoIntento:= 0;
       bOk:=false;
@@ -1114,7 +1121,11 @@ begin
             repeat
                ServiceThread.ProcessRequests(False);
             until ( ( bListo ) or ( timerexpired(etTimeOut) ) );
-            AgregaLog('R  ('+IntToStr(length(sRespuesta))+') '+StrToHexSep(sRespuesta));
+            // StrToHexSep no admite cadenas vacias
+            if sRespuesta<>'' then
+              AgregaLog('R  ('+IntToStr(length(sRespuesta))+') '+StrToHexSep(sRespuesta))
+            else
+              AgregaLog('R  (0) Sin respuesta');
             if ( bListo ) then begin
               if length(sRespuesta)=13 then
                 bOk:=true;
@@ -2321,9 +2332,21 @@ begin
                   end;
                 1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
                     try
-                      if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(55, 65))) then begin   // no polea los que estan deshabilitados
+                      if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(SegReintentoSinCom, SegReintentoSinCom+3))) then begin   // no polea los que estan deshabilitados
                         EstatusAnt:=Estatus;
                         Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
+                        // Una falla aislada conserva el ultimo estatus conocido
+                        if Estatus=0 then begin
+                          inc(FallasEstatus);
+                          if (EstatusAnt<>0) and (FallasEstatus<MaxFallasEstatus) then begin
+                            AgregaLog('Sin respuesta de estatus Pos '+inttostr(PosCiclo)+' ('+inttostr(FallasEstatus)+'), se conserva estatus '+inttostr(EstatusAnt));
+                            Estatus:=EstatusAnt;
+                          end;
+                        end
+                        else begin
+                          FallasEstatus:=0;
+                          SinComunicacion:=False;
+                        end;
                         ContadorAlarma:=0;
                         if estatus=2 then begin
                           swdesp:=true;
@@ -2357,7 +2380,9 @@ begin
                               EsperaFinVenta:=0;
                           end;
                         end;
-                        if (estatusant = 0) and (estatus = 0) then
+                        // Una venta en curso se sigue sondeando en cada ciclo
+                        if (estatusant = 0) and (estatus = 0) and
+                           (not swdesp) and (not swcargando) and (not SwLecturaFinalPendiente) then
                         begin
                           SinComunicacion := True;
                           HoraDesconexion := Now;
@@ -2618,10 +2643,11 @@ var ss:string;
     iNoIntento    :integer;
     bOk           :boolean;
 begin
+  result:=false;
   try
     Timer1.Enabled:=False;
     try
-      iMaxIntentos:=1;
+      iMaxIntentos:=GtwIntentos;
       iBytesEsperados:=13;
       iNoIntento:= 0;
       bOk:=false;
@@ -2646,7 +2672,11 @@ begin
             repeat
                ServiceThread.ProcessRequests(False);
             until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
-            AgregaLog('R  ('+IntToStr(length(sRespuesta2))+') '+StrToHexSep(sRespuesta2));
+            // StrToHexSep no admite cadenas vacias
+            if sRespuesta2<>'' then
+              AgregaLog('R  ('+IntToStr(length(sRespuesta2))+') '+StrToHexSep(sRespuesta2))
+            else
+              AgregaLog('R  (0) Sin respuesta');
             if ( bListo2 ) then begin
               if length(sRespuesta2)=13 then
                 bOk:=true;
@@ -3133,7 +3163,7 @@ procedure Togcvdispensarios_wayne2w.GuardarLog(folio: Integer);
 begin
   try
     horaLog:=Now;
-    AgregaLog('Version: '+version);
+    AgregaLog(InfoVersionModulo('UIGASWAYNE2W'));
     AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes(0);
@@ -3148,7 +3178,7 @@ end;
 procedure Togcvdispensarios_wayne2w.GuardarLogPetRes(folio: Integer);
 begin
   try
-    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes(InfoVersionModulo('UIGASWAYNE2W'));
     AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio>0 then
