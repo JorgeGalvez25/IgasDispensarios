@@ -52,7 +52,6 @@ type
     horaReinicio:TDateTime;
     horaLog:TDateTime;
     minutosLog:Integer;
-    version:String;
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     function CRC16(Data: AnsiString): AnsiString;
@@ -249,7 +248,7 @@ var
 
 implementation
 
-uses StrUtils, ConvUtils;
+uses StrUtils, ConvUtils, UVersionModulo;
 
 {$R *.DFM}
 
@@ -778,7 +777,7 @@ end;
 procedure Togcvdispensarios_hongyang.GuardarLogPetRes(folio: Integer);
 begin
   try
-    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes(InfoVersionModulo('UIGASHONGYANG'));
     AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio>0 then
@@ -2352,7 +2351,7 @@ procedure Togcvdispensarios_hongyang.GuardarLog(folio: Integer);
 begin
   try
     horaLog:=Now;
-    AgregaLog('Version: '+version);
+    AgregaLog(InfoVersionModulo('UIGASHONGYANG'));
     AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes(0);

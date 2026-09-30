@@ -84,7 +84,6 @@ type
     minutosLog:Integer;
     modoAuto:Boolean;
     jsonInitialize:string;
-    version:string;
     function GetServiceController: TServiceController; override;
     procedure AgregaLog(lin:string);
     procedure AgregaLogPetRes(lin: string);
@@ -250,6 +249,8 @@ var
   Token        :string;
 
 implementation
+
+uses UVersionModulo;
 
 {$R *.DFM}
 
@@ -2448,7 +2449,7 @@ end;
 procedure Togcvdispensarios_pam.GuardarLog(folio:Integer);
 begin
   try
-    AgregaLog('Version: '+version);
+    AgregaLog(InfoVersionModulo('UIGASPAM'));
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes(0);
     if folio > 0 then
@@ -2462,7 +2463,7 @@ end;
 procedure Togcvdispensarios_pam.GuardarLogPetRes(folio:Integer);
 begin
   try
-    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes(InfoVersionModulo('UIGASPAM'));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio > 0 then
       AddPeticionJSON(folio, 'True|');

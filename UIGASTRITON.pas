@@ -32,7 +32,6 @@ type
   public
     ListaLog:TStringList;
     ListaLogPetRes:TStringList;
-    version:string;
     rutaLog:string;
     minutosLog:Integer;
     estado:Integer;
@@ -142,7 +141,7 @@ var
 implementation
 
 uses
-  TypInfo, Variants, StrUtils, DateUtils;
+  TypInfo, Variants, StrUtils, DateUtils, UVersionModulo;
 
 {$R *.DFM}
 
@@ -225,7 +224,7 @@ procedure Togcvdispensarios_triton.GuardarLog(folio: Integer);
 begin
   try
     horaLog:=Now;
-    AgregaLog('Version: '+version);
+    AgregaLog(InfoVersionModulo('UIGASTRITON'));
     AgregaLog('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLog.SaveToFile(rutaLog+'\LogDisp'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     GuardarLogPetRes(0);
@@ -263,7 +262,7 @@ end;
 procedure Togcvdispensarios_triton.GuardarLogPetRes(folio: Integer);
 begin
   try
-    AgregaLogPetRes('Version: '+version);
+    AgregaLogPetRes(InfoVersionModulo('UIGASTRITON'));
     AgregaLogPetRes('Fecha y hora de arranque: '+FechaHoraExtToStr(HoraArranque));
     ListaLogPetRes.SaveToFile(rutaLog+'\LogDispPetRes'+FiltraStrNum(FechaHoraToStr(Now))+'.txt');
     if folio>0 then
