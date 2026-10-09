@@ -113,7 +113,9 @@ type
     function  ReanudaDespacho(xPosCarga: integer) : boolean;
     function  DetenerDespacho(xPosCarga : integer) : boolean;
     procedure EstatusDispensarios;
-    function  DameLecturas(xPosCarga : integer; var rLitros, rPrecio, rPesos : real) : boolean;
+    function  DameLecturas(xPosCarga : integer; var rLitros, rPrecio, rPesos : real; xFinal : boolean) : boolean;
+    function  LeeVolumen(xPosCarga : integer; var rLitros : real) : boolean;
+    procedure CorrigeDesbordeImporte(xPosCarga : integer; var rLitros, rPrecio, rPesos : real);
     function  DameTotal(xPosCarga,xPos : integer; var rTotalLitros: real) : boolean;
     function  Autoriza(xPosCarga: integer) : boolean;
     function  AutorizaPm(xPosCarga,xPm: integer) : boolean;
@@ -1426,13 +1428,53 @@ begin
   end;
 end;
 
+function Togcvdispensarios_wayne2w.LeeVolumen(xPosCarga: integer;
+  var rLitros: real): boolean;
+var DataBlock,sResp:string;
+begin
+  result:=false;
+  DataBlock:=EmpacaWayne(char(ControlByte(xPosCarga,7))+#38+#0+#0+#0);   // 0F 26 00 00 00
+  if SegmActual=1 then begin
+    if not ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) ) then
+      Exit;
+    sResp:=DesempacaWayne(sRespuesta);
+  end
+  else begin
+    if not ( ( TransmiteComando2(DataBlock) ) and ( length(sRespuesta2)=13 ) ) then
+      Exit;
+    sResp:=DesempacaWayne(sRespuesta2);
+  end;
+  if sResp='' then
+    Exit;
+  rLitros:=dividefloat(ExtraeBCD(StrToHexSep(sResp),3,5),TPoscarga[xPosCarga].DivLitros);
+  result:=true;
+end;
+
+// El importe llega en 6 digitos BCD; con el volumen real se recuperan las vueltas perdidas.
+procedure Togcvdispensarios_wayne2w.CorrigeDesbordeImporte(xPosCarga: integer;
+  var rLitros, rPrecio, rPesos: real);
+var xLitros,xVuelta:real;
+    k:integer;
+begin
+  if not LeeVolumen(xPosCarga,xLitros) then
+    Exit;
+  rLitros:=xLitros;
+  xVuelta:=dividefloat(1000000,TPoscarga[xPosCarga].DivImporte);
+  k:=Round(dividefloat(rLitros*rPrecio-rPesos,xVuelta));
+  if k>0 then begin
+    AgregaLog('Importe desbordado Pos '+inttostr(xPosCarga)+': '+FormatFloat('0.00',rPesos)+
+              ' -> '+FormatFloat('0.00',rPesos+k*xVuelta));
+    rPesos:=rPesos+k*xVuelta;
+  end;
+end;
+
 function Togcvdispensarios_wayne2w.DameLecturas(xPosCarga: integer;
-  var rLitros, rPrecio, rPesos: real): boolean;
+  var rLitros, rPrecio, rPesos: real; xFinal: boolean): boolean;
 var DataBlock,ss,ss1,
     stComando :string;
     xposact,xposfis:integer;
     val1,val2:integer;
-    rLitrosAnt, rPrecioAnt, rPesosAnt: real;
+    rLitrosAnt, rPrecioAnt, rPesosAnt, xLimite: real;
 begin
   try
     result:=false;
@@ -1470,6 +1512,10 @@ begin
                   rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
                 else
                   rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
+                // Cerca del limite de 6 digitos, o al cierre, se valida contra el volumen
+                xLimite:=0.9*dividefloat(1000000,TPoscarga[xPosCarga].DivImporte);
+                if xFinal or (rPesos>=xLimite) or (rPesosAnt>=xLimite) then
+                  CorrigeDesbordeImporte(xPosCarga,rLitros,rPrecio,rPesos);
                 result:=true;
               end else begin
                 AgregaLog('Se evitaron ceros (Trama de precio corrupta)');
@@ -1535,6 +1581,10 @@ begin
                   rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),3)
                 else
                   rLitros:=ajustafloat(dividefloat(rPesos,rPrecio),2);
+                // Cerca del limite de 6 digitos, o al cierre, se valida contra el volumen
+                xLimite:=0.9*dividefloat(1000000,TPoscarga[xPosCarga].DivImporte);
+                if xFinal or (rPesos>=xLimite) or (rPesosAnt>=xLimite) then
+                  CorrigeDesbordeImporte(xPosCarga,rLitros,rPrecio,rPesos);
                 result:=true;
               end else begin
                 AgregaLog('Se evitaron ceros (Trama de precio corrupta)');
@@ -2410,7 +2460,7 @@ begin
                 2:if (swleeventa)and(estatus>0) then begin       // LEE VENTA TERMINADA
                     if not swdeshabil then begin   // no polea los que estan deshabilitados
                       AgregaLog('E> FIN DE VENTA: '+inttoclavenum(PosCiclo,2));
-                      if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                      if DameLecturas(PosCiclo,Volumen,Precio,Importe,true) then begin
                         swleeventa:=false;
                         SwStatusFV:=false;
                         HoraOcc:=Now;
@@ -2491,7 +2541,7 @@ begin
                 5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
                     if not swdeshabil then begin   // no polea los que estan deshabilitados
                       AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
-                      if DameLecturas(PosCiclo,Volumen,Precio,Importe) then begin
+                      if DameLecturas(PosCiclo,Volumen,Precio,Importe,false) then begin
                       end;
                       ActualizaCampoJSON(PosCiclo,'Volumen',volumen);
                       ActualizaCampoJSON(PosCiclo,'Importe',importe);
