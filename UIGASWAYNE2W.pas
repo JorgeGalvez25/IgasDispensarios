@@ -122,6 +122,7 @@ type
     function  EnviaPresetPesosBomba(xPosCarga,xTipoPreset: integer; xValor: real) : boolean;
     procedure ProcesaComandos;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
+    function ConvierteImporteALitros(xpos,xcomb:integer;ximporte:real;var xlitros:real):string;
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
     function  CambiaPrecios(xPosCarga : integer): boolean;
     procedure AvanzaPosCiclo;
@@ -1823,8 +1824,8 @@ end;
 procedure Togcvdispensarios_wayne2w.ProcesaComandos;
 var ss,rsp,scmnd,precios,cantidadPreset :string;
     xcmnd,xpos,xcomb,
-    xp,xfolio,i               :integer;
-    ximporte,xlitros,nprec  :real;
+    xp,xfolio,i,xtipopre      :integer;
+    ximporte,xlitros,nprec,xlitrosconv,xvalorpre  :real;
 begin
   try
     CmndNuevo:=False;
@@ -1850,6 +1851,9 @@ begin
                   xImporte:=StrToFLoat(cantidadPreset);
                 end;
                 rsp:=ValidaCifra(xImporte,4,2);
+                xlitrosconv:=0;
+                if rsp='Valor excede maximo permitido' then
+                  rsp:=ConvierteImporteALitros(xpos,StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0),xImporte,xlitrosconv);
                 if rsp='OK' then
                   if (xImporte<=0) then
                     xImporte:=9999;
@@ -1912,14 +1916,23 @@ begin
                         ' Precio:'+FormatFloat('0.00',EmuPos[xpos].PrecioVenta));
                     end
                     else begin
+                      // Importe mayor a 9999.99: se prefija su equivalente en litros
+                      if xlitrosconv>0 then begin
+                        xtipopre:=2;
+                        xvalorpre:=xlitrosconv;
+                      end
+                      else begin
+                        xtipopre:=1;
+                        xvalorpre:=ximporte;
+                      end;
                       EsperaMiliseg(50);
-                      if EnviaPresetPesosBomba(xpos,1,ximporte) then begin
+                      if EnviaPresetPesosBomba(xpos,xtipopre,xvalorpre) then begin
                         TPosCarga[xpos].HoraOcc:=now;
                         TPosCarga[xpos].SwPreset:=true;
                         TPosCarga[xpos].SwPreset2:=true;
                         TPosCarga[xpos].PosPreset:=xp;
-                        TPosCarga[xpos].TipoPreset:=1;
-                        TPosCarga[xpos].ValorPreset:=ximporte;
+                        TPosCarga[xpos].TipoPreset:=xtipopre;
+                        TPosCarga[xpos].ValorPreset:=xvalorpre;
                       end
                       else rsp:='No se pudo prefijar';
                     end;
@@ -2235,6 +2248,44 @@ begin
     on e:Exception do begin
       AgregaLog('Error ValidaCifra: '+e.Message);
       GuardarLog(0);
+    end;
+  end;
+end;
+
+// El protocolo Wayne solo admite presets de importe hasta 9999.99, pero en litros
+// admite hasta 999.99; se calcula el equivalente en litros con el precio leido del
+// dispensario, truncado a 2 decimales para no despachar mas del importe solicitado.
+function Togcvdispensarios_wayne2w.ConvierteImporteALitros(xpos, xcomb: integer;
+  ximporte: real; var xlitros: real): string;
+var xp:integer;
+    xprecio:real;
+begin
+  xlitros:=0;
+  result:='Importe excede maximo de preset (9999.99)';
+  try
+    xp:=PosicionDeCombustible(xpos,xcomb);
+    if not (xp in [1..TPosCarga[xpos].NoComb]) then begin
+      result:=result+', no se indico combustible para convertir a litros';
+      exit;
+    end;
+    xprecio:=TPosCarga[xpos].TPrecio[xp];
+    if xprecio<=0 then begin
+      result:=result+', no se conoce el precio para convertir a litros';
+      exit;
+    end;
+    xlitros:=Trunc(ximporte*100/xprecio+0.000001)/100;
+    if (ValidaCifra(xlitros,3,2)<>'OK') or (xlitros<0.10) then begin
+      result:=result+' y su equivalente '+FormatFloat('0.00',xlitros)+' lts excede 999.99';
+      xlitros:=0;
+      exit;
+    end;
+    AgregaLog('Preset Pos '+IntToStr(xpos)+': importe '+FormatFloat('0.00',ximporte)+
+              ' convertido a '+FormatFloat('0.00',xlitros)+' lts (precio '+FormatFloat('0.00',xprecio)+')');
+    result:='OK';
+  except
+    on e:Exception do begin
+      xlitros:=0;
+      AgregaLog('Error ConvierteImporteALitros: '+e.Message);
     end;
   end;
 end;
