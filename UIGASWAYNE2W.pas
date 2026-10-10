@@ -12,6 +12,8 @@ uses
     MaxReintentosTotal = 3;
     MaxFallasEstatus = 3;   // Sondeos sin respuesta antes de reportar sin comunicacion
     SegReintentoSinCom = 10; // Segundos entre sondeos de una posicion sin comunicacion
+    ToleranciaPresetPesos = 0.10;  // Excedente sobre el preset antes de detener la venta
+    ToleranciaPresetLitros = 0.02;
 
 type
   Togcvdispensarios_wayne2w = class(TService)
@@ -123,6 +125,8 @@ type
     procedure ProcesaComandos;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
     function ConvierteImporteALitros(xpos,xcomb:integer;ximporte:real;var xlitros:real):string;
+    procedure IniciaVigilanciaPreset(xPosCarga:integer);
+    procedure VigilaPresetExcedido(xPosCarga:integer);
     function PosicionDeCombustible(xpos,xcomb:integer):integer;
     function  CambiaPrecios(xPosCarga : integer): boolean;
     procedure AvanzaPosCiclo;
@@ -201,6 +205,9 @@ type
        TipoPreset,
        PosPreset      :integer;
        ValorPreset    :real;
+       SwVigilaPreset   :boolean; // Venta en curso autorizada con preset
+       TipoPresetVenta  :integer;
+       ValorPresetVenta :real;
        PosMangLev     :integer;
        MangActual:Integer;
        CombActual:Integer;
@@ -247,6 +254,7 @@ type
 
 var
   ogcvdispensarios_wayne2w: Togcvdispensarios_wayne2w;
+  DetenerPresetExcedido :Boolean; // Detiene ventas que rebasan su preset (ini: DetenerPresetExcedido=Si)
   TPosCarga:array[1..100] of tiposcarga;
   EmuPos:array[1..100] of TEmuPos;
   TabCmnd  :array[1..200] of RegCmnd;
@@ -387,6 +395,7 @@ begin
     ClientSocket1.Host:=ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 1, ':');
     ClientSocket1.Port:=StrToInt(ExtraeElemStrSep(config.ReadString('CONF','ServidorSocket','127.0.0.1:1004'), 2, ':'));
     mapeoMangueras:=config.ReadString('CONF','MapeoMangueras','');
+    DetenerPresetExcedido:=UpperCase(config.ReadString('CONF','DetenerPresetExcedido',''))='SI';
     GSentinelKey:=config.ReadString('CONF','Licencia','');  { Llave HASP }
     ListaCmnd:=TStringList.Create;
     detenido:=True;
@@ -567,6 +576,7 @@ begin
       PosPreset:=0;
       TipoPreset:=0;
       ValorPreset:=0;
+      SwVigilaPreset:=false;
       PosMangLev:=0;
       importe:=0;
       volumen:=0;
@@ -2138,6 +2148,7 @@ begin
               else if (TPosCarga[xpos].estatus=9) then begin // autorizado
                 if EnviaPresetPesosBomba(xpos,1,9999.99) then begin
                   TPosCarga[xpos].SwPreset:=false;
+                  TPosCarga[xpos].SwVigilaPreset:=false;
                   TPosCarga[xpos].SwPreset2:=false;
                 end;
               end;
@@ -2287,6 +2298,57 @@ begin
       xlitros:=0;
       AgregaLog('Error ConvierteImporteALitros: '+e.Message);
     end;
+  end;
+end;
+
+// Conserva el preset con el que se autorizo la venta, si DetenerPresetExcedido
+// esta activo; los presets de tanque lleno (9999 pesos o 999 litros) no se vigilan.
+procedure Togcvdispensarios_wayne2w.IniciaVigilanciaPreset(xPosCarga: integer);
+begin
+  with TPosCarga[xPosCarga] do begin
+    SwVigilaPreset:=DetenerPresetExcedido and
+                    (((TipoPreset=1) and (ValorPreset>0) and (ValorPreset<9999)) or
+                     ((TipoPreset=2) and (ValorPreset>0) and (ValorPreset<999)));
+    TipoPresetVenta:=TipoPreset;
+    ValorPresetVenta:=ValorPreset;
+  end;
+end;
+
+// Detiene el despacho si la venta en curso rebasa el preset. Los litros se
+// confirman con el volumen leido del dispensario; mientras siga despachando
+// se reintenta en cada lectura.
+procedure Togcvdispensarios_wayne2w.VigilaPresetExcedido(xPosCarga: integer);
+var xLitros,xVenta:real;
+    xUnidad:string;
+begin
+  try
+    with TPosCarga[xPosCarga] do begin
+      if (not SwVigilaPreset) or (Estatus<>2) then
+        Exit;
+      if TipoPresetVenta=1 then begin
+        if Importe<=ValorPresetVenta+ToleranciaPresetPesos then
+          Exit;
+        xVenta:=Importe;
+        xUnidad:=' pesos';
+      end
+      else begin
+        if Volumen<=ValorPresetVenta+ToleranciaPresetLitros then
+          Exit;
+        if (not LeeVolumen(xPosCarga,xLitros)) or (xLitros<=ValorPresetVenta+ToleranciaPresetLitros) then
+          Exit;
+        xVenta:=xLitros;
+        xUnidad:=' lts';
+      end;
+      AgregaLog('Preset excedido Pos '+IntToStr(xPosCarga)+': preset '+FormatFloat('0.00',ValorPresetVenta)+xUnidad+
+                ', venta '+FormatFloat('0.00',xVenta)+xUnidad+'; se detiene el despacho');
+      if DetenerDespacho(xPosCarga) then
+        AgregaLog('Despacho detenido por preset excedido Pos '+IntToStr(xPosCarga))
+      else
+        AgregaLog('No se pudo detener el despacho por preset excedido Pos '+IntToStr(xPosCarga));
+    end;
+  except
+    on e:Exception do
+      AgregaLog('Error VigilaPresetExcedido: '+e.Message);
   end;
 end;
 
@@ -2458,6 +2520,7 @@ begin
                         end;
                         if (swdesp)and(estatus in [1,3,5]) then begin
                           AgregaLog('Detecto Fin Venta: '+inttostr(PosCiclo));
+                          SwVigilaPreset:=false;
                           swdesp:=false;
                           SwStatusFV:=true;
                           SwLecturaFinalPendiente:=true;
@@ -2574,17 +2637,20 @@ begin
                     end;
                   end;
                 4:if (estatus=5)and(not swdeshabil)  then begin
+                      SwVigilaPreset:=false;
                       AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
                       if (SwPreset)and(PosPreset=PosMangLev) then begin
                         if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
                           if AutorizaPm(PosCiclo,PosPreset) then begin
                             swpreset2:=true;
+                            IniciaVigilanciaPreset(PosCiclo);
                           end;
                       end
                       else if (swpreset)and(PosPreset=0) then begin
                         if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
                           if Autoriza(PosCiclo) then begin
                             swpreset2:=true;
+                            IniciaVigilanciaPreset(PosCiclo);
                           end;
                       end;
 //                    end
@@ -2592,8 +2658,8 @@ begin
                 5:if estatus in [2,8] then begin                 // LEE VENTA PROCESO
                     if not swdeshabil then begin   // no polea los que estan deshabilitados
                       AgregaLog('E> Lee Venta Proc: '+inttoclavenum(PosCiclo,2));
-                      if DameLecturas(PosCiclo,Volumen,Precio,Importe,false) then begin
-                      end;
+                      if DameLecturas(PosCiclo,Volumen,Precio,Importe,false) then
+                        VigilaPresetExcedido(PosCiclo);
                       ActualizaCampoJSON(PosCiclo,'Volumen',volumen);
                       ActualizaCampoJSON(PosCiclo,'Importe',importe);
                       ActualizaCampoJSON(PosCiclo,'Precio',precio);
