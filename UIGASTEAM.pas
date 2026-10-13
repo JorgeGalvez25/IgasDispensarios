@@ -132,6 +132,9 @@ type
     { Public declarations }
   end;
 
+const
+  MaxSegTotalesVigentes=30; // Segundos que una lectura de totales posterior al fin de venta sirve para responder TOTAL
+
 type
      tiposcarga = record
        dispensario:integer;
@@ -197,6 +200,7 @@ type
        swarosmag_stop:boolean;
        AuxCmndN       :integer;
        HoraTotales:TDateTime;
+       HoraFinVenta:TDateTime;
      end;
 
      RegCmnd = record
@@ -728,6 +732,7 @@ begin
       TCodigoTeam:='';
       boucher:='';
       HoraTotales:=0;
+      HoraFinVenta:=0;
     end;
 
     posArr := TlkJSONlist.Create;
@@ -1605,6 +1610,7 @@ begin
                    swcargando:=false;
                    swdesp:=true;
                    SwLecturaFinalPendiente:=false;
+                   HoraFinVenta:=Now;
 
                    // Después de la lectura final del display, forzar totalizadores frescos.
                    SwCargaTotales:=true;
@@ -1912,13 +1918,18 @@ begin
           end
           else with TPosCarga[xpos] do begin
             if TabCmnd[xcmnd].SwNuevo then begin
-              // Nunca responder TOTAL con una lectura cacheada: forzar A9 frescos.
-              SwCargaTotales:=True;
-              SwEsperandoTotales:=True;
-              TotalesPendientes:=NoComb;
-              IntentosTotales:=0;
               TabCmnd[xcmnd].SwNuevo:=false;
-              SwAplicaCmnd:=False;
+              // Se reutiliza la lectura si se tomo despues del fin de la ultima venta y la posicion no ha vuelto a despachar;
+              // en otro caso se fuerzan A9 frescos.
+              if not ((not SwEsperandoTotales)and(not SwCargando)and(not SwLecturaFinalPendiente)and(Estatus in [1,7,8])
+                      and(HoraFinVenta>0)and(HoraTotales>HoraFinVenta)
+                      and(SecondsBetween(Now,HoraTotales)<=MaxSegTotalesVigentes)) then begin
+                SwCargaTotales:=True;
+                SwEsperandoTotales:=True;
+                TotalesPendientes:=NoComb;
+                IntentosTotales:=0;
+                SwAplicaCmnd:=False;
+              end;
             end;
             if not SwEsperandoTotales then begin
               rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+'|'+
