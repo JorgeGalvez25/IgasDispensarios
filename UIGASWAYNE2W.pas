@@ -12,6 +12,7 @@ uses
     MaxReintentosTotal = 3;
     MaxFallasEstatus = 3;   // Sondeos sin respuesta antes de reportar sin comunicacion
     SegReintentoSinCom = 10; // Segundos entre sondeos de una posicion sin comunicacion
+    SegReintentoNuncaCom = 45; // Igual, para una posicion que nunca ha respondido
     ToleranciaPresetPesos = 0.10;  // Excedente sobre el preset antes de detener la venta
     ToleranciaPresetLitros = 0.02;
 
@@ -71,6 +72,7 @@ type
     GSentinelKey : string;     { Llave HASP leida del .ini }
     function  TransmiteComando1(DataBlock:string):boolean;
     function  TransmiteComando2(DataBlock:string):boolean;
+    function  PuedeSondear(xPosCarga:integer):boolean;
     function  EmuPrecioVenta(const xPosCarga, xComb: Integer): Real;
     function  EmuCombustibleAleatorio(const xPosCarga: Integer): Integer;
     function  EmuEsperaProxVentaSeg(const xPosCarga: Integer): Integer;
@@ -216,6 +218,7 @@ type
        SinComunicacion: Boolean;
        FallasEstatus: Integer;
        HoraDesconexion: TDateTime;
+       ComunicoAlgunaVez: Boolean; // Respondio al menos una vez desde INITIALIZE
      end;
 
      RegCmnd = record
@@ -602,6 +605,10 @@ begin
       SwLecturaFinalPendiente:=false;
       SwCambiaPrecio:=false;
       SwLeePrecios:=true;
+      SinComunicacion:=false;
+      FallasEstatus:=0;
+      HoraDesconexion:=0;
+      ComunicoAlgunaVez:=false;
     end;
 
     posArr := TlkJSONlist.Create;
@@ -1168,6 +1175,20 @@ begin
   if xPosCarga>MaxPosCarga then
     Exit;
   Result:=TPosCarga[xPosCarga].SwRecibida;
+end;
+
+// Sondea solo posiciones con comunicacion o cuyo tiempo de reintento ya vencio
+function Togcvdispensarios_wayne2w.PuedeSondear(xPosCarga: integer): boolean;
+var segReintento:Integer;
+begin
+  with TPosCarga[xPosCarga] do begin
+    if ComunicoAlgunaVez then
+      segReintento:=SegReintentoSinCom
+    else
+      segReintento:=SegReintentoNuncaCom;
+    result:=(not SinComunicacion) or
+            (SecondsBetween(Now, HoraDesconexion) >= RandomRange(segReintento, segReintento+3));
+  end;
 end;
 
 function Togcvdispensarios_wayne2w.DameEstatus(
@@ -2489,13 +2510,14 @@ begin
               delete(StrCiclo,1,1);
             try
               case NumPaso of
-                0:if SwLeePrecios then begin
+                // Los precios se leen solo si la posicion ya respondio al estatus
+                0:if SwLeePrecios and (ComunicoAlgunaVez or (Estatus>0)) and PuedeSondear(PosCiclo) then begin
                     if LeePrecios(PosCiclo) then
                       SwLeePrecios:=false;
                   end;
                 1:if (stciclo=xciclo)or(Estatus>1) then begin                           // ESTATUS
                     try
-                      if (not swdeshabil) and ((not SinComunicacion) or (SecondsBetween(Now, HoraDesconexion) >= RandomRange(SegReintentoSinCom, SegReintentoSinCom+3))) then begin   // no polea los que estan deshabilitados
+                      if (not swdeshabil) and PuedeSondear(PosCiclo) then begin   // no polea los que estan deshabilitados
                         EstatusAnt:=Estatus;
                         Estatus:=DameEstatus(PosCiclo);    // Aqui bota cuando no hay posicion activa
                         // Una falla aislada conserva el ultimo estatus conocido
@@ -2509,6 +2531,7 @@ begin
                         else begin
                           FallasEstatus:=0;
                           SinComunicacion:=False;
+                          ComunicoAlgunaVez:=True;
                         end;
                         ContadorAlarma:=0;
                         if estatus=2 then begin
