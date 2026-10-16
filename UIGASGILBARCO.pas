@@ -115,6 +115,7 @@ type
     function IniciaPSerial(datosPuerto: string): string;
     function AgregaPosCarga(posiciones: TlkJSONbase): string;
     procedure Inicializar(folio: Integer; msj: string);
+    procedure LiberaInicializacion;
     function NoElemStrEnter(xstr: string): word;
     function ExtraeElemStrEnter(xstr: string; ind: word): string;
     function ValidaCifra(xvalor: real; xenteros, xdecimales: byte): string;
@@ -1267,7 +1268,7 @@ begin
           repeat
             Sleep(5);
             ServiceThread.ProcessRequests(False);
-          until ((bListo) or (timerexpired(etTimeOut)));
+          until ((bListo) or (timerexpired(etTimeOut)) or (not pSerial.Open));
           AgregaLog('sRespuesta1 Length: ' + IntToStr(length(sRespuesta)));
           if (bListo) then
           begin
@@ -1332,6 +1333,8 @@ begin
             if (iNoIntento < iMaxIntentos) then
               sleep(GtwTiempoCmnd);
           end
+          else if (iComando = $20) and (not pSerial.Open) then
+            bOk := false
           else if (iComando = $20) then
           begin
             sleep(10);
@@ -1362,7 +1365,7 @@ begin
             repeat
               Sleep(5);
               ServiceThread.ProcessRequests(False);
-            until ((bListo) or (timerexpired(etTimeOut)));        // FALLA
+            until ((bListo) or (timerexpired(etTimeOut)) or (not pSerial.Open));        // FALLA
             Transmitiendo := False;
             AgregaLog('sRespuesta2 Length: ' + IntToStr(length(sRespuesta)));
             if length(sRespuesta) > 0 then
@@ -1371,21 +1374,26 @@ begin
               bOk := False;
           end;
         end;
-      until ((bOk) or (iNoIntento >= iMaxIntentos));
+      until ((bOk) or (iNoIntento >= iMaxIntentos) or (not pSerial.Open));
       result := bOk;
     except
       on e: Exception do
       begin
         AgregaLog('Error TransmiteComando: ' + e.Message);
-        pSerial.Open := False;
-        Sleep(200);
-        pSerial.Open := True;
+        // Solo se reabre el puerto si el proceso sigue corriendo
+        if estado > 0 then
+        begin
+          pSerial.Open := False;
+          Sleep(200);
+          pSerial.Open := True;
+        end;
         GuardarLog(0);
       end;
     end;
   finally
     Transmitiendo := False;
-    Timer1.Enabled := True;
+    // HALT o INITIALIZE pueden llegar mientras se espera respuesta
+    Timer1.Enabled := estado > 0;
   end;
 end;
 
@@ -1733,7 +1741,16 @@ begin
         HoraNivelPrecio := Now;
       end;
 
-    posArr := TlkJSONlist.Create;
+    // Se reutiliza el nodo PosCarga para no duplicarlo al reinicializar
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then
+    begin
+      posArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    end
+    else
+      while posArr.Count > 0 do
+        posArr.Delete(0);
 
     for i := 0 to posiciones.Count - 1 do
     begin
@@ -1811,7 +1828,6 @@ begin
       end;
       posArr.Add(posObj);
     end;
-    TlkJSONobject(rootJSON).Add('PosCarga', posArr);
   except
     on e: Exception do
       Result := 'False|Excepcion: ' + e.Message + '|';
@@ -1914,11 +1930,11 @@ var
   datosPuerto, json, variables, variable, resultado: string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado > -1 then
     begin
-      resultado := 'False|El servicio ya habia sido inicializado|';
-      AddPeticionJSON(folio, resultado);
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado ' + IntToStr(estado) + '), se reinicializa');
+      LiberaInicializacion;
     end;
 
     json := ExtraeElemStrSep(msj, 1, '|');
@@ -2010,6 +2026,34 @@ begin
         AddPeticionJSON(folio, 'False|Excepcion: ' + e.Message + '|');
     end;
   end;
+end;
+
+procedure Togcvdispensarios_gilbarco2W.LiberaInicializacion;
+var
+  i: Integer;
+begin
+  // Detiene el sondeo, cierra el puerto y deja el servicio como no inicializado
+  Timer1.Enabled := False;
+  if pSerial.Open then
+  begin
+    pSerial.Open := False;
+    pSerial.Tracing := tlOff;
+    pSerial.DTR := False;
+    pSerial.RTS := False;
+  end;
+  Transmitiendo := False;
+  for i := 1 to 200 do
+  begin
+    TabCmnd[i].SwActivo := False;
+    TabCmnd[i].SwResp := False;
+  end;
+  CmndNuevo := False;
+  for i := 1 to 4 do
+    LPrecios[i] := 0;
+  detenido := True;
+  estado := -1;
+  SetEstadoJSON(estado);
+  Timer2.Enabled := True;
 end;
 
 function Togcvdispensarios_gilbarco2W.NoElemStrEnter(xstr: string): word;

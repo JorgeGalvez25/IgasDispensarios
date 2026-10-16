@@ -59,6 +59,7 @@ type
     procedure AgregaLog(lin:string);
     function IniciaPSerial(datosPuerto:string):string;
     procedure Inicializar(folio:Integer; msj:string);
+    procedure LiberaInicializacion;
     function AgregaPosCarga(posiciones: TlkJSONbase):string;
     procedure Login(folio:Integer; mensaje:string);
     procedure Logout(folio:Integer);
@@ -561,9 +562,10 @@ var
   datosPuerto, resultado:string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado>-1 then begin
-      AddPeticionJSON(folio, 'False|El servicio ya habia sido inicializado|');
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado '+IntToStr(estado)+'), se reinicializa');
+      LiberaInicializacion;
     end;
 
     js := TlkJSON.ParseText(ExtraeElemStrSep(msj,1,'|'));
@@ -604,6 +606,35 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+procedure Togcvdispensarios_hongyang.LiberaInicializacion;
+var
+  i:Integer;
+begin
+  // Detiene el sondeo, cierra el puerto y deja el servicio como no inicializado
+  Timer1.Enabled:=False;
+  if pSerial.Open then
+    pSerial.Open:=False;
+  for i:=1 to 200 do begin
+    TabCmnd[i].SwActivo:=False;
+    TabCmnd[i].SwResp:=False;
+    TabCmnd[i].SwNuevo:=False;
+  end;
+  ApCola:=0;
+  SwEsperaCmnd:=False;
+  SwProcesando:=False;
+  LineaBuff:='';
+  LineaProc:='';
+  FinLinea:=False;
+  MangCiclo:=1;
+  CmndProc:='A';
+  for i:=1 to 4 do
+    LPrecios[i]:=0;
+  detenido:=True;
+  estado:=-1;
+  SetEstadoJSON(estado);
+  Timer2.Enabled:=True;
 end;
 
 function Togcvdispensarios_hongyang.AgregaPosCarga(
@@ -679,7 +710,15 @@ begin
     end;
 
     // JSON Initialization
-    posArr := TlkJSONlist.Create;
+    // Se reutiliza el nodo PosCarga para no duplicarlo al reinicializar
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then begin
+      posArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    end
+    else
+      while posArr.Count>0 do
+        posArr.Delete(0);
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
@@ -746,7 +785,6 @@ begin
       posArr.Add(posObj);
     end;
     
-    TlkJSONobject(rootJSON).Add('PosCarga', posArr);
     
   except
     on e:Exception do

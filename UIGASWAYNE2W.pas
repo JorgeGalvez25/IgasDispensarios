@@ -104,6 +104,7 @@ type
     function IniciaPSerial(datosPuerto:string):string;
     function IniciaPSerial2(datosPuerto:string):string;
     procedure Inicializar(folio:Integer; msj: string);
+    procedure LiberaInicializacion;
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;
     function MD5(const usuario: string): string;
@@ -611,7 +612,15 @@ begin
       ComunicoAlgunaVez:=false;
     end;
 
-    posArr := TlkJSONlist.Create;
+    // Se reutiliza el nodo PosCarga para no duplicarlo al reinicializar
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then begin
+      posArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    end
+    else
+      while posArr.Count>0 do
+        posArr.Delete(0);
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
@@ -684,7 +693,6 @@ begin
         posObj.Add('Hoses', hosesArr);
         posArr.Add(posObj);
       end;
-    TlkJSONobject(rootJSON).Add('PosCarga',   posArr);
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
@@ -770,10 +778,10 @@ var
   datosPuerto, variables, variable, resultado:string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado>-1 then begin
-      resultado:='False|El servicio ya habia sido inicializado|';
-      AddPeticionJSON(folio, resultado);
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado '+IntToStr(estado)+'), se reinicializa');
+      LiberaInicializacion;
     end;
 
     js := TlkJSON.ParseText(ExtraeElemStrSep(msj,1,'|'));
@@ -856,6 +864,32 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+procedure Togcvdispensarios_wayne2w.LiberaInicializacion;
+var
+  i:Integer;
+begin
+  // Detiene el sondeo, cierra puertos y deja el servicio como no inicializado
+  Timer1.Enabled:=False;
+  if pSerial.Open then begin
+    pSerial.Open:=False;
+    pSerial.DTR:=False;
+    pSerial.RTS:=False;
+  end;
+  if pSerial2.Open then
+    pSerial2.Open:=False;
+  for i:=1 to 200 do begin
+    TabCmnd[i].SwActivo:=False;
+    TabCmnd[i].SwResp:=False;
+  end;
+  CmndNuevo:=False;
+  for i:=1 to 4 do
+    LPrecios[i]:=0;
+  detenido:=True;
+  estado:=-1;
+  SetEstadoJSON(estado);
+  Timer2.Enabled:=True;
 end;
 
 function Togcvdispensarios_wayne2w.ExtraeElemStrEnter(xstr: string;
@@ -1140,7 +1174,7 @@ begin
             newtimer(etTimeOut,MSecs2Ticks(GtwTimeout));
             repeat
                ServiceThread.ProcessRequests(False);
-            until ( ( bListo ) or ( timerexpired(etTimeOut) ) );
+            until ( ( bListo ) or ( timerexpired(etTimeOut) ) or ( not pSerial.Open ) );
             // StrToHexSep no admite cadenas vacias
             if sRespuesta<>'' then
               AgregaLog('R  ('+IntToStr(length(sRespuesta))+') '+StrToHexSep(sRespuesta))
@@ -1154,7 +1188,7 @@ begin
                if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
             end;
          end;
-      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
+      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) or ( not pSerial.Open ) );
       result:= bOk;
     except
       on e:Exception do begin
@@ -1163,7 +1197,8 @@ begin
       end;
     end;
   finally
-    Timer1.Enabled:=True;
+    // HALT o INITIALIZE pueden llegar mientras se espera respuesta
+    Timer1.Enabled:=estado>0;
   end;
 end;
 
@@ -1819,6 +1854,10 @@ begin
     result:=false;
     if not PosicionRecibida(xPosCarga) then
       Exit;
+    if xTipoPreset=0 then begin  // Venta libre: no se prefija
+      result:=true;
+      Exit;
+    end;
     PonPuertoPos(xPosCarga);
     if xTipoPreset=1 then begin  // Pesos
       stComando:= char(ControlByte(xPosCarga,7))+#33+ConvierteBCD(xValor*WtwDivImporte,6);
@@ -1857,6 +1896,7 @@ var ss,rsp,scmnd,precios,cantidadPreset :string;
     xcmnd,xpos,xcomb,
     xp,xfolio,i,xtipopre      :integer;
     ximporte,xlitros,nprec,xlitrosconv,xvalorpre  :real;
+    swventalibre :boolean;
 begin
   try
     CmndNuevo:=False;
@@ -1883,11 +1923,14 @@ begin
                 end;
                 rsp:=ValidaCifra(xImporte,4,2);
                 xlitrosconv:=0;
+                swventalibre:=false;
                 if rsp='Valor excede maximo permitido' then
                   rsp:=ConvierteImporteALitros(xpos,StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,4,' '),0),xImporte,xlitrosconv);
                 if rsp='OK' then
-                  if (xImporte<=0) then
+                  if (xImporte<=0) then begin
+                    swventalibre:=true;
                     xImporte:=9999;
+                  end;
                 TPosCarga[xpos].MontoPreset:='$ '+FormatoMoneda(xImporte);
               except
                 rsp:='Error en Importe';
@@ -1951,6 +1994,11 @@ begin
                       if xlitrosconv>0 then begin
                         xtipopre:=2;
                         xvalorpre:=xlitrosconv;
+                      end
+                      // Importe 0: venta libre, se autoriza sin prefijar
+                      else if swventalibre then begin
+                        xtipopre:=0;
+                        xvalorpre:=0;
                       end
                       else begin
                         xtipopre:=1;
@@ -2861,7 +2909,7 @@ begin
             newtimer(etTimeOut2,MSecs2Ticks(GtwTimeout));
             repeat
                ServiceThread.ProcessRequests(False);
-            until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) );
+            until ( ( bListo2 ) or ( timerexpired(etTimeOut2) ) or ( not pSerial2.Open ) );
             // StrToHexSep no admite cadenas vacias
             if sRespuesta2<>'' then
               AgregaLog('R  ('+IntToStr(length(sRespuesta2))+') '+StrToHexSep(sRespuesta2))
@@ -2875,7 +2923,7 @@ begin
                if  ( iNoIntento<iMaxIntentos ) then sleep(GtwTiempoCmnd);
             end;
          end;
-      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) );
+      until ( ( bOk ) or ( iNoIntento>=iMaxIntentos ) or ( not pSerial2.Open ) );
       result:= bOk;
     except
       on e:Exception do begin
@@ -2884,7 +2932,8 @@ begin
       end;
     end;
   finally
-    Timer1.Enabled:=True;
+    // HALT o INITIALIZE pueden llegar mientras se espera respuesta
+    Timer1.Enabled:=estado>0;
   end;
 end;
 

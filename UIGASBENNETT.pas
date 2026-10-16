@@ -95,6 +95,7 @@ type
     function PosRegistrada(xpos:integer):boolean;
     
     procedure Inicializar(folio:Integer; msj:string);
+    procedure LiberaInicializacion;
     procedure Parametros(folio:Integer; json:string);
     procedure Login(folio:Integer; mensaje:string);
     procedure Logout(folio:Integer);
@@ -809,7 +810,15 @@ begin
       ModoOpera:='Prepago';
     end;
 
-    posArr := TlkJSONlist.Create;
+    // Se reutiliza el nodo PosCarga para no duplicarlo al reinicializar
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then begin
+      posArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    end
+    else
+      while posArr.Count>0 do
+        posArr.Delete(0);
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
@@ -873,7 +882,6 @@ begin
       end;
       posArr.Add(posObj);
     end;
-    TlkJSONobject(rootJSON).Add('PosCarga', posArr);
     
   except
     on e:Exception do
@@ -2395,9 +2403,10 @@ var
   datosPuerto, variables, variable, resultado:string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado>-1 then begin
-      AddPeticionJSON(folio, 'False|El servicio ya habia sido inicializado|');
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado '+IntToStr(estado)+'), se reinicializa');
+      LiberaInicializacion;
     end;
 
     js := TlkJSON.ParseText(ExtraeElemStrSep(msj,1,'|'));
@@ -2455,6 +2464,39 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+procedure Togcvdispensarios_bennett.LiberaInicializacion;
+var
+  i:Integer;
+begin
+  // Detiene el sondeo, cierra el puerto y deja el servicio como no inicializado
+  Timer1.Enabled:=False;
+  if pSerial.Open then
+    pSerial.Open:=False;
+  for i:=1 to 200 do begin
+    TabCmnd[i].SwActivo:=False;
+    TabCmnd[i].SwResp:=False;
+    TabCmnd[i].SwNuevo:=False;
+  end;
+  // Cola y estado de la comunicacion con la consola
+  ListaCmnd.Clear;
+  SwEsperaRsp:=False;
+  ContEsperaRsp:=0;
+  ContadorAlarma:=0;
+  LineaBuff:='';
+  Linea:='';
+  LineaTimer:='';
+  SwBcc:=False;
+  FinLinea:=False;
+  NumPaso:=0;
+  MaxPosCargaActiva:=0;
+  for i:=1 to 4 do
+    LPrecios[i]:=0;
+  detenido:=True;
+  estado:=-1;
+  SetEstadoJSON(estado);
+  Timer2.Enabled:=True;
 end;
 
 procedure Togcvdispensarios_bennett.Terminar(folio:Integer);
