@@ -110,6 +110,7 @@ type
     function GetServiceController: TServiceController; override;
     procedure AgregaLogPetRes(lin: string);
     procedure Inicializar(folio:Integer; msj: string);
+    procedure LiberaInicializacion;
     function IniciaPSerial(datosPuerto:string): string;
     function AgregaPosCarga(posiciones: TlkJSONbase): string;
     function MD5(const usuario: string): string;
@@ -368,10 +369,10 @@ var
   datosPuerto,json,variables,variable, resultado:string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado>-1 then begin
-      resultado:='False|El servicio ya habia sido inicializado|';
-      AddPeticionJSON(folio, resultado);
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado '+IntToStr(estado)+'), se reinicializa');
+      LiberaInicializacion;
     end;
 
     json:=ExtraeElemStrSep(msj,1,'|');
@@ -453,6 +454,37 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+procedure Togcvdispensarios_wayne.LiberaInicializacion;
+var
+  i:Integer;
+begin
+  // Detiene el sondeo, cierra el puerto y deja el servicio como no inicializado
+  Timer1.Enabled:=False;
+  if pSerial.Open then
+    pSerial.Open:=False;
+  for i:=1 to 200 do begin
+    TabCmnd[i].SwActivo:=False;
+    TabCmnd[i].SwResp:=False;
+  end;
+  ListaCmnd.Clear;
+  // Estado de recepcion serial
+  LineaBuff:='';
+  Linea:='';
+  LineaTimer:='';
+  FinLinea:=False;
+  SwBcc:=False;
+  SwEsperaRsp:=False;
+  SwComandoN:=False;
+  SwComandoB:=False;
+  ContadorAlarma:=0;
+  for i:=1 to 4 do
+    LPrecios[i]:=0;
+  detenido:=True;
+  estado:=-1;
+  SetEstadoJSON(estado);
+  Timer2.Enabled:=True;
 end;
 
 function Togcvdispensarios_wayne.IniciaPSerial(
@@ -576,7 +608,15 @@ begin
       SwArosMag_stop:=false;
     end;
 
-    posArr := TlkJSONlist.Create;
+    // Se reutiliza el nodo PosCarga para no duplicarlo al reinicializar
+    posArr := TlkJSONlist(rootJSON.Field['PosCarga']);
+    if posArr = nil then begin
+      posArr := TlkJSONlist.Create;
+      TlkJSONobject(rootJSON).Add('PosCarga', posArr);
+    end
+    else
+      while posArr.Count>0 do
+        posArr.Delete(0);
 
     for i:=0 to posiciones.Count-1 do begin
       xpos:=posiciones.Child[i].Field['DispenserId'].Value;
@@ -647,7 +687,6 @@ begin
       end;
       posArr.Add(posObj);
     end;
-    TlkJSONobject(rootJSON).Add('PosCarga',   posArr);
   except
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';

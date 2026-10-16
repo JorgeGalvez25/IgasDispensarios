@@ -130,6 +130,7 @@ type
     function IniciaPSerial(datosPuerto:string): string;
     function AgregaPosCarga(posiciones: TlkJSONbase): string;
     function Inicializar(msj: string): string;
+    procedure LiberaInicializacion;
     function NoElemStrEnter(xstr:string):word;
     function ExtraeElemStrEnter(xstr:string;ind:word):string;
     function AutorizarVenta(msj: string): string;
@@ -1118,9 +1119,10 @@ var
   datosPuerto,json,variables,variable:string;
 begin
   try
+    // Un INITIALIZE con el servicio ya inicializado lo reinicia con la nueva configuracion
     if estado>-1 then begin
-      Result:='False|El servicio ya habia sido inicializado|';
-      Exit;
+      AgregaLog('INITIALIZE con servicio inicializado (estado '+IntToStr(estado)+'), se reinicializa');
+      LiberaInicializacion;
     end;
 
     json:=ExtraeElemStrSep(msj,1,'|');
@@ -1198,6 +1200,30 @@ begin
     on e:Exception do
       Result:='False|Excepcion: '+e.Message+'|';
   end;
+end;
+
+procedure Togcvdispensarios_kairos.LiberaInicializacion;
+var
+  i:Integer;
+begin
+  // Detiene el sondeo, cierra el puerto y deja el servicio como no inicializado
+  Timer1.Enabled:=False;
+  if pSerial.Open then begin
+    pSerial.Open:=False;
+    pSerial.Tracing:= tlOff;
+    pSerial.DTR:= false;
+    pSerial.RTS:= false;
+  end;
+  for i:=1 to 200 do begin
+    TabCmnd[i].SwActivo:=False;
+    TabCmnd[i].SwResp:=False;
+  end;
+  SwCmndPend:=False;
+  SwEsperaComando:=False;
+  for i:=1 to 4 do
+    LPrecios[i]:=0;
+  detenido:=True;
+  estado:=-1;
 end;
 
 function Togcvdispensarios_kairos.IniciaPrecios(msj: string): string;
