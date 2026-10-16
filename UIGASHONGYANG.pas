@@ -2132,7 +2132,10 @@ begin
           end
           else rsp:='Manguera no existe';
         end
-        else rsp:='Posicion Bloqueada';
+        else begin
+          rsp:='Posicion Bloqueada';
+          AgregaLog('Preset no enviado Pos: '+IntToStr(xpos)+' - SwDesHabil='+BoolToStr(TPosCarga[xpos].SwDesHabilitado,True));
+        end;
       end
       // ORDENA CARGA DE COMBUSTIBLE (LITROS)
       else if ss='OCL' then begin
@@ -2180,7 +2183,10 @@ begin
           end
           else rsp:='Manguera no existe';
         end
-        else rsp:='Posicion Bloqueada';
+        else begin
+          rsp:='Posicion Bloqueada';
+          AgregaLog('Preset no enviado Pos: '+IntToStr(xpos)+' - SwDesHabil='+BoolToStr(TPosCarga[xpos].SwDesHabilitado,True));
+        end;
       end
       else if ss='TOTAL' then begin
         rsp:='OK';

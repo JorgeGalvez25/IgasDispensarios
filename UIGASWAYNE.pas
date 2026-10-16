@@ -1937,6 +1937,7 @@ begin
       exit;
     end;
     if TPosCarga[xpos].SwDesHabilitado then begin
+      AgregaLog('Preset no enviado Pos: '+IntToStr(xpos)+' - SwDesHabilitado='+BoolToStr(TPosCarga[xpos].SwDesHabilitado,True));
       rsp:='Posicion Deshabilitada';
       exit;
     end;

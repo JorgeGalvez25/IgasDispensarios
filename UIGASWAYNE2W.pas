@@ -220,6 +220,7 @@ type
        FallasEstatus: Integer;
        HoraDesconexion: TDateTime;
        ComunicoAlgunaVez: Boolean; // Respondio al menos una vez desde INITIALIZE
+       PresetBloqLog: Boolean; // Ya se registro que el preset pendiente no se envio
      end;
 
      RegCmnd = record
@@ -578,6 +579,7 @@ begin
       SwPreset:=false;
       SwPreset2:=false;
       PosPreset:=0;
+      PresetBloqLog:=false;
       TipoPreset:=0;
       ValorPreset:=0;
       SwVigilaPreset:=false;
@@ -2008,6 +2010,7 @@ begin
                       if EnviaPresetPesosBomba(xpos,xtipopre,xvalorpre) then begin
                         TPosCarga[xpos].HoraOcc:=now;
                         TPosCarga[xpos].SwPreset:=true;
+                        TPosCarga[xpos].PresetBloqLog:=false;
                         TPosCarga[xpos].SwPreset2:=true;
                         TPosCarga[xpos].PosPreset:=xp;
                         TPosCarga[xpos].TipoPreset:=xtipopre;
@@ -2105,6 +2108,7 @@ begin
                       if EnviaPresetPesosBomba(xpos,1,xlitros) then begin
                         TPosCarga[xpos].HoraOcc:=now;
                         TPosCarga[xpos].SwPreset:=true;
+                        TPosCarga[xpos].PresetBloqLog:=false;
                         TPosCarga[xpos].SwPreset2:=true;
                         TPosCarga[xpos].PosPreset:=xp;
                         TPosCarga[xpos].TipoPreset:=2;
@@ -2723,6 +2727,11 @@ begin
                             swpreset2:=true;
                             IniciaVigilanciaPreset(PosCiclo);
                           end;
+                      end
+                      else if SwPreset and (not PresetBloqLog) then begin
+                        PresetBloqLog:=True;
+                        AgregaLog('Preset no enviado Pos: '+IntToStr(PosCiclo)+' - PosPreset='+IntToStr(PosPreset)+
+                                  ' PosMangLev='+IntToStr(PosMangLev));
                       end;
 //                    end
                   end;

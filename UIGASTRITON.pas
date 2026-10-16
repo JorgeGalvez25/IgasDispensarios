@@ -806,8 +806,10 @@ begin
 
       AddPeticionJSON(folio, 'True|');
     end
-    else
+    else begin
+      AgregaLog('Preset no enviado Pos: 1 - SwDesHabil='+BoolToStr(TPosCarga[1].SwDesHabil,True));
       AddPeticionJSON(folio, 'False|Posicion se encuentra deshabilitada');
+    end;
   except
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
