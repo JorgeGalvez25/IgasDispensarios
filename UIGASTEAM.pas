@@ -52,6 +52,7 @@ type
     SnImporte,SnLitros:real;    
     ConfTeam:String;
     TresDecimTotTeam:String;
+    ProtocoloExtendido:Boolean; // Sondeo A4, bloqueo fisico A0 y valvulas A8 (ini: ProtocoloExtendido=Si)
     Con_DigitoAjuste:Integer;
     CodigoTeam:String;
     
@@ -117,6 +118,13 @@ type
     procedure ObtenerLogPetRes(folio:Integer; r: Integer);
     function ComandoB(xdisp,xlado:integer):string;
     function ComandoA(xdisp,xlado,xtipo:integer):string;
+    function ComandoA4(xdisp,xlado:integer):string;
+    function ComandoValvulas(xdisp,xlado,xaccion:integer):string;
+    function ComandoModoOperacion(xdisp,xlado,xmodo:integer):string;
+    function ByteToNibbleDec(b:Byte):Integer;
+    function PosicionLibre(xpos:integer):boolean;
+    procedure BloqueoFisico(xpos:integer);
+    procedure DesbloqueoFisico(xpos:integer);
     function ComandoS(xdisp,xlado:integer;ximpo:real):string;
     function ComandoL(xdisp,xlado:integer;xlitros:real):string;
     function ComandoU(xdisp:integer; xprec1,xprec2,xprec3:real):string;
@@ -203,6 +211,10 @@ type
        TipoPago:integer;
        TipoPagoAnt:integer;
        FinVenta:integer;
+       EstadoTeam,             // Ultimo estado ss reportado por A4
+       ModoTeam:integer;       // Ultimo modo de operacion en espera reportado por A4 (03/06/09/12)
+       SwBloqueoPend,          // Bloqueo fisico en espera de que la posicion quede libre
+       SwParado:boolean;       // Valvulas cerradas por DVC
        TCodigoTeam,
        Boucher:string[12];
        HoraOcc:TDateTime;
@@ -298,7 +310,8 @@ begin
     ListaLogPetRes:=TStringList.Create;
 
     ConfTeam:=config.ReadString('CONF','ConfTeam','');
-    
+    ProtocoloExtendido:=UpperCase(config.ReadString('CONF','ProtocoloExtendido',''))='SI';
+
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(estado);
 
@@ -788,6 +801,10 @@ begin
       tipopago:=0;
       tipopagoant:=0;
       finventa:=0;
+      EstadoTeam:=0;
+      ModoTeam:=0;
+      SwBloqueoPend:=false;
+      SwParado:=false;
       TCodigoTeam:='';
       boucher:='';
       HoraTotales:=0;
@@ -1049,7 +1066,7 @@ begin
 end;
 
 procedure Togcvdispensarios_team.Bloquear(folio:Integer; msj: string);
-var xpos:Integer;
+var xpos,xp:Integer;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -1059,11 +1076,17 @@ begin
     end;
     if (xpos<=MaxPosCarga) then begin
       if xpos=0 then begin
-        for xpos:=1 to MaxPosCarga do TPosCarga[xpos].SwDesHabilitado:=True;
+        for xp:=1 to MaxPosCarga do begin
+          TPosCarga[xp].SwDesHabilitado:=True;
+          if ProtocoloExtendido then
+            BloqueoFisico(xp);
+        end;
         AddPeticionJSON(folio, 'True|');
       end
       else if (xpos in [1..maxposcarga]) then begin
         TPosCarga[xpos].SwDesHabilitado:=True;
+        if ProtocoloExtendido then
+          BloqueoFisico(xpos);
         AddPeticionJSON(folio, 'True|');
       end;
     end
@@ -1074,7 +1097,7 @@ begin
 end;
 
 procedure Togcvdispensarios_team.Desbloquear(folio:Integer; msj: string);
-var xpos:Integer;
+var xpos,xp:Integer;
 begin
   try
     xpos:=StrToIntDef(msj,-1);
@@ -1084,17 +1107,59 @@ begin
     end;
     if (xpos<=MaxPosCarga) then begin
       if xpos=0 then begin
-        for xpos:=1 to MaxPosCarga do TPosCarga[xpos].SwDesHabilitado:=False;
+        for xp:=1 to MaxPosCarga do begin
+          TPosCarga[xp].SwDesHabilitado:=False;
+          if ProtocoloExtendido then
+            DesbloqueoFisico(xp);
+        end;
         AddPeticionJSON(folio, 'True|');
       end
       else if (xpos in [1..maxposcarga]) then begin
         TPosCarga[xpos].SwDesHabilitado:=False;
+        if ProtocoloExtendido then
+          DesbloqueoFisico(xpos);
         AddPeticionJSON(folio, 'True|');
       end;
     end
     else AddPeticionJSON(folio, 'False|Posicion no Existe|');
   except
     on e:Exception do AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
+  end;
+end;
+
+// A0 solo se acepta con el lado disponible: sin despacho, lectura final ni totales en curso
+function Togcvdispensarios_team.PosicionLibre(xpos:integer):boolean;
+begin
+  with TPosCarga[xpos] do
+    result:=(estatus in [1,7,8])and(not swcargando)and(not SwLecturaFinalPendiente);
+end;
+
+// Bloqueo fisico (A0 modo 15); con la posicion ocupada queda pendiente hasta que se libere
+procedure Togcvdispensarios_team.BloqueoFisico(xpos:integer);
+begin
+  with TPosCarga[xpos] do begin
+    if PosicionLibre(xpos) then begin
+      SwBloqueoPend:=false;
+      ComandoConsolaBuff('K'+inttoclavenum(xpos,2),false);
+    end
+    else if not SwBloqueoPend then begin
+      SwBloqueoPend:=true;
+      AgregaLog('TEAM: bloqueo fisico pendiente en posicion '+IntToStr(xpos)+' hasta que quede libre');
+    end;
+  end;
+end;
+
+// Desbloqueo fisico: regresa al modo previo al bloqueo (reportado por A4) o a Consola Basica (09)
+procedure Togcvdispensarios_team.DesbloqueoFisico(xpos:integer);
+var xmodo:integer;
+begin
+  with TPosCarga[xpos] do begin
+    SwBloqueoPend:=false;
+    if ModoTeam in [3,6,9,12] then
+      xmodo:=ModoTeam
+    else
+      xmodo:=9;
+    ComandoConsolaBuff('J'+inttoclavenum(xpos,2)+inttoclavenum(xmodo,2),false);
   end;
 end;
 
@@ -1424,7 +1489,10 @@ begin
           s1:=copy(LinCmnd,2,2);
           xpos:=strtointdef(s1,0);
           if xpos in [1..MaxPosCarga] then with TPosCarga[xpos] do begin
-            LinCmd2:=ComandoB(dispensario,lado);
+            if ProtocoloExtendido then
+              LinCmd2:=ComandoA4(dispensario,lado)
+            else
+              LinCmd2:=ComandoB(dispensario,lado);
             inc(ContEsperaB);
           end;
           HoraComandoB:=now;
@@ -1486,6 +1554,27 @@ begin
           with TPosCarga[xpos] do
             LinCmd2:=ComandoD(dispensario);
         end;
+    'V':begin  // A8 Control de valvulas / fin despacho
+          s1:=copy(LinCmnd,2,2);
+          xpos:=strtointdef(s1,0);
+          s1:=copy(LinCmnd,4,2);
+          n:=strtointdef(s1,0);
+          if xpos in [1..MaxPosCarga] then with TPosCarga[xpos] do
+            LinCmd2:=ComandoValvulas(dispensario,lado,n);
+        end;
+    'K':begin  // Bloqueo fisico (Modo 15)
+          s1:=copy(LinCmnd,2,2);
+          xpos:=strtointdef(s1,0);
+          if xpos in [1..MaxPosCarga] then with TPosCarga[xpos] do
+            LinCmd2:=ComandoModoOperacion(dispensario,lado,15);
+        end;
+    'J':begin  // Desbloqueo fisico: Jppmm, mm = modo de operacion a restablecer
+          s1:=copy(LinCmnd,2,2);
+          xpos:=strtointdef(s1,0);
+          n:=strtointdef(copy(LinCmnd,4,2),9);
+          if xpos in [1..MaxPosCarga] then with TPosCarga[xpos] do
+            LinCmd2:=ComandoModoOperacion(dispensario,lado,n);
+        end;
     'N':begin
           s1:=copy(LinCmnd,2,2);
           xpos:=strtointdef(s1,0);
@@ -1501,8 +1590,9 @@ begin
     n:=0;
     for i:=5 to NoElemStrSep(LinCmd2,' ') do begin
       s2:=extraeelemstrsep(LinCmd2,i,' ');
-      n:=n+strtointdef(s2,0);
+      n:=n+ByteToNibbleDec(StrToIntDef('$'+s2,0));
     end;
+    n:=n mod 100;
     LinCmd2:=LinCmd2+' '+inttoclavenum(n,2);
 
     s1:=HexSepToStr(LinCmd2);
@@ -1629,6 +1719,8 @@ begin
                      end;
                    end;
                end;
+               if SwBloqueoPend and SwDesHabilitado and PosicionLibre(xpos) then
+                 BloqueoFisico(xpos);
              end;
            end;
          end;
@@ -1764,21 +1856,23 @@ begin
     end;
     // checa lecturas de dispensarios
     if NumPaso=2 then begin
-      if PosicionActual<MaxPosCarga then begin
-        repeat
-          Inc(PosicionActual);
-          with TPosCarga[PosicionActual] do if NoComb>0 then begin
-            if SwLecturaFinalPendiente then begin
-              // Lectura final del importe: debe ir al frente para no cerrar con el importe anterior.
-              ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',true); // pesos final
-            end
-            else if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
-              SwA:=false;
-              //SwActualizar:=true;
-              ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',false); // pesos
+      if not ProtocoloExtendido then begin
+        if PosicionActual<MaxPosCarga then begin
+          repeat
+            Inc(PosicionActual);
+            with TPosCarga[PosicionActual] do if NoComb>0 then begin
+              if SwLecturaFinalPendiente then begin
+                // Lectura final del importe: debe ir al frente para no cerrar con el importe anterior.
+                ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',true); // pesos final
+              end
+              else if (estatus<>estatusant)or(estatus>=5)or(SwA)or(swinicio2)or(swcargando) then begin
+                SwA:=false;
+                //SwActualizar:=true;
+                ComandoConsolaBuff('A'+IntToClaveNum(PosicionActual,2)+'1',false); // pesos
+              end;
             end;
-          end;
-        until (PosicionActual>=MaxPosCarga);
+          until (PosicionActual>=MaxPosCarga);
+        end;
       end;
       NumPaso:=3;
       PosicionActual:=0;
@@ -1884,13 +1978,36 @@ begin
       // Se revisa en cada tick: solo se registra la primera vez
       if TabCmnd[xcmnd].SwNuevo then begin
         AgregaLog(TabCmnd[xcmnd].Comando);
-        if (ss='OCC')or(ss='OCL')or(ss='FINV')or(ss='TOTAL')or(ss='AMP')or(ss='DMP') then
+        if (ss='OCC')or(ss='OCL')or(ss='FINV')or(ss='TOTAL')or(ss='AMP')or(ss='DMP')or(ss='DVC')or(ss='REANUDAR') then
           MarcaActividad(StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0));
       end;
       // CMND: CERRAR CONSOLA
       if ss='CERRAR' then begin
         rsp:='OK';
         SwCerrar:=true;
+      end
+      // CMND: DETENER VENTA (DVC) -> A8 cerrar valvulas (aa=00), solo despachando
+      else if ss='DVC' then begin
+        xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+        rsp:='OK';
+        if (xpos in [1..MaxPosCarga]) then with TPosCarga[xpos] do begin
+          if ProtocoloExtendido and ((Estatus=5) or swcargando) then begin
+            ComandoConsolaBuff('V'+inttoclavenum(xpos,2)+'00',true);
+            SwParado:=true;
+          end;
+        end
+        else rsp:='Posicion de Carga no Existe';
+      end
+      // CMND: REANUDAR VENTA (REANUDAR) -> A8 abrir valvulas flujo alto (aa=02), solo si se detuvo con DVC
+      else if ss='REANUDAR' then begin
+        xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
+        rsp:='OK';
+        if (xpos in [1..MaxPosCarga]) then with TPosCarga[xpos] do begin
+          if ProtocoloExtendido and SwParado and ((Estatus=5) or swcargando) then
+            ComandoConsolaBuff('V'+inttoclavenum(xpos,2)+'02',true);
+          SwParado:=false;
+        end
+        else rsp:='Posicion de Carga no Existe';
       end
       // CMND: ACTIVA MODO PREPAGO
       else if ss='AMP' then begin
@@ -1985,6 +2102,9 @@ begin
             SwCargaTotales:=true;
             SwEsperandoTotales:=true;
             TotalesPendientes:=NoComb;
+            // Venta cobrada con la palanca arriba (A4 ss=30): se termina la transaccion en la bomba con A8 55
+            if ProtocoloExtendido and (EstadoTeam=30) then
+              ComandoConsolaBuff('V'+inttoclavenum(xpos,2)+'55',true);
           end
           else
             rsp:='Posicion no esta en fin de venta';
@@ -2256,11 +2376,12 @@ end;
 
 
 procedure Togcvdispensarios_team.pSerialTriggerAvail(CP: TObject; Count: Word);
-var I,xpos,xcomb:Word;
-    estatusAnterior:integer;
+var I,xpos,xcomb,dd,esperados:Word;
+    estatusAnterior,ssCode,prodNum:integer;
     C:Char;
-    ss,s1:string;
+    ss,s1,sVol,sImp:string;
     csok:boolean;
+    rVol,rImp:real;
 begin
   Timer1.Enabled:=false;
   try
@@ -2269,30 +2390,49 @@ begin
       LineaBuff:=LineaBuff+C;
     end;
     while (not FinLinea)and(Length(LineaBuff)>0) do begin
-      c:=LineaBuff[1];
-      ss:=limpiastr(StrToHexSep(c));
-      if (ss[1]='A')or(ss[1]='E') then // INICIA UN COMANDO
-        linea:='';
-      delete(LineaBuff,1,1);
-      Linea:=Linea+C;
-      LineaTimer:=StrToHexSep(Linea);
-      if (copy(LineaTimer,1,2)='A3')and(noelemstrsep(LineaTimer,' ')=9) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='A1')and(noelemstrsep(LineaTimer,' ')=11) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='A5')and(noelemstrsep(LineaTimer,' ')=11) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='A6')and(noelemstrsep(LineaTimer,' ')=12) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='A0')and(noelemstrsep(LineaTimer,' ')=6) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='A9')and(noelemstrsep(LineaTimer,' ')=12) then
-        FinLinea:=true
-      else if (copy(LineaTimer,1,2)='E0')and(noelemstrsep(LineaTimer,' ')=6) then
-        FinLinea:=true;
+      if Length(Linea)=0 then begin
+        if (Byte(LineaBuff[1]) in [$A0..$EF]) then begin
+          Linea:=LineaBuff[1];
+          Delete(LineaBuff,1,1);
+        end
+        else
+          Delete(LineaBuff,1,1);
+      end
+      else if Length(Linea)=1 then begin
+        Linea:=Linea+LineaBuff[1];
+        Delete(LineaBuff,1,1);
+      end
+      else if Length(Linea)=2 then begin
+        if LineaBuff[1]=#0 then begin
+          Linea:=Linea+LineaBuff[1];
+          Delete(LineaBuff,1,1);
+        end
+        else begin
+          Linea:='';
+        end;
+      end
+      else begin
+        Linea:=Linea+LineaBuff[1];
+        Delete(LineaBuff,1,1);
+        if Length(Linea)>=4 then begin
+          dd:=ByteToNibbleDec(Byte(Linea[4]));
+          esperados:=4+dd;
+          if Length(Linea)>=esperados then
+            FinLinea:=true;
+        end;
+      end;
     end;
     if FinLinea then begin
       LineaTimer:=StrToHexSep(Linea);
+      if (Length(Linea)=6) and (Linea[5]=#$66) and (Linea[6]=#$66) then begin
+        AgregaLog('R '+LineaTimer+' [Dispensario rechazo comando - Error 66 66]');
+        FinLinea:=false;
+        SwEsperaRsp:=false;
+        SwEspera:=false;
+        HoraUltRsp:=Now;
+        Linea:='';
+        Exit;
+      end;
       csok:=ValidaChecksumTeam(LineaTimer);
       if not csok then
         LineaTimer:=LineaTimer+' Error Checksum';
@@ -2354,6 +2494,7 @@ begin
             if ((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8]) then begin
               SwLecturaFinalPendiente:=true;
               SwA:=true;
+              SwParado:=false;
               AgregaLog('TEAM: venta finalizada, se programa A1 final en posicion '+IntToStr(xpos));
             end;
             
@@ -2468,6 +2609,137 @@ begin
                     +ExtraeElemStrSep(LineaTimer,10,' ')+ExtraeElemStrSep(LineaTimer,11,' ');
         AgregaLog(LineaTimer);
         ProcesaLinea(csok);
+      end
+      else if copy(LineaTimer,1,2)='A4' then begin // COMANDO A4 (Estatus extendido con volumen e importe)
+        HoraRspB:=now;
+        xpos:=DamePosTeam(LineaTimer,true);
+        if xpos=0 then begin
+          AgregaLog('Respuesta TEAM A4 sin posicion configurada: '+LineaTimer);
+          Linea:='';
+          SwEspera:=false;
+          Exit;
+        end;
+        with TPosCarga[xpos] do begin
+          ContEsperaB:=0;
+          estatusAnterior:=estatus;
+          if csok then begin
+            ss:=ExtraeElemStrSep(LineaTimer,6,' ');
+            ssCode:=StrToIntDef(ss, 0);
+            EstadoTeam:=ssCode;
+            if ssCode in [3,6,9,12] then
+              ModoTeam:=ssCode;
+
+            prodNum:=StrToIntDef(ExtraeElemStrSep(LineaTimer,9,' '),0);
+            if prodNum in [1..NoComb] then
+              posactual:=prodNum;
+            xcomb:=CombustibleEnPosicion(xpos,posactual);
+
+            sVol:=ExtraeElemStrSep(LineaTimer,10,' ')
+                +ExtraeElemStrSep(LineaTimer,11,' ')
+                +ExtraeElemStrSep(LineaTimer,12,' ')
+                +ExtraeElemStrSep(LineaTimer,13,' ');
+            sImp:=ExtraeElemStrSep(LineaTimer,14,' ')
+                +ExtraeElemStrSep(LineaTimer,15,' ')
+                +ExtraeElemStrSep(LineaTimer,16,' ')
+                +ExtraeElemStrSep(LineaTimer,17,' ');
+
+            // FFFFFFFF/88888888 = pantalla sin dato o en prueba: se conserva la ultima lectura
+            if (sVol<>'FFFFFFFF')and(sVol<>'88888888')and(sImp<>'FFFFFFFF')and(sImp<>'88888888') then begin
+              importepre:=importenvo;
+              volumenpre:=volumennvo;
+              preciopre:=precionvo;
+
+              rVol:=StrToIntDef(sVol,0)/1000;
+              rImp:=StrToIntDef(sImp,0)/100;
+              if (abs(rVol-volumen)>0.0005)or(abs(rImp-importe)>0.005) then begin
+                HoraOcc:=now;
+                ActualizaCampoJSON(xpos, 'HoraOcc', FormatDateTime('yyyy-mm-dd',now)+'T'+FormatDateTime('hh:nn',now));
+              end;
+
+              volumen:=rVol;
+              importe:=rImp;
+              if (volumen>0) and (importe>0) then
+                precio:=AjustaFloat(dividefloat(importe,volumen),2)
+              else
+                precio:=lprecios[xcomb];
+
+              volumennvo:=volumen;
+              importenvo:=importe;
+              precionvo:=precio;
+
+              ActualizaCampoJSON(xpos, 'Volumen', volumen);
+              ActualizaCampoJSON(xpos, 'Importe', importe);
+              ActualizaCampoJSON(xpos, 'Precio', precio);
+            end;
+            ActualizaCampoJSON(xpos, 'Manguera', TMang[posactual]);
+            ActualizaCampoJSON(xpos, 'Combustible', xcomb);
+
+            case ssCode of
+              3, 6, 9, 12: estatus:=1;
+              10: estatus:=3;
+              11: estatus:=2;
+              20, 21, 24: estatus:=5;
+              30: begin
+                    if swcargando then
+                      estatus:=7
+                    else
+                      estatus:=1;
+                  end;
+              15, 55: estatus:=9;
+              else estatus:=1;
+            end;
+
+            if (estatus=1) and (finventa=1) then estatus:=8;
+            if (estatus=1) and (finventa=2) then estatus:=7;
+            // A4 ya trae el importe final: no hay lectura A1 pendiente y la venta queda en espera de FINV
+            if estatus=8 then begin
+              finventa:=2;
+              estatus:=7;
+            end;
+
+            if estatus<>estatusAnterior then
+              HoraActividad:=Now;
+
+            if (estatus=5) and (not swcargando) and (not SwTotalInicialVenta) then begin
+              SwDesp:=false;
+              for I:=1 to MCxP do
+                TotalLitrosInicio[I]:=TotalLitros[I];
+              SwTotalInicialVenta:=true;
+              swcargando:=true;
+            end;
+
+            if ((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8]) then begin
+              // Si la pantalla final trae menos que la ultima lectura del despacho se conserva esta
+              if importe<importepre then begin
+                AgregaLog('FIN DE VENTA CORREGIDO');
+                importe:=importepre;
+                volumen:=volumenpre;
+                precio:=preciopre;
+                importenvo:=importe;
+                volumennvo:=volumen;
+                precionvo:=precio;
+                ActualizaCampoJSON(xpos, 'Volumen', volumen);
+                ActualizaCampoJSON(xpos, 'Importe', importe);
+                ActualizaCampoJSON(xpos, 'Precio', precio);
+              end;
+              swcargando:=false;
+              SwParado:=false;
+              swdesp:=true;
+              HoraFinVenta:=Now;
+              SwCargaTotales:=true;
+              SwEsperandoTotales:=true;
+              TotalesPendientes:=NoComb;
+              IntentosTotales:=0;
+              HoraTotales:=0;
+              AgregaLog('TEAM A4: venta finalizada en posicion '+IntToStr(xpos)+' Vol='+FormatFloat('0.000',volumen)+' Imp='+FormatFloat('0.00',importe));
+            end;
+          end;
+        end;
+      end
+      else if copy(LineaTimer,1,2)='A8' then begin // COMANDO A8 (Valvulas / Fin de Despacho)
+        xpos:=DamePosTeam(LineaTimer,true);
+        if xpos>0 then
+          AgregaLog('TEAM: Respuesta valvulas A8 pos '+IntToStr(xpos));
       end;
       Linea:='';
       SwEspera:=false;
@@ -2481,6 +2753,29 @@ end;
 function Togcvdispensarios_team.ComandoA(xdisp, xlado, xtipo: integer): string; // Leer display
 begin
   result:='A1 '+inttoclavenum(xdisp,2)+' 00 03 '+inttoclavenum(xlado,2)+' '+inttoclavenum(xtipo,2);
+end;
+
+function Togcvdispensarios_team.ComandoA4(xdisp, xlado: integer): string; // Estatus extendido de despacho y display
+begin
+  result:='A4 '+inttoclavenum(xdisp,2)+' 00 02 '+inttoclavenum(xlado,2);
+end;
+
+function Togcvdispensarios_team.ComandoValvulas(xdisp, xlado, xaccion: integer): string; // A8 Valvulas / terminar
+begin
+  result:='A8 '+inttoclavenum(xdisp,2)+' 00 03 '+inttoclavenum(xlado,2)+' '+inttoclavenum(xaccion,2);
+end;
+
+function Togcvdispensarios_team.ComandoModoOperacion(xdisp, xlado, xmodo: integer): string; // A0 Modo operacion
+begin
+  if xlado > 0 then
+    result:='A0 '+inttoclavenum(xdisp,2)+' 00 03 '+inttoclavenum(xlado,2)+' '+inttoclavenum(xmodo,2)
+  else
+    result:='A0 '+inttoclavenum(xdisp,2)+' 00 02 '+inttoclavenum(xmodo,2);
+end;
+
+function Togcvdispensarios_team.ByteToNibbleDec(b: Byte): Integer;
+begin
+  Result:=((b shr 4) * 10) + (b and $0F);
 end;
 
 function Togcvdispensarios_team.ComandoB(xdisp, xlado: integer): string;   // Leer estatus de bomba
@@ -2603,13 +2898,15 @@ var nn,n1,n2:byte;
     case nn of
       0:result:='0000'; 1:result:='0001'; 2:result:='0010'; 3:result:='0011';
       4:result:='0100'; 5:result:='0101'; 6:result:='0110'; 7:result:='0111';
-      8:result:='1000'; 9:result:='1001';
+      8:result:='1000'; 9:result:='1001'; 10:result:='1010'; 11:result:='1011';
+      12:result:='1100'; 13:result:='1101'; 14:result:='1110'; 15:result:='1111';
+      else result:='0000';
     end;
   end;
 begin
-  nn:=strtointdef(ss,0);
-  n1:=(nn)div(10);
-  n2:=(nn)mod(10);
+  nn:=StrToIntDef('$'+ss,0);
+  n1:=(nn shr 4) and $0F;
+  n2:=nn and $0F;
   result:=ConvierteBin(n1)+ConvierteBin(n2);
 end;
 
@@ -2639,18 +2936,23 @@ begin
 end;
 
 function Togcvdispensarios_team.ValidaChecksumTeam(LineaTimer: string): boolean;
-var cs,i,ne,val,tot:integer;
+var cs,i,ne,b,tot:integer;
     ss:string;
 begin
   result:=false;
   ne:=noelemstrsep(LineaTimer,' ');
+  if ne < 5 then begin
+    result:=true; // Tramas sin datos de payload o sin CS (ej. A8 ## 00 00)
+    exit;
+  end;
   ss:=ExtraeElemStrSep(LineaTimer,ne,' ');
-  cs:=StrToIntDef(ss,0);
+  b:=StrToIntDef('$'+ss,0);
+  cs:=ByteToNibbleDec(b);
   tot:=0;
   for i:=5 to ne-1 do begin
     ss:=ExtraeElemStrSep(LineaTimer,i,' ');
-    val:=StrToIntDef(ss,0);
-    tot:=tot+val;
+    b:=StrToIntDef('$'+ss,0);
+    tot:=tot+ByteToNibbleDec(b);
   end;
   tot:=tot mod 100;
   result:=(tot=cs);
