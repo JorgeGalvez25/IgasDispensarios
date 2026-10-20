@@ -1339,9 +1339,12 @@ begin
           if posestatus[xp]>posestatus[posactual] then
             posactual:=xp;
 
-        ActualizaCampoJSON(PosCarga, 'Importe', importe);
-        ActualizaCampoJSON(PosCarga, 'Volumen', volumen);
-        ActualizaCampoJSON(PosCarga, 'Precio', precio);
+        // Solo la manguera activa publica los datos de venta de la posicion
+        if poscomb=posactual2 then begin
+          ActualizaCampoJSON(PosCarga, 'Importe', importe);
+          ActualizaCampoJSON(PosCarga, 'Volumen', volumen);
+          ActualizaCampoJSON(PosCarga, 'Precio', precio);
+        end;
         ActualizaCampoJSON(PosCarga, 'Combustible', Combustible[posactual2]);
         ActualizaCampoJSON(PosCarga, 'Manguera', PosMangueraDisp[posactual2]);
       
