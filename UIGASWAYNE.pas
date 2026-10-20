@@ -29,6 +29,7 @@ type
     { Private declarations }
     LineaBuff,
     WayneFusion,
+    WayneFusionV3,
     MapeoFusion,
     AjusteWayne,
     AjusteWayne2,
@@ -115,6 +116,7 @@ type
     function AgregaPosCarga(posiciones: TlkJSONbase): string;
     function MD5(const usuario: string): string;
     function ValidaCifra(xvalor:real;xenteros,xdecimales:byte):string;
+    function PrecioFusion(xprecio:real):string;
     function FechaHoraExtToStr(FechaHora:TDateTime):String;
     procedure ComandoConsola(ss:string);
     function CalculaBCC(ss:string):char;
@@ -379,6 +381,7 @@ begin
     variables:=ExtraeElemStrSep(msj,2,'|');
 
     WayneFusion:='No';
+    WayneFusionV3:='No';
     MapeoFusion:='No';
     AjusteWayne:='No';
     AjusteWayne2:='No';
@@ -396,6 +399,8 @@ begin
       variable:=ExtraeElemStrEnter(variables,i);
       if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSION' then
         WayneFusion:=ExtraeElemStrSep(variable,2,'=')
+      else if UpperCase(ExtraeElemStrSep(variable,1,'='))='WAYNEFUSIONV3' then
+        WayneFusionV3:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='MAPEOFUSION' then
         MapeoFusion:=ExtraeElemStrSep(variable,2,'=')
       else if UpperCase(ExtraeElemStrSep(variable,1,'='))='AJUSTEWAYNE' then
@@ -716,6 +721,15 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+// Precio para el comando 'a' en Fusion: V2 = 4 digitos + '0', V3 = '0' + 4 digitos
+function Togcvdispensarios_wayne.PrecioFusion(xprecio: real): string;
+begin
+  if WayneFusionV3='Si' then
+    result:='0'+IntToClaveNum(Trunc(xprecio*100+0.5),4)
+  else
+    result:=IntToClaveNum(Trunc(xprecio*100+0.5),4)+'0';
 end;
 
 function Togcvdispensarios_wayne.ValidaCifra(xvalor: real; xenteros,
@@ -1153,14 +1167,19 @@ begin
                        PosDispActual:=1;
                      xvolumen:=StrToFloat(copy(lin,6,8))/1000;
                      simp:=copy(lin,14+Tdiga[1],8);
-                     spre:=copy(lin,22+Tdiga[1],5-Tdiga[1]);
-                     while length(spre)<5 do
+                     ndig:=IfThen(WayneFusionV3='Si',6,5); // V3: precio en 6 digitos
+                     spre:=copy(lin,22+Tdiga[1],ndig-Tdiga[1]);
+                     while length(spre)<ndig do
                        spre:=spre+'0';
                      ximporte:=StrToFloat(simp)/1000;
+                     xprecio:=StrToFloat(spre)/1000;
+                     // V3: importe con 3 o 2 decimales, se elige el mas cercano a volumen*precio
+                     if (WayneFusionV3='Si')and(xvolumen>0)and(xprecio>0)and
+                        (abs(StrToFloat(simp)/100-xvolumen*xprecio)<abs(ximporte-xvolumen*xprecio)) then
+                       ximporte:=StrToFloat(simp)/100;
                      if WayneAjusteImporte='Si' then
                        ximporte:=10*ximporte;
-                     xprecio:=StrToFloat(spre)/1000;
-                     if (2*xvolumen*xprecio<ximporte) then // ajuste por error en digitos
+                     if (WayneFusionV3<>'Si')and(2*xvolumen*xprecio<ximporte) then // ajuste por error en digitos
                        ximporte:=ximporte/10;
                      if AjusteWayne='Si' then begin
                        ximporte:=AjustaFloat(xvolumen*xprecio,2);
@@ -1524,9 +1543,9 @@ begin
                 EsperaMiliSeg(250);
               end
               else begin
-                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // contado
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'1'+'0'+PrecioFusion(precioComb)); // contado
                 EsperaMiliSeg(250);
-                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(precioComb*100+0.5),4)+'0'); // credito
+                ComandoConsola('a'+IntToStr(CPRECIndice)+TierLavelWayne+'0'+'0'+PrecioFusion(precioComb)); // credito
                 EsperaMiliSeg(250);
               end;
               Inc(CPRECIndice);
@@ -2039,8 +2058,8 @@ begin
           ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)); // credito
         end
         else begin
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0'); // contado
-          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+IntToClaveNum(Trunc(LPrecios[i]*100+0.5),4)+'0');  // credito
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'1'+'0'+PrecioFusion(LPrecios[i])); // contado
+          ComandoConsolaBuff('a'+IntToStr(i)+TierLavelWayne+'0'+'0'+PrecioFusion(LPrecios[i]));  // credito
         end;
       end;
     end;
