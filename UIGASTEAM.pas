@@ -53,6 +53,7 @@ type
     ConfTeam:String;
     TresDecimTotTeam:String;
     ProtocoloExtendido:Boolean; // Sondeo A4, bloqueo fisico A0 y valvulas A8 (ini: ProtocoloExtendido=Si)
+    PosCmndN:Integer;           // Posicion del ultimo A9 enviado
     Con_DigitoAjuste:Integer;
     CodigoTeam:String;
     
@@ -156,6 +157,7 @@ type
 
 const
   MaxSegTotalesVigentes=30; // Segundos que una lectura de totales posterior al fin de venta sirve para responder TOTAL
+  MaxIntentosTotales=5;     // Reintentos de A9 rechazados por el dispensario
 
 type
      tiposcarga = record
@@ -1580,6 +1582,7 @@ begin
           xpos:=strtointdef(s1,0);
           s1:=copy(LinCmnd,4,1);
           TPosCarga[xpos].AuxCmndN:=strtointdef(s1,1);
+          PosCmndN:=xpos;
           if xpos>0 then with TPosCarga[xpos] do
             LinCmd2:=ComandoN(dispensario,lado,TPosCarga[xpos].AuxCmndN);
         end;
@@ -1654,6 +1657,10 @@ var lin,ss,ss2,rsp2,descrsp,xestado,xmodo,
     xprec:array[1..3] of real;
 begin
   try
+    if (minutosLog>0) and (MinutesBetween(Now,horaLog)>=minutosLog) then begin
+      horaLog:=Now;
+      GuardarLog(0);
+    end;
     if LineaTimer='' then
       exit;
     if not checksum then
@@ -1935,10 +1942,10 @@ begin
         repeat
           Inc(PosicionActual);
           with TPosCarga[PosicionActual] do if NoComb>0 then begin
-            if swcargatotales then begin
+            // A9 solo se acepta en espera o bloqueado: con A4 se difiere hasta que la posicion quede libre
+            if swcargatotales and ((not ProtocoloExtendido) or (EstadoTeam in [3,6,9,12,15])) then begin
               SwEsperandoTotales:=true;
               TotalesPendientes:=NoComb;
-              IntentosTotales:=0;
               for i:=1 to NoComb do begin
                 if NoComb>1 then
                   ComandoConsolaBuff('N'+IntToClaveNum(PosicionActual,2)+inttostr(i),false) // Totales
@@ -2102,6 +2109,7 @@ begin
             SwCargaTotales:=true;
             SwEsperandoTotales:=true;
             TotalesPendientes:=NoComb;
+            IntentosTotales:=0;
             // Venta cobrada con la palanca arriba (A4 ss=30): se termina la transaccion en la bomba con A8 55
             if ProtocoloExtendido and (EstadoTeam=30) then
               ComandoConsolaBuff('V'+inttoclavenum(xpos,2)+'55',true);
@@ -2426,6 +2434,12 @@ begin
       LineaTimer:=StrToHexSep(Linea);
       if (Length(Linea)=6) and (Linea[5]=#$66) and (Linea[6]=#$66) then begin
         AgregaLog('R '+LineaTimer+' [Dispensario rechazo comando - Error 66 66]');
+        // A9 rechazado: se vuelve a pedir cuando la posicion este libre
+        if (copy(LineaTimer,1,2)='A9') and (PosCmndN in [1..MaxPosCarga]) then with TPosCarga[PosCmndN] do begin
+          Inc(IntentosTotales);
+          if IntentosTotales<=MaxIntentosTotales then
+            SwCargaTotales:=true;
+        end;
         FinLinea:=false;
         SwEsperaRsp:=false;
         SwEspera:=false;
@@ -2644,7 +2658,9 @@ begin
                 +ExtraeElemStrSep(LineaTimer,17,' ');
 
             // FFFFFFFF/88888888 = pantalla sin dato o en prueba: se conserva la ultima lectura
-            if (sVol<>'FFFFFFFF')and(sVol<>'88888888')and(sImp<>'FFFFFFFF')and(sImp<>'88888888') then begin
+            // Pantalla en ceros fuera de despacho (manguera levantada tras la venta): se conserva la venta anterior
+            if (sVol<>'FFFFFFFF')and(sVol<>'88888888')and(sImp<>'FFFFFFFF')and(sImp<>'88888888')
+               and(swcargando or (ssCode in [20,21,24]) or (StrToIntDef(sVol,0)<>0) or (StrToIntDef(sImp,0)<>0)) then begin
               importepre:=importenvo;
               volumenpre:=volumennvo;
               preciopre:=precionvo;
@@ -2700,11 +2716,13 @@ begin
             if estatus<>estatusAnterior then
               HoraActividad:=Now;
 
-            if (estatus=5) and (not swcargando) and (not SwTotalInicialVenta) then begin
+            if (estatus=5) and (not swcargando) then begin
               SwDesp:=false;
-              for I:=1 to MCxP do
-                TotalLitrosInicio[I]:=TotalLitros[I];
-              SwTotalInicialVenta:=true;
+              // El volumen por totalizador solo se calcula si los totales previos estan al dia
+              SwTotalInicialVenta:=not SwEsperandoTotales;
+              if SwTotalInicialVenta then
+                for I:=1 to MCxP do
+                  TotalLitrosInicio[I]:=TotalLitros[I];
               swcargando:=true;
             end;
 
@@ -2723,6 +2741,9 @@ begin
                 ActualizaCampoJSON(xpos, 'Precio', precio);
               end;
               swcargando:=false;
+              // Se reporta fin de carga aunque la bomba pase directo a espera sin ss=30
+              if estatus=1 then
+                estatus:=7;
               SwParado:=false;
               swdesp:=true;
               HoraFinVenta:=Now;
