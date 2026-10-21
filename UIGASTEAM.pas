@@ -1556,7 +1556,7 @@ begin
           with TPosCarga[xpos] do
             LinCmd2:=ComandoD(dispensario);
         end;
-    'V':begin  // A8 Control de valvulas / fin despacho
+    'V':begin  // A8 Control de valvulas
           s1:=copy(LinCmnd,2,2);
           xpos:=strtointdef(s1,0);
           s1:=copy(LinCmnd,4,2);
@@ -2110,9 +2110,6 @@ begin
             SwEsperandoTotales:=true;
             TotalesPendientes:=NoComb;
             IntentosTotales:=0;
-            // Venta cobrada con la palanca arriba (A4 ss=30): se termina la transaccion en la bomba con A8 55
-            if ProtocoloExtendido and (EstadoTeam=30) then
-              ComandoConsolaBuff('V'+inttoclavenum(xpos,2)+'55',true);
           end
           else
             rsp:='Posicion no esta en fin de venta';
@@ -2674,10 +2671,13 @@ begin
 
               volumen:=rVol;
               importe:=rImp;
-              if (volumen>0) and (importe>0) then
+              // A4 no trae precio: se usa el del producto y solo sin el se calcula importe/volumen
+              if lprecios[xcomb]>0 then
+                precio:=lprecios[xcomb]
+              else if (volumen>0) and (importe>0) then
                 precio:=AjustaFloat(dividefloat(importe,volumen),2)
               else
-                precio:=lprecios[xcomb];
+                precio:=0;
 
               volumennvo:=volumen;
               importenvo:=importe;
@@ -2692,7 +2692,6 @@ begin
 
             case ssCode of
               3, 6, 9, 12: estatus:=1;
-              10: estatus:=3;
               11: estatus:=2;
               20, 21, 24: estatus:=5;
               30: begin
@@ -2757,7 +2756,7 @@ begin
           end;
         end;
       end
-      else if copy(LineaTimer,1,2)='A8' then begin // COMANDO A8 (Valvulas / Fin de Despacho)
+      else if copy(LineaTimer,1,2)='A8' then begin // COMANDO A8 (Valvulas)
         xpos:=DamePosTeam(LineaTimer,true);
         if xpos>0 then
           AgregaLog('TEAM: Respuesta valvulas A8 pos '+IntToStr(xpos));
@@ -2781,7 +2780,7 @@ begin
   result:='A4 '+inttoclavenum(xdisp,2)+' 00 02 '+inttoclavenum(xlado,2);
 end;
 
-function Togcvdispensarios_team.ComandoValvulas(xdisp, xlado, xaccion: integer): string; // A8 Valvulas / terminar
+function Togcvdispensarios_team.ComandoValvulas(xdisp, xlado, xaccion: integer): string; // A8 Valvulas
 begin
   result:='A8 '+inttoclavenum(xdisp,2)+' 00 03 '+inttoclavenum(xlado,2)+' '+inttoclavenum(xaccion,2);
 end;
