@@ -80,6 +80,8 @@ type
     function ComandoS(xaddr,xlado,ximporte:integer):string;
     function ComandoL(xaddr,xlado,xlitros:integer):string;
     procedure ComandoConsola(ss:string);
+    procedure CambiaParidad(xparidad:Byte);
+    procedure EsperaTransmision;
     function EjecutaComando(xCmnd:string):integer;
     procedure AutorizarVenta(folio:Integer; msj:string);
     procedure ActivaModoPrepago(folio:Integer; msj:string);
@@ -183,9 +185,8 @@ type
        SwEnllavado,
        SwActivo    :boolean;
        TipoPago,
-       FinVenta,
-       ContBrinca,
-       ContParo   :integer;
+       FinVenta   :integer;
+       ProxSondeo :TDateTime;
        Boucher    :string[12];
        ModoOpera  :string[8];
      end;
@@ -246,6 +247,8 @@ var
   ApCola          :integer;
   LinEstadoGen :string;
   Sw47:boolean;
+  UltimoJSON   :string;
+  HoraUltimoJSON:TDateTime;
 
 implementation
 
@@ -704,8 +707,7 @@ begin
       tipopago:=0;
       finventa:=0;
       boucher:='';
-      contbrinca:=0;
-      contparo:=0;
+      ProxSondeo:=0;
       HoraFV:=Now;
     end;
 
@@ -772,7 +774,6 @@ begin
           else
             ModoOpera:='Prepago';
           SwPrepagoM:= (ModoOpera='Prepago');
-          ContBrinca:=xmang;
         end;
         
         hoseObj := TlkJSONObject.Create;
@@ -1085,17 +1086,16 @@ begin
         try
           s1:=copy(LinCmndHJ,1,1);
           s2:=copy(LinCmndHJ,2,length(LinCmndHJ)-1);
-          pSerial.Parity:=pNone;
-          pSerial.Parity:=pMark;
           pSerial.RTS:=false;
-          if pSerial.Open then
+          if pSerial.Open then begin
+            CambiaParidad(MARKPARITY);
             pSerial.Output:=s1;
-          pSerial.Parity:=pNone;
-          pSerial.Parity:=pSpace;
+            EsperaTransmision;
+            CambiaParidad(SPACEPARITY);
+          end;
           AgregaLog('E '+StrToHexSep(LinCmndHJ)+'  >>'+ss);
           if pSerial.Open then
             pSerial.OutPut:=s2;
-          pSerial.Parity:=pSpace;
         except
           on e:Exception do begin
             AgregaLog('Error pSerial.Output: '+e.Message);
@@ -1113,6 +1113,31 @@ begin
       raise Exception.Create('Error ComandoConsola: '+e.Message);
     end;
   end;
+end;
+
+// Cambia la paridad directo en el puerto, sin la espera fija de AsyncPro; RTS queda apagado
+procedure Togcvdispensarios_hongyang.CambiaParidad(xparidad: Byte);
+var dcb:TDCB;
+begin
+  GetCommState(pSerial.Dispatcher.ComHandle, dcb);
+  dcb.Parity:=xparidad;
+  dcb.Flags:=dcb.Flags and not (dcb_RTSBit1 or dcb_RTSBit2);
+  SetCommState(pSerial.Dispatcher.ComHandle, dcb);
+end;
+
+// Espera a que se vacien el buffer de AsyncPro y la cola del puerto, mas dos caracteres en linea
+procedure Togcvdispensarios_hongyang.EsperaTransmision;
+var i:integer;
+    errores:DWORD;
+    stat:TComStat;
+begin
+  for i:=1 to 100 do begin
+    ClearCommError(pSerial.Dispatcher.ComHandle, errores, @stat);
+    if (pSerial.OutBuffUsed=0)and(stat.cbOutQue=0) then
+      Break;
+    Sleep(1);
+  end;
+  Sleep(22000 div pSerial.Baud+1);
 end;
 
 function Togcvdispensarios_hongyang.EjecutaComando(xCmnd: string): integer;
@@ -1349,6 +1374,8 @@ begin
         ActualizaCampoJSON(PosCarga, 'Manguera', PosMangueraDisp[posactual2]);
       
       end;
+      if estatus<>estatusant then
+        PublicaEstatusDispensarios;
     end;
   except
     on e:Exception do begin
@@ -1840,7 +1867,7 @@ procedure Togcvdispensarios_hongyang.Timer1Timer(Sender: TObject);
 label uno;
 var xmang:integer;
     swestatus7:boolean;
-    xcmnd:string;
+    xcmnd,xjson:string;
 begin
   try
     try
@@ -1855,28 +1882,27 @@ begin
           if ReiniciarPuerto(False) then
             Exit;
         end;
+        // Atiende comandos externos y cola entre cada sondeo de mangueras
+        if CmndProc='A' then begin
+          ProcesaComandosExternos;
+          if ApCola>0 then begin
+            SacaDeCola(xcmnd);
+            ComandoConsola(xcmnd);
+            Exit;
+          end;
+        end;
         uno:
         Case CmndProc of
           // LEE DISPLAY Y STATUS
           'A':begin
                 if MangCiclo<=MaxMangueras then with TMangueras[MangCiclo] do begin
-                  if ContParo<=0 then begin
-                    if (ContBrinca<=0)or(Estatus>1)or(SwPreset) then begin
-                      if (Estatus=1) and (not modoPreset) then
-                        ContBrinca:=4
-                      else
-                        ContBrinca:=30;
-                      ComandoConsola('A'+IntToClavenum(MangCiclo,2));
-                      inc(MangCiclo);
-                    end
-                    else begin
-                      dec(ContBrinca);
-                      inc(MangCiclo);
-                      goto uno;
-                    end;
+                  // Activas y con preset se sondean siempre; las demas cada que vence ProxSondeo
+                  if (Now>=ProxSondeo)or(Estatus>1)or((SwPreset)and(Estatus>0)) then begin
+                    ProxSondeo:=Now+IfThen(modoPreset,2,1)*TmSegundo;
+                    ComandoConsola('A'+IntToClavenum(MangCiclo,2));
+                    inc(MangCiclo);
                   end
                   else begin
-                    dec(ContParo);
                     inc(MangCiclo);
                     goto uno;
                   end;
@@ -1891,6 +1917,7 @@ begin
                     ProcesaComandosExternos;
                   end;
                   CmndProc:='N';
+                  goto uno;
                 end;
               end;
           // LEE TOTALES
@@ -1908,6 +1935,7 @@ begin
                 else begin
                   MangCiclo:=1;
                   CmndProc:='V';
+                  goto uno;
                 end;
               end;
           // LEER PRECIOS
@@ -1925,6 +1953,7 @@ begin
                 else begin
                   MangCiclo:=1;
                   CmndProc:='Z';
+                  goto uno;
                 end;
               end;
           // REVISA COMANDOS
@@ -1933,6 +1962,7 @@ begin
                 ProcesaComandosExternos;
                 MangCiclo:=1;
                 CmndProc:='W';
+                goto uno;
               end;
           // REVISA COMANDOS
           'W':begin
@@ -1941,6 +1971,7 @@ begin
                   ComandoConsola(xcmnd);
                 end
                 else begin
+                  // Termina el tick para no recorrer el ciclo varias veces en uno solo
                   MangCiclo:=1;
                   CmndProc:='A';
                 end;
@@ -1958,7 +1989,7 @@ begin
           with TMangueras[MangCmnd] do begin
             estatus:=0;
             descestat:='Sin Comunicacion';
-            contparo:=5;
+            ProxSondeo:=Now+5*TmSegundo;
             // se marca sin comunicacion en el JSON
             ActualizaCampoJSON(PosCarga, 'Estatus', 0);
           end;
@@ -1972,8 +2003,15 @@ begin
     end;
   finally
     try
-      if xTurnoSocket=3 then
-        Responder(TlkJSON.GenerateText(rootJSON));
+      // Envia el JSON si cambio, si hay peticion en espera o cada medio segundo
+      if xTurnoSocket=3 then begin
+        xjson:=TlkJSON.GenerateText(rootJSON);
+        if (xjson<>UltimoJSON)or(Assigned(socketResponse))or((Now-HoraUltimoJSON)>=TmSegundo*0.5) then begin
+          Responder(xjson);
+          UltimoJSON:=xjson;
+          HoraUltimoJSON:=Now;
+        end;
+      end;
     except
       on e:Exception do begin
         AgregaLog('Excepcion Timer1Timer Socket: '+e.Message);
@@ -2198,6 +2236,7 @@ begin
         with TPosCarga[xpos] do begin
           if TabCmnd[xcmnd].SwNuevo then begin
             TMangueras[PosManguera[PosActual2]].SwCargaTotales:=True;
+            MeteACola('N'+inttoclavenum(PosManguera[PosActual2],2));
             TabCmnd[xcmnd].SwNuevo:=false;
           end
           else begin
