@@ -1743,9 +1743,9 @@ begin
                  preciopre:=precionvo;
 
                  swinicio2:=false;
-                 volumen:=StrToFloat(copy(lin,5,6))/1000;
-                 simp:=copy(lin,11,8);
-                 spre:=copy(lin,19,4);
+                 volumen:=StrToFloat(copy(lin,5,8))/1000;
+                 simp:=copy(lin,13,8);
+                 spre:=copy(lin,21,4);
                  importe:=StrToFloat(simp)/100;
                  precio:=StrToFloat(spre)/100;
 
@@ -2558,7 +2558,7 @@ begin
                 //if volumen=0 then
                 volumen:=AjustaFloat(dividefloat(importe,precio),3);
                 LineaTimer:='A'+inttoclavenum(xpos,2)+'0'
-                             +FormatFloat('000000',volumen*1000)
+                             +FormatFloat('00000000',volumen*1000)
                              +FormatFloat('00000000',importe*100)
                              +FormatFloat('0000',precio*100);
                 AgregaLog(LineaTimer);
