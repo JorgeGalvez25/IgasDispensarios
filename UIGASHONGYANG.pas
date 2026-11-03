@@ -46,6 +46,7 @@ type
     ListaCmnd    :TStrings;
     confPos:string;
     modoPreset:Boolean;
+    PermiteModoNormal:Boolean;
     FolioCmnd   :integer;
     ListaComandos:TStringList;
     HoraArranque:TDateTime;
@@ -86,6 +87,7 @@ type
     procedure AutorizarVenta(folio:Integer; msj:string);
     procedure ActivaModoPrepago(folio:Integer; msj:string);
     procedure DesactivaModoPrepago(folio:Integer; msj:string);
+    procedure AplicaModoOpera(xpos:Integer; xmodo:string);
     procedure FinVenta(folio:Integer; msj:string);
     procedure ProcesoComandoA(xResp:string);
     procedure ProcesoComandoC(xResp:string);
@@ -279,6 +281,7 @@ begin
     
     confPos:=config.ReadString('CONF','ConfPos','');
     modoPreset:=config.ReadString('CONF','ModoPreset','Si')='Si';
+    PermiteModoNormal:=config.ReadString('CONF','PermiteModoNormal','No')='Si';
     licencia:=config.ReadString('CONF','Licencia','');
     minutosLog:=StrToInt(config.ReadString('CONF','MinutosLog','0'));
     GSentinelKey:=config.ReadString('CONF','Licencia','');
@@ -740,8 +743,8 @@ begin
       hosesArr := TlkJSONlist.Create;
 
       mangueras:=posiciones.Child[i].Field['Hoses'];
-      if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-        TPosCarga[xpos].ModoOpera:='Prepago'
+      if (PermiteModoNormal)and(UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE') then
+        TPosCarga[xpos].ModoOpera:='Normal'
       else
         TPosCarga[xpos].ModoOpera:='Prepago';
       for j:=0 to mangueras.Count-1 do begin
@@ -769,10 +772,7 @@ begin
           ActualizarPrecio:=true;
           SwDesp:=false;
           SwDespTot:=false;
-          if UpperCase(VarToStr(posiciones.Child[i].Field['OperationMode'].Value))='FULLSERVICE' then
-            ModoOpera:='Prepago'
-          else
-            ModoOpera:='Prepago';
+          ModoOpera:=TPosCarga[xpos].ModoOpera;
           SwPrepagoM:= (ModoOpera='Prepago');
         end;
         
@@ -1251,6 +1251,23 @@ begin
     on e:Exception do
       AddPeticionJSON(folio, 'False|Excepcion: '+e.Message+'|');
   end;
+end;
+
+procedure Togcvdispensarios_hongyang.AplicaModoOpera(xpos:Integer; xmodo:string);
+var
+  i:Integer;
+begin
+  // Enllava en prepago o si la posicion esta bloqueada; en modo libre desenllava
+  TPosCarga[xpos].ModoOpera:=xmodo;
+  for i:=1 to MaxMangueras do with TMangueras[i] do
+    if PosCarga=xpos then begin
+      ModoOpera:=xmodo;
+      SwPrepagoM:=(xmodo='Prepago');
+      if (SwPrepagoM)or(TPosCarga[xpos].SwDesHabilitado) then
+        MeteACola('C'+inttoclavenum(i,2))
+      else
+        MeteACola('D'+inttoclavenum(i,2));
+    end;
 end;
 
 procedure Togcvdispensarios_hongyang.FinVenta(folio: Integer; msj: string);
@@ -2076,25 +2093,11 @@ begin
         xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
         if (xpos in [0..MaxPosiciones]) then begin
           if xpos=0 then begin
-            for xpos:=1 to MaxPosiciones do begin
-              for i:=1 to MaxMangueras do begin
-                //if (TMangueras[i].PosCarga=xpos) then begin
-                  MeteACola('C'+inttoclavenum(i,2));
-                  TMangueras[i].SwPrepagoM:=true;
-                  TMangueras[i].ModoOpera:='Prepago';
-                //end;
-              end;
-            end
+            for xpos:=1 to MaxPosiciones do
+              AplicaModoOpera(xpos,'Prepago');
           end
-          else begin
-            for i:=1 to MaxMangueras do begin
-              if (TMangueras[i].PosCarga=xpos) then begin
-                MeteACola('C'+inttoclavenum(i,2));
-                TMangueras[i].SwPrepagoM:=true;
-                TMangueras[i].ModoOpera:='Prepago';
-              end;
-            end;
-          end;
+          else
+            AplicaModoOpera(xpos,'Prepago');
           rsp:='OK';
         end
         else SwAplicaCmnd:=false;
@@ -2103,25 +2106,13 @@ begin
       else if ss='DMP' then begin
         xpos:=StrToIntDef(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,2,' '),0);
         if (xpos in [0..MaxPosiciones]) then begin
-          if xpos=0 then begin
-            for xpos:=1 to MaxPosiciones do begin
-              for i:=1 to MaxMangueras do begin
-                //if (TMangueras[i].PosCarga=xpos) then begin
-                  MeteACola('D'+inttoclavenum(i,2));
-                  TMangueras[i].SwPrepagoM:=false;
-                  TMangueras[i].ModoOpera:='Prepago';
-                //end;
-              end;
-            end;
-          end
-          else begin
-            for i:=1 to MaxMangueras do begin
-              if (TMangueras[i].PosCarga=xpos) then begin
-                MeteACola('D'+inttoclavenum(i,2));
-                TMangueras[i].SwPrepagoM:=false;
-                TMangueras[i].ModoOpera:='Prepago';
-              end;
-            end;
+          if PermiteModoNormal then begin
+            if xpos=0 then begin
+              for xpos:=1 to MaxPosiciones do
+                AplicaModoOpera(xpos,'Normal');
+            end
+            else
+              AplicaModoOpera(xpos,'Normal');
           end;
           rsp:='OK';
         end
@@ -2345,6 +2336,7 @@ var
     haspPath  : string;
     haspResult: string;
     haspMessage:string;
+    xpos      : Integer;
 begin
   try
     CoInitialize(nil);
@@ -2390,6 +2382,8 @@ begin
 
       detenido:=False;
       estado:=1;
+      for xpos:=1 to MaxPosiciones do
+        AplicaModoOpera(xpos,TPosCarga[xpos].ModoOpera);
       CmndProc:='A';
       Timer1.Enabled:=True;
       Timer2.Enabled:=False;
@@ -2609,7 +2603,7 @@ begin
           for xpos:=1 to MaxPosiciones do begin
             TPosCarga[xpos].SwDesHabilitado:=True;
             if TPosCarga[xpos].ModoOpera='Normal' then
-              EjecutaComando('AMP '+IntToClaveNum(xpos,2));
+              EjecutaComando('DMP '+IntToClaveNum(xpos,2));
           end;
           AddPeticionJSON(folio, 'True|');       
         end
@@ -2620,7 +2614,7 @@ begin
         if LinEstadoGen[xpos]<>'2' then begin
           TPosCarga[xpos].SwDesHabilitado:=True;
           if TPosCarga[xpos].ModoOpera='Normal' then
-            EjecutaComando('AMP '+IntToClaveNum(xpos,2));
+            EjecutaComando('DMP '+IntToClaveNum(xpos,2));
           AddPeticionJSON(folio, 'True|');
         end
         else
@@ -2651,14 +2645,14 @@ begin
         for xpos:=1 to MaxPosiciones do begin
           TPosCarga[xpos].SwDesHabilitado:=False;
           if TPosCarga[xpos].ModoOpera='Normal' then
-           EjecutaComando('AMP '+IntToClaveNum(xpos,2));
+           EjecutaComando('DMP '+IntToClaveNum(xpos,2));
         end;
         AddPeticionJSON(folio, 'True|');
       end
       else if (xpos in [1..MaxPosiciones]) then begin
         TPosCarga[xpos].SwDesHabilitado:=False;
         if TPosCarga[xpos].ModoOpera='Normal' then
-          EjecutaComando('AMP '+IntToClaveNum(xpos,2));
+          EjecutaComando('DMP '+IntToClaveNum(xpos,2));
         AddPeticionJSON(folio, 'True|');
       end;
     end
