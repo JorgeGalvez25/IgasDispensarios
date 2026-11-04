@@ -1,6 +1,6 @@
 # Hallazgos · TEA · Driver Team (Marca 3) · UIGASTEAM.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -143,28 +143,18 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 | ComandoConsolaBuff / CombustibleEnPosicion / PosicionDeCombustible / EnviaPreset / StrToHexSep / HexSepToStr / HexToBinario | 1614-1627, 2268-2279, 2933-2946, 2981-3002, 2901-2956 | Patrones comunes a los drivers legados (cola ListaCmnd, búsqueda de combustible por posición, utilerías hex). PosicionDeCombustible devuelve el código de combustible y no el índice; solo se usa como booleano. |
 | Records tiposcarga y RegCmnd y globales TPosCarga[1..100] / TabCmnd[1..200] / LPrecios[1..4] | 162-243, 251-275 | Estructura copiada de driver a driver con campos acumulados que ya no se usan (aros_*, swarosmag, Boucher, TCodigoTeam, etc.) y globales heredadas (AvanceBar, SwSolOk, ContDA, StErrSol, ruta_db, Licencia3Ok). |
 
-## Hallazgos (36)
-
-<a id="TEA-01"></a>
-#### TEA-01 · 🔴 Crítica · correccion · bug — Fin de venta falso: finventa=1 se convierte en estatus 8/7 aunque no haya habido despacho
-
-- **Ubicación:** `UIGASTEAM.pas` líneas 2065-2071, 2089-2095, 2490-2493, 2505-2510, 2707-2713, 1790-1791, 1906-1909
-- **Módulos afectados:** UIGASTEAM.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** En OCC/OCL, finventa se fija con el parámetro de AUTHORIZE ANTES de EnviaPreset, y se queda aunque EnviaPreset rechace (estatus<>1, deshabilitada) o aunque la bomba rechace el A5 (66 66) o no conteste (no hay reintento). En modo A3 cualquier sondeo en reposo con finventa=1 da estatus 8. En el siguiente sondeo estatusAnterior=8 cumple '((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8])', se programa la 'lectura final' A1, ProcesaLinea 'A' pone finventa:=2 y el estatus pasa a 7, que se publica como '3'. En modo A4 es inmediato: 'if (estatus=1) and (finventa=1) then estatus:=8; if estatus=8 then begin finventa:=2; estatus:=7; end;' publica '3' en el primer A4 en reposo después del OCC. HongYang (swfinventa, que solo se activa en estatus 5) y Wayne2W (volumen>0) tienen esta guarda; Team no.
-- **Evidencia:** ProcesaComandos 2068-2071: 'TPosCarga[SnPosCarga].finventa:=StrToIntDef(...,6...); ... EnviaPreset(rsp,xcomb,false);'. A3 2490: 'if (estatus=1)and(finventa=1) then estatus:=8;' y 2505: 'if ((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8]) then SwLecturaFinalPendiente:=true'. A4 2707-2713. Comparar con UIGASHONGYANG.pas:1307 '(finventa=1)and(swfinventa)' y UIGASWAYNE2W.pas:2733 '(EsperaFinVenta=1) and (volumen>0)'.
-- **Impacto:** Si un preset no se aplica (error serial, rechazo o posición ocupada), OpenGas ve 'Fin de carga' sin que haya habido despacho. Lee TRANSACTION del snapshot, que trae el importe y volumen de la venta anterior que sigue en la pantalla, y cierra el ticket prepagado con un monto equivocado o duplica una venta. Además la posición queda en 7 esperando un PAYMENT que no corresponde y bloquea los presets siguientes.
-- **Recomendación:** Agregar a tiposcarga una bandera SwHuboDespacho: se pone en True al detectar estatus 5 (A3) o ss 20/21/24 (A4) y se limpia en FINV/OCC. Aplicar 'estatus:=8/7' y la detección de fin solo si SwHuboDespacho. Asignar finventa solo cuando EnviaPreset devuelva 'OK' y revertirlo si el A5 se rechaza (66 66) o vence (guardar la posición del último A5 como ya se hace con PosCmndN). Probar en banco: preset rechazado, A5 sin respuesta y A4/A3 en reposo justo después del OCC.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
+## Hallazgos (35)
 
 <a id="TEA-02"></a>
-#### TEA-02 · 🔴 Crítica · correccion · bug — Volumen final por totalizador sin validar: TotalLitrosInicio en 0 o desfasado da volúmenes absurdos o acumulados
+#### TEA-02 · 🟠 Alta (originalmente critica) · correccion · bug — Volumen final por totalizador sin validar: TotalLitrosInicio en 0 o desfasado da volúmenes absurdos o acumulados
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1833-1846, 2498-2503, 2718-2726, 784-792, 1819-1822
 - **Módulos afectados:** UIGASTEAM.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Caso 1, confirmado. AgregaPosCarga (784-794) deja TotalLitros=0, SwEsperandoTotales=false y SwTotalInicialVenta=false. El ciclo va A3, luego A1, luego A9 (1865-1960). Si el primer A3 ve estatus=5 (venta en curso al hacer INITIALIZE+RUN o al reiniciar), 2498-2503 captura TotalLitrosInicio=0. En A4, 2721 no protege porque SwEsperandoTotales empieza en false y el A9 se difiere (1943). Al cierre, 1833-1845 solo exige xdif>=0 y publica el totalizador absoluto. En A3 el valor malo persiste: en reposo no se vuelve a pedir A1 (1875). En A4 es transitorio, porque el siguiente A4 con la pantalla distinta de cero sobrescribe volumen y el JSON (2659-2687).
+Caso 2, sobrestimado. Un A9 con checksum malo sí se procesa (2609-2621 no revisa csok), y el 66 66 se reintenta (2435-2438). Solo el timeout pierde la respuesta. Además, FINV (2107-2112) o TOTAL (2131-2137) vuelven a pedir los A9 y la venta se recupera, porque TotalLitrosInicio sigue siendo el de antes de la venta. Solo suma dos ventas si no llega ni PAYMENT ni TOTAL antes de la siguiente.
+Caso 3 es un error de configuración.
+El importe no se ve afectado. Severidad alta: el disparador principal es un reinicio con venta en curso en modo A3.
 - **Qué pasa:** Al llegar los A9 después de una venta, si SwTotalInicialVenta y SwDesp están activos, el volumen se sustituye por TotalLitros-TotalLitrosInicio sin ninguna comparación contra el display. Caso 1: AgregaPosCarga deja TotalLitros=0, SwCargaTotales=true y SwEsperandoTotales=false. Si una venta está en curso al arrancar (RUN, reinicio del servicio o INITIALIZE en operación), o empieza antes del primer A9 (en A4 el A9 se difiere hasta que EstadoTeam esté en reposo), TotalLitrosInicio se captura en 0. En A4 la guarda 'SwTotalInicialVenta:=not SwEsperandoTotales' no protege porque SwEsperandoTotales empieza en false. Al cerrar, el volumen reportado es el totalizador absoluto (millones de litros). Caso 2 (A3): si se pierde un A9 después de la venta (timeout o checksum; no hay reintento), SwTotalInicialVenta queda true y en la siguiente venta 'not SwTotalInicialVenta' impide recapturar el inicio: el volumen reportado es la suma de dos ventas. La corrección de eb15e8b solo se aplicó a la ruta A4. Caso 3: con TresDecimTotTeam mal configurado, el volumen sale multiplicado o dividido entre 10.
 - **Evidencia:** 1838-1842: 'xdif:=TotalLitros[xpr]-TotalLitrosInicio[xpr]; if xdif>=0 then begin volumen:=AjustaFloat(xdif,3); ... ActualizaCampoJSON(xpos,'Volumen',volumen)'. A3 2498: 'if (estatus=5) and (not swcargando) and (not SwTotalInicialVenta) then ... TotalLitrosInicio[I]:=TotalLitros[I]'. A4 2721: 'SwTotalInicialVenta:=not SwEsperandoTotales;'. AgregaPosCarga 784-791: TotalLitros/TotalLitrosInicio:=0, SwEsperandoTotales:=false.
 - **Impacto:** Volumen de la transacción equivocado en el snapshot (y en TRANSACTION hacia OpenGas): desde valores imposibles hasta ventas sumadas. Afecta controles volumétricos, inventarios, facturación por litro y auditorías (CENAM/PROFECO).
@@ -172,12 +162,19 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="TEA-03"></a>
-#### TEA-03 · 🔴 Crítica · correccion · bug — La línea sintética 'A' usa formatos de ancho fijo que se desbordan con 1000 L o más y corrompen importe, precio y volumen
+#### TEA-03 · 🟠 Alta (originalmente critica) · correccion · bug — La línea sintética 'A' usa formatos de ancho fijo que se desbordan con 1000 L o más y corrompen importe, precio y volumen
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 2555-2565, 1746-1760
 - **Módulos afectados:** UIGASTEAM.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El desborde existe. La línea se arma en 2560-2563 con los formatos '000000', '00000000' y '0000', y ProcesaLinea 'A' la lee por posiciones fijas: copy 5,6 / 11,8 / 19,4 (1746-1750). El ejemplo de 1000 L es correcto.
+Correcciones al detalle:
+(1) El importe no queda siempre en 1/10: el séptimo dígito del volumen pasa a ser el más significativo del importe. Por ejemplo, 1234.567 L a 25 da un importe leído de 703086.41, que puede salir muy inflado.
+(2) Un precio de 100.00 o más no es realista en MXN.
+(3) Solo afecta al modo no extendido (A3/A1). En A4 se decodifica directo (2647-2687).
+(4) Mitigación parcial: 'FIN DE VENTA CORREGIDO' (1764-1772) conserva la lectura previa si esta era menor a 1000 L y el importe corrupto es menor. La sustitución por totalizador (1833-1845) puede corregir el volumen, pero no el importe ni el precio.
+(5) El disparador es raro: una venta de 1000 L o más. Con OCC no se alcanza (máximo 9999 pesos, unos 400 L). Sí se alcanza con OCL (preset de hasta 9999.99 L, 2997-2998) o en modo normal, por ejemplo con camiones de diésel.
+La consecuencia es grave, la probabilidad es baja: severidad alta.
 - **Qué pasa:** En modo normal (A1), pSerialTriggerAvail convierte la lectura a un string 'A'+pos+'0'+FormatFloat('000000',volumen*1000)+FormatFloat('00000000',importe*100)+FormatFloat('0000',precio*100), y ProcesaLinea lo vuelve a parsear por posiciones fijas (copy 5,6 / 11,8 / 19,4). Con 1000.000 L o más, el campo de volumen ocupa 7 dígitos y todo se recorre: volumen=1/10, importe=1/10 y precio basura. Un precio de 100.00 o más también recorre el campo. Ese resultado es lo que se escribe en el JSON.
 - **Evidencia:** 2560-2563: 'LineaTimer:=''A''+inttoclavenum(xpos,2)+''0''+FormatFloat(''000000'',volumen*1000)+FormatFloat(''00000000'',importe*100)+FormatFloat(''0000'',precio*100)'. 1746-1750: 'volumen:=StrToFloat(copy(lin,5,6))/1000; simp:=copy(lin,11,8); spre:=copy(lin,19,4)'. Ejemplo: 1000 L x 24.50 = '1000000'+'02450000'+'2450', que se lee como volumen 100.000, importe 2450.00 y precio 2.45.
 - **Impacto:** Despachos grandes de diesel (tractocamiones, flotillas) se reportan con una décima del importe y del volumen: cobro incorrecto. La corrección por totalizador solo arregla el volumen, no el importe.
@@ -188,7 +185,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-04 · 🟠 Alta · correccion · bug — La corrección 'FIN DE VENTA CORREGIDO' de la ruta A1 no actualiza el JSON
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1752-1760, 1768-1776 (vs 2730-2741)
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** ProcesaLinea 'A' escribe primero en el JSON la lectura nueva del display (Volumen, Importe, Precio). Después, si esa lectura final es menor que la anterior (pantalla en ceros o reinicio del display), corrige importe/volumen/precio en TPosCarga, pero ya no vuelve a escribir el JSON. El Bridge contesta TRANSACTION desde el JSON, así que la corrección nunca llega a OpenGas. La ruta A4 sí escribe el JSON después de corregir (2738-2740).
 - **Evidencia:** 1757-1759: 'ActualizaCampoJSON(xpos,''Volumen'',volumen); ...Importe...; ...Precio...' y después 1769-1774: 'if (importenvo<importepre) then begin AgregaLog(''FIN DE VENTA CORREGIDO''); importe:=importepre; volumen:=volumenpre; precio:=preciopre; end' sin ActualizaCampoJSON.
@@ -200,7 +197,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-05 · 🟠 Alta · correccion · bug — ProcesaComandos y ResultadoComando solo revisan TabCmnd[1..40]: los comandos en los slots 41..200 nunca se ejecutan
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1981, 3008-3010, 2238-2251
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** EjecutaComando busca el primer slot libre en 1..200. Un slot solo se libera cuando, al buscar, se encuentra activo y con más de 1 minuto (tmMinuto); responder no lo libera. Con más de 40 comandos en un minuto (ráfagas de AUTHORIZE/PAYMENT/TOTALS, SELFSERVICE 0 que genera un AMP por posición, cierres de turno), los nuevos caen en el slot 41 o más. ProcesaComandos ('for xcmnd:=1 to 40') nunca los procesa y RESPCMND devuelve '*'. Los demás drivers, salvo Kairos/Gilbarco en ResultadoComando, recorren 200.
 - **Evidencia:** 1981: 'for xcmnd:=1 to 40 do if (TabCmnd[xcmnd].SwActivo)and(not TabCmnd[xcmnd].SwResp)'. 3008: 'for i:=1 to 40 do'. 2241-2246: expiración solo dentro del repeat de EjecutaComando. Wayne2W 2014, PAM 1381 y HongYang 2070 usan 1..200.
@@ -224,7 +221,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-07 · 🟠 Alta · protocolo · bug — Cambio de precios sin confirmación: LPrecios se actualiza aunque la bomba no aplique el A6, se envía un 'U' por posición e incluso a posiciones sin mangueras
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 2151-2196, 1535-1546, 1607-1608, 2313-2314, 1800-1809, 2556-2559, 2674-2680, 1057-1068
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** CPREC sobrescribe LPrecios de inmediato y encola un 'U' para cada posición de 1..MaxPosCarga. Como A6 es por dispensario (sin lado), cada dispensario recibe el cambio dos veces. Las posiciones sin mangueras (NoComb=0, dispensario 0) también reciben un A6 al dispensario 00 y además se lee LPrecios[TComb[1]=0] fuera de rango. Cada 'U' detiene el sondeo 1.25 s (HoraFinEsperaU): con 16 posiciones son unos 20 s sin sondear. La respuesta A6 se decodifica (xprec) pero no se compara con nada; ActualizarPrecio nunca se pone en True. Un rechazo (66 66) o un timeout no se reintenta ni se reporta, e IniciaPrecios responde True (PRICES además es fire-and-forget en el Bridge). Si los lados de un mismo dispensario tienen productos distintos, el último 'U' impone sus precios.
 - **Evidencia:** 2156-2159: 'LPrecios[ii] := precioComb' antes de enviar. 2163-2194: un 'U' por posición sin revisar NoComb. 1607-1608: 'HoraFinEsperaU:=IncMilliSecond(Now,MsEsperaCambioPrecio)'. 1800-1808: xprec[] se calcula y solo hace 'ActualizarPrecio:=false'. 2557-2559 (A1): 'precio:=lprecios[xcomb]; volumen:=AjustaFloat(dividefloat(importe,precio),3)'. 2675-2676 (A4): 'precio:=lprecios[xcomb]'.
@@ -249,7 +246,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 2742-2745, 2697-2702, 1902-1909, 2366-2371
 - **Módulos afectados:** UIGASTEAM.pas, OpenGas
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En A4, al cerrar la venta se fuerza 'if estatus=1 then estatus:=7' (commit eb15e8b: 'reporta el fin de carga sin ss=30'). Pero swcargando ya quedó en false, y en el siguiente sondeo ss=3/6/9/12 o 30 dan estatus 1, así que el '3' dura un ciclo. El JSON se envía cada 750 ms, independiente del ciclo, y un ciclo con pocas posiciones activas tarda 100-300 ms: el '3' puede no llegar nunca al snapshot que se envía. En A3 con finventa=0 el estatus pasa de 5 a 1 sin pasar por 7: se publica '2' (lectura final pendiente) y luego '1'. Certeza media sobre el impacto, porque depende de cómo detecta OpenGas el fin en postpago.
 - **Evidencia:** 2743-2745: 'if estatus=1 then estatus:=7;' y 2697-2701: '30: begin if swcargando then estatus:=7 else estatus:=1; end;'. 2368: el envío del JSON se decide por 'MilliSecondsBetween(Now,HoraUltJSON)>=MsEnvioJSON'.
@@ -321,7 +318,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-15 · 🟡 Media · correccion · bug — HALT/RUN no limpian la cola ni TabCmnd: un AUTHORIZE recibido con el driver detenido se ejecuta al hacer RUN
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1233-1254, 1256-1314, 1981, 2241
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Detener cierra el puerto, pero no limpia ListaCmnd, TabCmnd, SwEsperaRsp, Linea ni LineaBuff. Iniciar tampoco. Con el servicio detenido, ClientSocket1Read sigue aceptando AUTHORIZE/PAYMENT/TOTALS (EjecutaComando los guarda y el Bridge ya confirmó True), pero ProcesaComandos no corre. Al dar RUN, ProcesaComandos ejecuta esos comandos viejos sin revisar su antigüedad: la expiración solo ocurre dentro de EjecutaComando. Un preset de hace minutos u horas se envía a una posición libre. Además, el primer tick después de RUN siempre hace 'Reset' (cierra y reabre el COM) porque HoraComandoB y HoraRspB valen 0 o tienen el valor de antes de HALT.
 - **Evidencia:** Detener 1240-1247 solo hace 'pSerial.Open:=False; Timer1...; detenido:=True; estado:=0'. ProcesaComandos 1981 no revisa TabCmnd[].hora. 2292: 'if (now-HoraComandoB>5*TmSegundo)or(...)'.
@@ -346,7 +343,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-17 · 🟡 Media · correccion · riesgo — Una venta que empieza y termina sin que el driver la vea despachando no se registra
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 2505-2510, 2697-2702, 2728
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El fin de venta solo se detecta si antes se vio estatus 5/8 o swcargando. Si se corta la comunicación durante toda la venta (estatus 0 por ContEsperaB>=3 y luego reposo), o la venta es más corta que el intervalo de sondeo de una posición inactiva (cada CiclosInactivas ciclos), al volver A3 reporta reposo o A4 reporta ss=30 o 3/6/9/12 con la pantalla de la venta. Esto se trata como reposo ('30: ... else estatus:=1') y no se genera fin de venta.
 - **Evidencia:** 2505: 'if ((estatusAnterior in [5,8]) or swcargando) and (estatus in [1,7,8])'. 2697-2701: ss=30 sin swcargando da estatus 1.
@@ -358,7 +355,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-18 · 🟡 Media · correccion · bug — La lógica de transiciones de ProcesaLinea 'B' es código muerto: estatusant siempre es igual a estatus
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1687-1727
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** La línea sintética B se arma con TPosCarga.estatus, que A3/A4 ya actualizaron. ProcesaLinea hace 'estatusant:=estatus; estatus:=(el mismo valor)'. Por eso 'if estatusant<>1' (1707) y 'if estatusant<>5' (1721) nunca se cumplen. No se reinician importenvo, volumennvo y precionvo al empezar una venta (importepre del primer A1 queda con la venta anterior) ni PosAutorizada, FinVenta y TipoPago al volver a reposo. ContDesp/importeant (1762-1766), SwCargaPreset e IniciaCarga no tienen efecto.
 - **Evidencia:** 1691-1692: 'estatusant:=estatus; estatus:=StrToIntDef(ss[xpos*2],0);' donde ss viene de 2346: 'inttostr(PosActual)+inttostr(estatus)'.
@@ -394,7 +391,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-21 · 🟡 Media · memoria_recursos · bug — LPrecios[1..4] se indexa con ProductId y TComb sin validar (con $R- corrompe memoria)
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 693, 255-256, 1683, 2142-2144, 2167-2189, 2557, 2675
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Inicializar escribe 'LPrecios[productID]' con el ProductId que llega en el JSON, sin revisar 1..4. PDISPENSARIOS.cfg compila con -$R- (sin chequeo de rangos). Con ProductId ≥5 se escribe sobre las globales siguientes; por el orden de declaración probablemente es MaxPosCarga, que se calculó justo antes en AgregaPosCarga, y un double como 23.45 deja MaxPosCarga en ~858 millones, con desbordes masivos de TPosCarga. También se lee fuera de rango: LPrecios[TComb[2..3]=0] en la respuesta de TOTAL con NoComb<3, LPrecios[TComb[1]=0] en CPREC para posiciones sin mangueras, y LPrecios[xcomb] con productos >4 en A1/A4/'B'.
 - **Evidencia:** 693: 'LPrecios[productID]:=productos.Child[i].Field[''Price''].Value;'. 2142-2144: 'LPrecios[TComb[2]]', 'LPrecios[TComb[3]]'. PDISPENSARIOS.cfg: '-$R-'.
@@ -431,7 +428,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-24 · 🟡 Media · correccion · bug — Totales: un A9 perdido deja SwEsperandoTotales activo sin reintento; TOTAL calcula el importe con el precio actual
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 1666-1667, 2432-2439, 1946-1956, 2131-2148, 2229-2230
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si un A9 vence o trae checksum malo, ProcesaLinea sale ('if not checksum then exit') sin decrementar TotalesPendientes. SwCargaTotales solo se vuelve a activar con un rechazo 66 66, así que SwEsperandoTotales queda en True hasta el siguiente FINV o TOTAL. Mientras tanto TOTAL no responde (SwAplicaCmnd=False), la posición se sondea en cada ciclo y en A4 el volumen por totalizador de la siguiente venta se desactiva. El 'importe' de TOTAL es TotalLitros por el precio vigente (no un totalizador monetario) y solo incluye 3 mangueras. Con NoComb=1 se pide siempre el producto 3 ('diesel').
 - **Evidencia:** 1666-1667: 'if not checksum then exit;'. 2436-2438: reintento solo en 66 66. 2142: 'FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])'. 1953: 'inttostr(3)' para NoComb=1.
@@ -467,7 +464,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-27 · 🟡 Media · correccion · bug — Presets: OCL de menos de 0.5 L se envía como preset de $0, no hay tope de litros, y la respuesta 'OK' sale antes de confirmar el A5
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 2997-3000, 2083-2084, 2073, 2097, 2432-2446, 2199-2201, 1530-1531
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En OCL, SnImporte:=0. Si 0<litros<0.5, EnviaPreset manda 'S' con importe 0 (A5 06 00000000), lo que según el firmware puede ser venta libre o rechazo. OCL no tiene tope y con 10000 L o más el formato '0000.00' produce 7 dígitos que ComandoConsola trunca con copy(…,4,6). OCC con un combustible que no existe en la posición solo registra en el log y responde 'OK' (OCL responde error): es inconsistente. TabCmnd.Respuesta se pone en 'OK' cuando se encola, no cuando la bomba acepta; un rechazo 66 66 del A5 solo se registra.
 - **Evidencia:** 2997-3000: 'if SnLitros>=0.5 then ss:=''L''... else ss:=''S''+...FormatFloat(''0000.00'',SnImporte)'. 2073: 'else AgregaLog(''Preset no enviado...'')' con rsp='OK'.
@@ -479,7 +476,7 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 #### TEA-28 · ⚪ Baja · robustez · bug — Índices sin validar en otros arreglos (TPosCarga 1..100, TComb/TPos 1..MCxP, TabCmnd 1..200, LinEstadoGen)
 
 - **Ubicación:** `UIGASTEAM.pas` líneas 843, 864-865, 877-878, 1544, 1550, 1556, 1584, 2690, 2239-2246, 1207, 1678, 1692
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** AgregaPosCarga usa TPosCarga[xpos] con el DispenserId sin validar e incrementa NoComb sin tope (TComb[5] pisa TPos[1]). ComandoConsola 'U','C','D','N' no validan xpos; en 'N' se escribe TPosCarga[xpos].AuxCmndN antes del 'if xpos>0'. En A4, TMang[posactual] con posactual=0 al primer sondeo. En EjecutaComando, con la tabla llena, el repeat lee y escribe TabCmnd[201] (justo después de TabCmnd están LPrecios). EstadoPosiciones accede a LinEstadoGen[xpos] sin revisar la longitud. En la línea 'B' se accede a ss[xpos*2] sin revisar la longitud. Todo esto con -$R-.
 - **Evidencia:** 1584: 'TPosCarga[xpos].AuxCmndN:=strtointdef(s1,1); PosCmndN:=xpos; if xpos>0 then'. 2239-2246: 'repeat inc(ind); if (TabCmnd[ind].SwActivo)... until (not TabCmnd[ind].SwActivo)or(ind>200);'.
@@ -583,4 +580,10 @@ Tiempos efectivos: cada comando cuesta lo que tarde el dispensario más PausaCmn
 - **Impacto:** CPU y latencia innecesarias, sobre todo en estaciones con muchas posiciones.
 - **Recomendación:** Guardar referencias a los TlkJSONobject de cada posición (arreglo por xpos) al crearlos en AgregaPosCarga. Partir la trama una sola vez en un TStringList o arreglo de bytes. Mandar el JSON solo cuando cambie o haya Peticiones nuevas (manteniendo un heartbeat para DatosObsoletos).
 - **Esfuerzo:** M · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+## Hallazgos descartados por el verificador (1)
+
+- **TEA-01** Fin de venta falso: finventa=1 se convierte en estatus 8/7 aunque no haya habido despacho — finventa=1 nunca se alcanza en Team. AutorizarVenta (902-932) es la única fuente de OCC/OCL: EjecutaComando se llama en 932, 946, 960, 974, 995-1028, 1060 y 1225. Arma el comando con 5 tokens: 'OCC pos cant comb finv'. ProcesaComandos lee tipopago del token 5 y finventa del token 6 (2068-2069 y 2092-2093). El token 6 no existe, así que StrToIntDef('',0)=0. El código asume que ExtraeElemStrSep devuelve '' fuera de rango (ver comb='' en 927 y posCarga='' en 921).
+Otras asignaciones de finventa: 805 (0), 2108 (FINV, 0) y 1790-1791 (2, solo si estatus=8, que a su vez exige finventa=1). Las ramas de 2490-2493 y 2707-2713 son código muerto, y la secuencia descrita (estatus 8/7 publicado como 3 sin despacho) no puede ocurrir.
+El defecto real es el contrario: el flag finv de OpenGas cae en tipopago y la espera de FINV nunca se activa en Team. Lo mismo pasa en Wayne (UIGASWAYNE.pas 1629-1630 y 1699-1700, frente a Bennett/PAM, que leen el token 5). Conviene reportarlo como hallazgo aparte.
 

@@ -1,6 +1,6 @@
 # Hallazgos · W2W · Driver Wayne 2W (Marca 9) · UIGASWAYNE2W.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -110,11 +110,13 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 ## Hallazgos (44)
 
 <a id="W2W-01"></a>
-#### W2W-01 · 🔴 Crítica · correccion · bug — Venta mayor a 9,999.99 se cierra con el importe desbordado si falla la lectura de volumen al cierre
+#### W2W-01 · 🟠 Alta (originalmente critica) · correccion · bug — Venta mayor a 9,999.99 se cierra con el importe desbordado si falla la lectura de volumen al cierre
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 1620-1640, 1686-1690, 1755-1759, 2787-2803
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo es real. En UIGASWAYNE2W.pas, CorrigeDesbordeImporte (1620-1640) hace Exit si falla LeeVolumen (1570-1590). DameLecturas pone result:=true de todos modos (1686-1690 en SegmActual=1 y 1755-1759 en SegmActual=2). El paso 2 de Timer1 (2787-2803) limpia SwLecturaFinalPendiente y publica Estatus 3. xvolumen:=importe/precio coincide con rLitros=rPesos/rPrecio (calculado en 1683-1686), así que el umbral de 0.5 L nunca se dispara. Una lectura final que devuelve True no se reintenta.
+Cambia la severidad: es un residuo del commit ea8feb7. Antes de él no había ninguna corrección. Para que pase se necesitan a la vez una venta mayor a 9,999.99 y que falle el comando 0F 26 inmediatamente después de que el importe (0F 2A) y el precio sí respondieron. Cada comando se intenta GtwIntentos=2 veces con GtwTimeout=300 ms por defecto (826-828; TransmiteComando1 1176-1236). Es un caso poco frecuente, aunque si ocurre el importe queda corto en 10,000.
+Dos detalles que el hallazgo no menciona: (1) si un modelo de bomba no soportara 0F 26, la corrección fallaría siempre; (2) la rama 'leo volumen' (xposfis fuera de 1..7, 1705-1724) no corrige el desborde en absoluto. Si falla LeeDigitos78 se recurre al cálculo con volumen y precio, así que eso no es un problema.
 - **Qué pasa:** El importe llega en 6 digitos BCD y se envuelve en 1,000,000/DivImporte. La correccion (CorrigeDesbordeImporte) depende de que LeeVolumen responda (y de LeeDigitos78 con protocolo extendido). Si LeeVolumen falla (2 intentos de 300 ms), el procedimiento hace Exit sin corregir y sin avisar. DameLecturas devuelve True de todos modos y el paso 2 de Timer1 da por buena la lectura final: SwLecturaFinalPendiente:=false y el JSON pasa a Estatus 3 con el importe envuelto. Los litros se calcularon como importe/precio, asi que son coherentes con el importe equivocado y el chequeo de 0.5 L de la linea 2792 no lo detecta.
 - **Evidencia:** CorrigeDesbordeImporte: 'if not LeeVolumen(xPosCarga,xLitros) then Exit;' (1625-1626); DameLecturas: 'if xFinal or (rPesos>=xLimite) or (rPesosAnt>=xLimite) then CorrigeDesbordeImporte(...); result:=true;' (1688-1690). Timer1 paso 2: 'if DameLecturas(PosCiclo,Volumen,Precio,Importe,true) then begin ... SwLecturaFinalPendiente:=false' (2787-2796).
 - **Impacto:** Una venta real de $10,500 (420 L) se reporta y cobra como $500 / 20 L. Es una perdida directa en ventas grandes de diesel o flotillas cuando hay ruido en la linea.
@@ -125,8 +127,8 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-02 · 🟠 Alta · correccion · bug — CPREC puede programar precio 0.00 en mangueras cuyo producto no viene (o viene invalido) en PRICES
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 624-626, 2391-2401, 2580-2599
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisado: AgregaPosCarga 624-629 (TNuevoPrec[j]:=0 y TPrecio[j]:=0 en cada INITIALIZE); CPREC 2391-2401 (solo sobrescribe TNuevoPrec[xp] si nprec>0 y el indice i coincide con TComb[xp], pero pone TCambioPrecN1:=true en TODAS las posiciones); CambiaPrecios 2567-2622 (xprecio:=Trunc(TNuevoPrec[xp]*100+0.01) para xp=1..NoComb sin validar >0, programa los dos niveles: char(xposfis-1) y char(16+xposfis-1)); paso 7 de Timer1 2884-2890. Nada copia LPrecios (891) a TNuevoPrec. Por eso, si el primer PRICES despues de INITIALIZE omite un producto o lo trae vacio, en 0 o no numerico, esa manguera se programa a 0.00. Esto no pasa en los PRICES siguientes, porque TNuevoPrec conserva el valor anterior. Contraste: Gilbarco lleva una bandera por manguera (TCambioPrecN1[xp], UIGASGILBARCO.pas:2809) y Wayne 2W no. Lo de rsp es cierto: rsp no se reinicia por comando (2005; local string, '' solo al entrar), asi que CPREC hereda el texto del comando anterior procesado en la misma pasada, o 'OK' si es el primero. Pero no tiene efecto practico: IniciaPrecios (3579-3595) responde 'True|' al encolar, el Bridge confirma PRICES de inmediato (UIGASBRIDGE.pas:372-385) y nadie consulta el folio de CPREC. Que se dispare depende de que OpenGas mande un PRICES incompleto, pero el impacto (precio 0 en bomba) sostiene la severidad alta.
 - **Qué pasa:** TNuevoPrec se inicializa en 0 en AgregaPosCarga. CPREC solo lo sobrescribe para los productos con precio >0 en el mensaje (StrToFloatDef(..,-1)), pero marca TCambioPrecN1 en TODAS las posiciones. CambiaPrecios envia TNuevoPrec de TODAS las mangueras sin validar que sea >0. Si el primer PRICES tras INITIALIZE omite un producto, lo trae vacio, en 0 o con un valor no numerico, esa manguera se programa a $0.00 (val1=val2=0) en los dos niveles de precio. Ademas CPREC no asigna rsp, asi que hereda el texto del comando anterior del mismo ciclo.
 - **Evidencia:** 'nprec:=StrToFloatDef(ExtraeElemStrSep(precios,i,'|'),-1); for xp:=1 to NoComb do if (i=TComb[xp]) and (nprec>0) then TNuevoPrec[xp]:=nprec; ... TCambioPrecN1:=true;' (2394-2399); 'xprecio:=Trunc(TPosCarga[xPosCarga].TNuevoPrec[xp]*100+0.01);' (2582) sin validacion.
 - **Impacto:** Combustible despachado a precio cero hasta que alguien lo note. El Bridge ya confirmo PRICES a OpenGas (fire-and-forget), asi que nadie recibe un error. Si OpenGas siempre manda la lista completa y valida, el riesgo queda latente.
@@ -137,20 +139,46 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-03 · 🟠 Alta · correccion · bug — STOP/DVC no cancela un preset pendiente con la pistola levantada (estatus 5) ni cuando falla el envio
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2308-2346, 2849-2865
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisado: DVC/PARAR 2307-2345 (fuera de emulacion solo actua con estatus=2, DetenerDespacho, y con estatus=9, preset 9999.99, y limpia SwPreset/SwVigilaPreset/SwPreset2 solo si el envio tuvo exito; rsp:='OK' siempre). DameEstatus 1263-1349: con preset pendiente y pistola colgada devuelve 9 por SwPreset2 (1342-1343); con pistola levantada sin autorizacion devuelve 5 (1324-1331). Paso 4 de Timer1 2851-2874: autoriza si SwPreset y PosPreset=PosMangLev (o PosPreset=0). DetenerVenta 3514-3528 responde 'True|folio' al encolar, sin importar el resultado. Ventana con la manguera correcta: entre la lectura del paso 1 (estatus 5) y el paso 4 del siguiente tick hay un limite de tick donde ProcesaComandos (2657-2658) puede ejecutar el DVC. Es estrecha (~50-200 ms). Ventana con manguera equivocada: es larga. El PosPreset distinto de PosMangLev deja estatus 5 con SwPreset=true, el DVC no hace nada, y al levantar la manguera correcta se autoriza la venta cancelada. Tambien es cierto el caso de fallo de EnviaPresetPesosBomba en estatus 9: no limpia banderas y se responde OK. Lo de tbit3 (bomba ya autorizada, 1316-1317) es plausible pero no lo puedo verificar contra el protocolo Wayne. El mecanismo principal esta comprobado en el codigo.
 - **Qué pasa:** DVC solo actua para estatus 2 (DetenerDespacho) y 9 (reprograma 9999.99 y limpia SwPreset solo si el envio tuvo exito). Con preset pendiente y pistola levantada DameEstatus devuelve 5, y con la posicion sin comunicacion devuelve 0. En esos casos no se hace nada, se responde OK y en el siguiente tick el paso 4 (estatus=5, SwPreset, PosPreset=PosMangLev) envia el preset y autoriza. Si la bomba ya estaba autorizada (tbit3), un preset de 9999.99 no quita la autorizacion: la venta cancelada queda abierta hasta 9,999.99.
 - **Evidencia:** 'if (TPosCarga[xpos].estatus=2) then begin if DetenerDespacho(xpos) then begin end; end else if (TPosCarga[xpos].estatus=9) then begin if EnviaPresetPesosBomba(xpos,1,9999.99) then begin TPosCarga[xpos].SwPreset:=false; ...' (2333-2343); paso 4: 'if (SwPreset)and(PosPreset=PosMangLev) then ... AutorizaPm' (2852-2857).
 - **Impacto:** Una venta prepagada que el cajero cancelo (y posiblemente reembolso) se autoriza igual y el cliente despacha. Diferencias de caja y despacho sin cobro.
 - **Recomendación:** En DVC/PARAR limpiar siempre SwPreset, SwPreset2, SwVigilaPreset y PosPreset en cualquier estatus distinto de 2. Si la bomba esta autorizada, enviar un comando real de cancelacion/stop y confirmarlo con DameEstatus. Responder error si no se pudo. Probar: OCC, levantar pistola, STOP antes del siguiente tick.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
+<a id="W2W-13"></a>
+#### W2W-13 · 🟠 Alta · protocolo · bug — PAYMENT lo confirma el Bridge, pero FINV lo puede rechazar en silencio y la venta cobrada reaparece como fin de venta
+
+- **Ubicación:** `UIGASWAYNE2W.pas` líneas 2246-2296, 2025, 2147, 2693-2699, 1289-1301, 3530-3543
+- **Se atiende en:** [E5.2](../PLAN_OPTIMIZACION.md#e52--confirmación-real-de-prices-authorize-y-payment)
+- **Verificación:** ✅ confirmado por un verificador independiente — Verificado en ambos repos.
+
+Bridge: PAYMENT va con CliSock=nil y responde 'DISPENSERS|PAYMENT|True|0|' de inmediato (372-389). El resultado del driver se descarta y OpenGas nunca recibe el folio de TabCmnd para consultarlo con RESPCMND.
+
+Driver:
+- FinVenta solo encola 'FINV' (3530-3543).
+- ProcesaComandos rechaza FINV si Estatus no esta en [3,4] o si SwLecturaFinalPendiente (2271-2291). Solo deja la respuesta en TabCmnd (2405-2410).
+- SwVentaPagada solo se prende en 2284.
+- Con 3 fallas de estatus la posicion pasa a 0 (2693-2699). Despues entra a SinComunicacion y se reintenta cada SegReintentoSinCom=10 s (14, 2757-2762), asi que una caida breve deja la posicion en 0 unos 10 s o mas. Eso amplia la ventana para que el PAYMENT llegue durante ese 0.
+
+Al volver la comunicacion con la bomba In Use sin pistola (comportamiento documentado en 0add023), DameEstatus devuelve 3 porque importe>0 y SwVentaPagada es false (1289-1293). No hay guarda: swdesp ya es false, y EstatusAnt=0 no activa ningun bloque de 2702-2733. Ademas el paso 2 vuelve a leer la venta y pone HoraOcc:=Now (2784). La venta cobrada reaparece con hora nueva, lo que facilita que OpenGas la registre como venta distinta.
+
+OCC/OCL exigen estatus en [1,5] y not SwTransAbierta (2025, 2147). Sin SwVentaPagada tampoco se envia Sale End, asi que la posicion queda bloqueada hasta un segundo PAYMENT.
+
+Lo que haga OpenGas con el 3 repetido es externo, pero el defecto del driver y del Bridge existe tal como se describe.
+- **Qué pasa:** El Bridge confirma PAYMENT a OpenGas de inmediato y FinVenta solo encola 'FINV'. ProcesaComandos rechaza si Estatus no esta en [3,4] o si SwLecturaFinalPendiente; ese rechazo queda en TabCmnd y nadie lo consulta. Escenario plausible: falla la comunicacion justo al cobrar y despues de 3 fallas la posicion pasa a Estatus 0; el FINV se rechaza, SwVentaPagada no se prende, y al volver la comunicacion la bomba sigue In Use sin pistola con importe>0, asi que DameEstatus devuelve otra vez 3. OpenGas ve un fin de venta que ya cobro, y OCC/OCL rechazan presets (requieren estatus [1,5]) hasta un segundo PAYMENT.
+- **Evidencia:** 'if (TPosCarga[xpos].Estatus in [3,4]) then begin if TPosCarga[xpos].SwLecturaFinalPendiente then rsp:='Posicion aun tiene lectura final pendiente' else ... SwVentaPagada:=true' / 'else rsp:='Posicion aun no esta en fin de venta';' (2271-2291); DameEstatus: 'if (importe>0.001) and (not SwVentaPagada) then iStatus:=3' (1290-1292).
+- **Impacto:** Posicion bloqueada para prepago o venta reportada dos veces tras un cobro; diferencias entre OpenGas y la bomba.
+- **Recomendación:** Registrar el PAYMENT como intencion (SwVentaPagada pendiente) aunque la posicion este temporalmente en 0 o con lectura pendiente, y aplicarlo cuando la venta llegue a 3. Opcionalmente cambiar el contrato para que PAYMENT espere el resultado del driver por folio. Probar: desconectar la linea durante el cobro.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
+
 <a id="W2W-04"></a>
-#### W2W-04 · 🟠 Alta · correccion · bug — TPrecio (base de la conversion importe->litros) queda obsoleto despues de un cambio de precios
+#### W2W-04 · 🟡 Media (originalmente alta) · correccion · bug — TPrecio (base de la conversion importe->litros) queda obsoleto despues de un cambio de precios
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2458-2482, 2683-2686, 2884-2889, 2567-2622, 642
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El defecto es real. ConvierteImporteALitros (2458-2493) usa TPosCarga[x].TPrecio[xp]. TPrecio solo se escribe en LeePrecios (1143/1160), que se ejecuta en el paso 0 mientras SwLeePrecios=True (2683-2686). SwLeePrecios solo se pone en True en AgregaPosCarga (642) y en False en 2685 y 3666 (emulacion). CambiaPrecios (2567-2622) y el paso 7 (2886-2889) no actualizan TPrecio ni LPrecios ni reactivan SwLeePrecios. El commit 4d45d27 ('usando el precio leido del dispensario') confirma que se suponia un precio vigente. Se baja la severidad por el alcance: solo afecta presets de importe mayores al maximo (ValidaCifra con EnterosPresetPesos, 426-431). Sin protocolo extendido eso son importes entre 10,000 y ~1000 L x precio (ConvierteImporteALitros rechaza mas de 999.99 L); con extendido, mas de 99,999.99, casi nunca. Ademas tiene que haber habido un PRICES desde el arranque. El error de dinero es proporcional a la variacion de precio (p. ej. 1-5% de un preset de mas de $10k).
 - **Qué pasa:** ConvierteImporteALitros usa TPosCarga[x].TPrecio[xp], que solo se lee en el paso 0 (LeePrecios) mientras SwLeePrecios=True. Esa bandera solo se pone en True en AgregaPosCarga y se apaga al primer exito. CambiaPrecios no actualiza TPrecio ni LPrecios, ni reactiva SwLeePrecios. Despues de un PRICES, los presets en pesos mayores al maximo (9,999.99, o 99,999.99 en extendido) se convierten a litros con el precio anterior.
 - **Evidencia:** 'xprecio:=TPosCarga[xpos].TPrecio[xp]; ... xlitros:=Trunc(ximporte*100/xprecio+0.000001)/100;' (2471-2476); 'SwLeePrecios:=true' solo en la linea 642; paso 7: 'if CambiaPrecios(PosCiclo) then TCambioPrecN1:=false;' (2888-2889) sin refrescar precios.
 - **Impacto:** Con un aumento de precio, un preset de $12,000 a 24.00 (500 L) contra un precio real de 24.50 (489.8 L) sobredespacha ~10 L (~$250). Con una baja, subdespacha.
@@ -158,23 +186,35 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="W2W-05"></a>
-#### W2W-05 · 🟠 Alta · correccion · bug — Respuesta de TOTAL truncada a 80 caracteres, solo 3 mangueras e importe calculado con precios de INITIALIZE
+#### W2W-05 · 🟡 Media (originalmente alta) · correccion · bug — Respuesta de TOTAL truncada a 80 caracteres, solo 3 mangueras e importe calculado con precios de INITIALIZE
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 231-239, 2367-2390, 891, 3858-3861
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos), [E5.3](../PLAN_OPTIMIZACION.md#e53--totals-y-respcmnd-desde-el-snapshot)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos), [E5.3](../PLAN_OPTIMIZACION.md#e53--totals-y-respcmnd-desde-el-snapshot)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revisado: RegCmnd.Respuesta:string[80] (231-239). La respuesta de TOTAL (2367-2389) se trunca en silencio al asignarse a un shortstring y llega a OpenGas por RESPCMND (ResultadoComando 1061-1076, RespuestaComando 3800-3826). Cuantifico el umbral: largo = 2 + 3*(L+I) + 5. Con FormatoMoneda con separadores de miles (no esta en el repo, ULIBGRAL) se pasa de 80 cuando las 3 mangueras llegan a ~4.2 M de litros (importe de 14 caracteres). Sin separadores el umbral es ~42 M. DameTotal (1809-1900) admite 12 digitos BCD, asi que es alcanzable en bombas viejas y de alto volumen, y lo primero que se corta es el ultimo importe. LPrecios solo se asigna en INITIALIZE (891) y se limpia en 922 y 3858-3861; CPREC no lo actualiza. Cierto, pero el 'importe total' es una estimacion de diseno (TotalesBomba 3868-3889 y Bennett 1646-1648 usan el mismo formato de 3 mangueras, que es convencion del protocolo con OpenGas y no un bug propio del driver). LPrecios[TComb[k]] con TComb[k]=0 y $R- (PDISPENSARIOS.cfg -$R-) lee memoria fuera del arreglo, pero se multiplica por TotalLitros[k]=0 (629), asi que en la practica es inocuo. El truncado de los mensajes de ConvierteImporteALitros es cosmetico. Real pero acotado: severidad media.
 - **Qué pasa:** La respuesta se guarda en RegCmnd.Respuesta: string[80]. 'OK' + 3 x (litros|importe) supera 80 caracteres en cuanto un totalizador pasa de ~10 millones de litros (12 + 1 + 14 caracteres por manguera), y se trunca en silencio. Solo se reportan TotalLitros[1..3] aunque MCxP=4. El importe es TotalLitros x LPrecios[TComb[k]]: LPrecios se fija en INITIALIZE y nunca se actualiza con PRICES, y el importe no es un totalizador real de dinero. Con NoComb<3 se lee LPrecios[0] (TComb[k]=0), fuera de rango con $R-. Los mensajes de error largos de ConvierteImporteALitros (>80) tambien se truncan.
 - **Evidencia:** 'Respuesta  :string[80];' (238); 'rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])+...ToTalLitros[3]...' (2383-2385); LPrecios solo se asigna en 891 y se limpia en 3858-3861.
 - **Impacto:** Totales incompletos o cortados hacia OpenGas (controles volumetricos/cortes), cuarta manguera omitida e importes totales ficticios despues de cualquier cambio de precio.
 - **Recomendación:** Ampliar Respuesta a string largo (AnsiString) o guardar el resultado de TOTAL aparte. Iterar 1..NoComb. Leer el totalizador de importe real de la bomba si el protocolo lo permite (o documentar que es estimado) y no indexar LPrecios sin validar 1..4. Coordinar con OpenGas si cambia el numero de campos.
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
 
+<a id="W2W-06"></a>
+#### W2W-06 · 🟡 Media · robustez · bug — TOTAL sin validar limite superior de la posicion y sin respuesta en posiciones sin comunicacion o en emulacion
+
+- **Ubicación:** `UIGASWAYNE2W.pas` líneas 3868-3881, 2367-2380, 2812, 2836-2844
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
+- **Verificación:** sin verificación independiente
+- **Qué pasa:** TotalesBomba solo valida xpos>=1. En ProcesaComandos 'with TPosCarga[xpos]' escribe SwLeeTotales[PosActual]:=True con xpos sin validar: con xpos>100 corrompe memoria ($R- en PDISPENSARIOS.cfg) y con xpos 33..100 o no recibida nunca se lee. La lectura del paso 3 exige estatus>0, asi que con la posicion sin comunicacion el TOTAL queda '*' (pendiente) para siempre. En emulacion SwLeeTotales nunca se limpia y TOTAL nunca se contesta. Solo se refresca la manguera PosActual: las demas pueden reportar totales viejos.
+- **Evidencia:** 'if xpos<1 then ...' (3876) y luego 'xpos:=StrToIntDef(...,0); with TPosCarga[xpos] do begin ... SwLeeTotales[PosActual]:=True;' (2368-2378); paso 3: 'if (estatus>0)and(not swdeshabil) then' (2812).
+- **Impacto:** OpenGas consulta RESPCMND indefinidamente; posible corrupcion de memoria con un parametro malo; totales desactualizados de mangueras sin venta reciente.
+- **Recomendación:** Validar xpos con PosicionRecibida y responder error inmediato si no aplica o si SinComunicacion. Marcar SwLeeTotales en todas las mangueras de la posicion y agregar un timeout que responda error. En emulacion responder desde TotalLitros.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
 <a id="W2W-07"></a>
-#### W2W-07 · 🟠 Alta · correccion · bug — El segundo puerto (pSerial2, segmento extendido) nunca se abre y varios comandos siempre salen por el puerto 1
+#### W2W-07 · 🟡 Media (originalmente alta) · correccion · bug — El segundo puerto (pSerial2, segmento extendido) nunca se abre y varios comandos siempre salen por el puerto 1
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 855-868, 3084-3094, 3021-3082, 1442, 1913, 1941, 3637-3647, 3491-3495, 3074
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Es cierto que no existe ningun pSerial2.Open:=True ni AddDataTrigger para pSerial2 (grep: 914-915, 3056, 3070, 3102), pero la conclusion 'nunca se abre / TransmiteComando2 falla con el puerto cerrado' muy probablemente es falsa. TApdComPort tiene AutoOpen=True por defecto en Async Pro y el .dfm (UIGASWAYNE2W.dfm 32-44) no lo cambia, asi que el primer pSerial2.FlushInBuffer/PutChar de TransmiteComando2 (3043-3049) lo abre con la configuracion de IniciaPSerial2. Tampoco hacen falta los triggers: bListo2 se activa en OnTriggerAvail (2991-3003). Certeza media-alta: la fuente de APro no esta en el repo. Lo que si es real: ReanudaDespacho (1442), Autoriza (1913) y AutorizaPm (1941) usan siempre TransmiteComando1/sRespuesta, aunque PonPuertoPos (3084-3094) haya puesto SegmActual=2. Como ControlByte direcciona por xpos (393-399), en el segmento 2 la autorizacion de presets y el reanudar fallan. Detener (3481-3495) y Terminar (3850-3866) no cierran pSerial2; tras TERMINATE (estado=-1, sin LiberaInicializacion) un nuevo INITIALIZE con 2 consolas fallaria con 'El puerto ya se encontraba abierto' (3102-3105). El mensaje 'Error TransmiteComando1' en TransmiteComando2 (3074) es cierto. Severidad media: el segmento 2 solo se activa si se manda WtwPosIniExt (default 999, 846), y el titular del hallazgo no se sostiene.
 - **Qué pasa:** Con dos consoles en INITIALIZE se configura pSerial2 (IniciaPSerial2), pero no existe ningun 'pSerial2.Open:=True': Iniciar solo abre pSerial y solo le agrega triggers a ese puerto. PonPuertoPos pone SegmActual=2 para posiciones >=WtwPosIniExt y todas las funciones que respetan SegmActual van a TransmiteComando2, que falla con el puerto cerrado. Ademas ReanudaDespacho, Autoriza y AutorizaPm usan siempre TransmiteComando1/sRespuesta, aun para el segmento 2. Detener no cierra pSerial2. El mensaje de error de TransmiteComando2 dice 'TransmiteComando1'.
 - **Evidencia:** Unicas referencias: 'if pSerial2.Open then pSerial2.Open:=False' (914-915) y comprobaciones en 3056/3070/3102. 'if ( ( TransmiteComando1(DataBlock) ) and ( length(sRespuesta)=13 ) )' en ReanudaDespacho (1442), Autoriza (1913) y AutorizaPm (1941).
 - **Impacto:** En instalaciones con dos lazos todas las posiciones del segmento extendido quedan sin comunicacion: no autorizan ni reportan ventas. Ademas cada intento dispara excepcion + GuardarLog.
@@ -182,11 +222,11 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="W2W-08"></a>
-#### W2W-08 · 🟠 Alta · robustez · riesgo — GuardarLog(0) en cada excepcion escribe los logs completos a disco; recursion posible entre los guardados
+#### W2W-08 · 🟡 Media (originalmente alta) · robustez · riesgo — GuardarLog(0) en cada excepcion escribe los logs completos a disco; recursion posible entre los guardados
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 1227-1231, 3072-3076, 3545-3577, 479-481, 507-508, 3570-3572
 - **Se atiende en:** [E2.4](../PLAN_OPTIMIZACION.md#e24--bitácoras-que-no-bloquean-append-incremental-rotación-y-sin-json-repetido)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Lo que se confirma: 41 llamadas a GuardarLog(0) en bloques except, incluidos TransmiteComando1 1227-1231 y TransmiteComando2 3072-3076. GuardarLog (3545-3559) hace SaveToFile completo de ListaLog y llama a GuardarLogPetRes (3561-3577), que guarda ListaLogPetRes entera con nombre al segundo. Si un error se repite, eso puede reescribir decenas de MB por tick (Timer1 de 50 ms). La recursion es real: si ListaLog.SaveToFile funciona y ListaLogPetRes.SaveToFile falla (p. ej. EOutOfMemory al armar Text de una lista grande, o archivo bloqueado), el except de 3570-3572 llama a GuardarLog, que vuelve a llamar a GuardarLogPetRes, hasta desbordar la pila. Si falla primero ListaLog.SaveToFile no hay recursion, porque el except de GuardarLog no llama a GuardarLogPetRes. AgregaLog se llama a si mismo en su except (480-481). Lo que no se sostiene: AgregaLogPetRes NO se llama a si mismo, llama a AgregaLog + GuardarLog (507-508). Y el disparador de ejemplo (desconectar el USB = una excepcion por comando) no esta demostrado. TransmiteComando1 sale por 'not pSerial.Open' (1210, 1222), y con APro un dispositivo desaparecido suele dejar el bucle 'until OutBuffUsed=0' (1203-1205) colgado o dar timeouts, no excepciones. Con TransmiteComando2 y un COM inexistente (AutoOpen fallido) si habria excepcion por comando. Riesgo real que depende de que haya excepciones persistentes: media.
 - **Qué pasa:** Casi todos los except (TransmiteComando1/2, DameEstatus, DameLecturas, DameTotal, Autoriza, CambiaPrecios, ProcesaComandos, Timer1, ActualizaCampoJSON, AddPeticionJSON, etc.) llaman GuardarLog(0). Ese procedimiento hace SaveToFile de ListaLog y de ListaLogPetRes (este ultimo con el JSON completo de cada envio, decenas de MB) a archivos nuevos con marca de tiempo al segundo. Si el adaptador USB-serial se desconecta o el puerto da error, TransmiteComando falla en cada comando y genera ~1 juego de archivos por segundo, bloqueando el hilo principal en cada escritura. Ademas, si falla el SaveToFile de LogDispPetRes, GuardarLogPetRes llama a GuardarLog, que vuelve a llamar a GuardarLogPetRes (recursion hasta desbordar la pila). AgregaLog y AgregaLogPetRes se llaman a si mismos en su except.
 - **Evidencia:** TransmiteComando1: 'on e:Exception do begin AgregaLog('Error TransmiteComando1: '+e.Message); GuardarLog(0);' (1228-1231); GuardarLog -> 'GuardarLogPetRes(0);' (3552); GuardarLogPetRes except -> 'GuardarLog(0);' (3572); AgregaLog except -> 'AgregaLog('Error AgregaLog: '+e.Message);' (480).
 - **Impacto:** Disco lleno en horas, latencia serial de segundos por cada escritura, posible caida del servicio por desbordamiento de pila.
@@ -194,11 +234,11 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** M · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="W2W-09"></a>
-#### W2W-09 · 🟠 Alta · rendimiento · optimizacion — El log de peticiones guarda el JSON completo de cada envio, concatenado caracter por caracter
+#### W2W-09 · 🟡 Media (originalmente alta) · rendimiento · optimizacion — El log de peticiones guarda el JSON completo de cada envio, concatenado caracter por caracter
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 486-511, 534-545, 3959-3962, 3561-3566
 - **Se atiende en:** [E2.4](../PLAN_OPTIMIZACION.md#e24--bitácoras-que-no-bloquean-append-incremental-rotación-y-sin-json-repetido)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revisado: AgregaLogPetRes 486-511 (concatena caracter por caracter; tope de 10000 lineas con Delete(0)), Responder 534-557 (registra 'E '+resp con el JSON completo), Timer1 finally 2954-2962 (envia cada 3 ticks de 50 ms mas el tiempo de I/O, ~3-6 por segundo) y ClientSocket1Read 3958-3961 (registra cada 'R ...'). El JSON por posicion (AgregaPosCarga 680-725: 8 campos mas Hoses con 3 objetos) mide ~250-350 bytes, asi que 5000 lineas de JSON dan ~20-45 MB para 16-32 posiciones y ~15-30 min de historia: la estimacion es plausible. La concatenacion caracter a caracter es un desperdicio real, pero con el administrador de memoria de D7 (redondeo de bloques y crecimiento en sitio frecuente) no es O(n^2) garantizado. El Delete(0) mueve 10000 punteros (~80 KB) por Add: costo despreciable, no es un problema. Es optimizacion de rendimiento y memoria, no un error funcional. Su efecto mas serio es indirecto: agranda cada GuardarLog (W2W-08) y cada LOGREQ (W2W-10). Severidad media.
 - **Qué pasa:** Responder registra 'E '+resp con el JSON entero (~330 bytes por posicion) cada vez que Timer1 envia (cada 3 ticks, ~5 por segundo), y ClientSocket1Read registra cada 'R 0|DISPENSERS|NOTHING'. AgregaLogPetRes recorre el texto agregando un caracter a la vez (lin2:=lin2+lin[i]), con O(n) realocaciones por linea, y ListaLogPetRes conserva 10000 lineas: entre 25 y 55 MB de RAM para 16-32 posiciones y solo ~15 minutos de historia. Con Delete(0) sobre 10000 elementos hay un memmove por cada Add.
 - **Evidencia:** 'for i:=1 to length(lin) do case lin[i] of ... else lin2:=lin2+lin[i];' (492-501); 'while ListaLogPetRes.Count>10000 do ListaLogPetRes.Delete(0);' (502-503); 'AgregaLogPetRes('E '+resp);' (544).
 - **Impacto:** CPU y memoria sostenidas en el hilo principal, que tambien hace el sondeo serial. Archivos de log de decenas de MB en cada GuardarLog y historia util muy corta.
@@ -206,11 +246,11 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="W2W-10"></a>
-#### W2W-10 · 🟠 Alta · protocolo · bug — LOG/LOGREQ meten resultados sin limite en Peticiones y el texto 'PING' hace que el Bridge descarte el snapshot
+#### W2W-10 · 🟡 Media (originalmente alta) · protocolo · bug — LOG/LOGREQ meten resultados sin limite en Peticiones y el texto 'PING' hace que el Bridge descarte el snapshot
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 3732-3782, 3264-3297, 544
 - **Se atiende en:** [E4.4](../PLAN_OPTIMIZACION.md#e44--log-y-logreq-acotados)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Confirmado: ObtenerLog y ObtenerLogPetRes (3732-3782) no limitan r, concatenan con log:=log+linea (potencialmente cuadratico con lineas JSON de KB) y meten el resultado en Peticiones con AddPeticionJSON (3264-3297, maximo 2 elementos). Tambien es cierto que devuelven r+1 lineas (i:=Count-(r+1)). El Bridge filtra con AnsiContainsText(respTxt,'PING') (UIGASBRIDGE.pas:757). Matices que reducen el alcance: 1) 'E PING' solo se registra mientras respJson=False (3915-3916). respJson pasa a True en el primer AddPeticionJSON (3290), lo que ocurre con la primera respuesta NOTHING del Bridge (3985-3986), y nunca vuelve a False. Por eso hay una sola linea 'E PING', al arrancar, y sale de la ventana de 10000 lineas a los ~15-30 min. 'PING' no aparece en ningun otro texto del driver (grep). La colision solo ocurre con un LOGREQ cuya ventana alcance esa linea. 2) El resultado no se queda mucho en Peticiones. Cada respuesta '0|DISPENSERS|NOTHING' del Bridge agrega {Folio:0} (NOTHING_e -> AddPeticionJSON), asi que se desplaza en ~2 intercambios (menos de 1 s). No llega a los 5 s de TimeoutDatosObsoletos ni al auto-kick TRACE. Lo que si pasa en ese caso es que la respuesta LOGREQ se pierde y vence por timeout. El problema principal es el tamano sin limite (con r grande, JSON de decenas de MB, bloqueo del driver y fragmentacion TCP en el Bridge). Son comandos de diagnostico: severidad media.
 - **Qué pasa:** ObtenerLog y ObtenerLogPetRes concatenan hasta 10000 lineas (O(n^2)) en un solo Resultado. Ese resultado se queda en rootJSON.Peticiones y se re-envia en cada JSON hasta que dos peticiones nuevas lo desplacen. El log de peticiones contiene lineas 'E PING' y 'E {json}'. El Bridge trata como PING cualquier mensaje que contenga 'PING' (AnsiContainsText, UIGASBRIDGE.pas:757) y entonces no procesa el JSON: la respuesta LOGREQ nunca llega a OpenGas (timeout) y todos los snapshots siguientes se ignoran mientras ese Resultado siga en Peticiones (datos obsoletos y auto-kick TRACE del Bridge). Ademas ObtenerLog devuelve r+1 lineas.
 - **Evidencia:** 'for i:=i to ListaLogPetRes.Count-1 do log:=log+ListaLogPetRes[i]+'|'; AddPeticionJSON(folio, log);' (3778-3781); 'while petArr.Count >= 2 do petArr.Delete(0);' (3282-3283); Bridge: 'if not AnsiContainsText(respTxt,'PING') then ProcesaRespuestasJSON(respTxt);'.
 - **Impacto:** Un comando de diagnostico puede dejar al Bridge sin datos reales durante minutos en una estacion de poco trafico, y genera JSON de varios MB en cada envio (CPU, memoria y socket).
@@ -218,11 +258,23 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** sí
 
 <a id="W2W-11"></a>
-#### W2W-11 · 🟠 Alta · protocolo · bug — Las respuestas al Bridge salen cada 3 ticks de Timer1: con serial degradado superan los 2 s y el watchdog cierra el socket
+#### W2W-11 · 🟡 Media (originalmente alta) · protocolo · bug — Las respuestas al Bridge salen cada 3 ticks de Timer1: con serial degradado superan los 2 s y el watchdog cierra el socket
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2633-2642, 2959-2960, 1207-1223, 3054-3068
 - **Se atiende en:** [E2.1](../PLAN_OPTIMIZACION.md#e21--desacoplar-timer1-sondeo-serial-de-la-conexión-con-el-bridge), [E4.1](../PLAN_OPTIMIZACION.md#e41--responder-al-bridge-en-cuanto-se-procesa-un-comando-y-homologar-la-cadencia)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo existe. En Timer1Timer el JSON solo sale cuando xTurnoSocket=3 (2640-2642 y 2959-2960), y Timer1 tiene Interval=50 en el .dfm. horaAct solo se actualiza en ClientSocket1Read y ClientSocket1Connect (3959, 3939). El Bridge solo responde cuando recibe algo del driver (SSocketPDispClientRead 745-768). TryPopExpired usa SecondsBetween>=TimeoutRespSrv=2, revisado cada 500 ms (190-191, 256-257). TransmiteComando1 sin respuesta tarda unos 0.65-0.7 s: 2 intentos x 300 ms mas sleep(50) (1187-1223, 826-828).
+
+Matices sobre los numeros:
+- Una sola posicion en despacho que no responde cuesta unos 1.4-1.5 s en 3 ticks: paso 1 DameEstatus 0.65 s, paso 5 DameLecturas 0.65 s, y el siguiente tick es otra posicion. No alcanza los 2 s. Hacen falta 3 o mas comandos fallidos en la ventana: dos posiciones caidas, el reintento de EnviaSaleEnd (2742-2749), o lineas con ruido (pSerialTriggerAvail reinicia el timeout con cada fragmento, 1090).
+- 'Lectura final hasta ~2.8 s' esta exagerado. DameLecturas aborta en el primer comando que falla (1642-1700), asi que lo realista es menos de 1.9 s.
+- Hay un caso peor que no se cita: LeePrecios (1115-1174) no aborta al fallar y recorre NoComb mangueras, de 2 a 2.6 s en un solo tick.
+- El watchdog (2633) mide contra la respuesta al ultimo envio, asi que basta con que 2 ticks sumen 2 s o mas.
+
+Incorrecto: 'El Bridge cancela las peticiones pendientes'. SSocketPDisp no tiene OnClientDisconnect (.dfm). CancelarPeticiones solo se llama con horaAct>=10 s o al detener el Bridge (268, 409-411). La peticion en vuelo vence por TimerTimeoutTimer (875-889) y responde 'Timeout excedido'; el resultado tardio se descarta (TryPopByFolio no la encuentra). Las peticiones no enviadas sobreviven a la reconexion, que tarda unos 1.7 s (3892-3931).
+
+Efecto adicional: tras el watchdog, el finally de TransmiteComando1 (1235) vuelve a habilitar Timer1, y Timer1 y Timer2 conviven.
+
+Es real en condiciones degradadas pero no con una sola falla. Severidad baja a media.
 - **Qué pasa:** Los resultados de comandos solo viajan en el JSON que Timer1 envia cuando xTurnoSocket=3, es decir cada tres pasos seriales y no cada X ms. Un paso con una posicion que no responde cuesta ~0.65 s por comando (2 x (300+50) ms) y una lectura final hasta ~2.8 s, asi que tres ticks pueden pasar de 2 s. En ese caso: (1) el Bridge vence TimeoutRespSrv=2 s y responde 'Timeout excedido' a OpenGas aunque el driver si ejecuto el comando; (2) el watchdog de Timer1 ve SecondsBetween(Now,horaAct)>=2, porque el Bridge solo responde cuando el driver envia, y cierra el socket. El Bridge cancela entonces las peticiones pendientes y se reconecta con los Sleep de Timer2.
 - **Evidencia:** 'Inc(xTurnoSocket); if xTurnoSocket>3 then xTurnoSocket:=1;' (2640-2642); 'if (conectado) and (xTurnoSocket=3) then Responder(TlkJSON.GenerateText(rootJSON));' (2959-2960); 'if SecondsBetween(Now,horaAct)>=2 then begin conectado:=False; ClientSocket1.Active:=False;' (2633-2635).
 - **Impacto:** Perdida de respuestas (TOTALS, RESPCMND, LOG) y reconexiones en cascada justo cuando la linea serial tiene problemas.
@@ -230,40 +282,26 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="W2W-12"></a>
-#### W2W-12 · 🟠 Alta · concurrencia · riesgo — Reentrada: el bombeo de mensajes dentro de la espera serial ejecuta ClientSocket1Read y Timer2Timer a mitad de un paso
+#### W2W-12 · 🟡 Media (originalmente alta) · concurrencia · riesgo — Reentrada: el bombeo de mensajes dentro de la espera serial ejecuta ClientSocket1Read y Timer2Timer a mitad de un paso
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 1209-1211, 3054-3056, 3951-4064, 807-927, 3481-3512, 3597-3710, 3892-3913
 - **Se atiende en:** [E2.5](../PLAN_OPTIMIZACION.md#e25--reentrancia-comandos-del-bridge-durante-una-transacción-serial)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — La reentrada es real (certeza alta). El modulo se crea con Application.CreateForm en el hilo principal (PDISPENSARIOS.dpr). Los TTimer asignan su HWND al crearse. ClientSocket1.Active:=True se hace en Timer2Timer (3907), asi que la HWND del socket es del hilo principal. TServiceThread.ProcessRequests(False) hace PeekMessage/DispatchMessage en la cola del hilo que llama. TransmiteComando1/2 lo invocan desde Timer1Timer (1209-1211, 3054-3056), por lo que ClientSocket1Read (3951-4064), Timer2Timer y ClientSocket1Disconnect pueden correr anidados. No hay concurrencia real socket contra timers.
+
+Matices:
+- 'Cualquier mensaje' se procesa anidado esta exagerado. Solo los que llegan durante la espera serial; eso pasa con frecuencia, pero no siempre.
+- TERMINATE no puede anidarse: exige estado<=0 (3850-3856), y entonces Timer1 ya esta apagado.
+- RUN solo se anida si ya corre (RUN duplicado).
+- HALT anidado esta previsto: el loop sale con 'not pSerial.Open', el finally pone Timer1.Enabled:=estado>0 (1234-1235) y el resto del paso falla con excepciones capturadas.
+- El caso realmente danino es INITIALIZE con el servicio corriendo (aceptado desde 6b4f482). LiberaInicializacion, IniciaPSerial y AgregaPosCarga (807-927, 578-735) reinician TPosCarga y MaxPosCarga a mitad del paso. Al regresar, Timer1 escribe Estatus y flags (2689-2775) sobre registros nuevos. Iniciar no reinicia TPosCarga en modo normal (3597-3700), asi que esos flags pueden sobrevivir. Es poco frecuente y suele ser transitorio.
+- Timer2 anidado: confirmado que Timer1 sigue vivo porque el finally de TransmiteComando lo rehabilita aunque el watchdog o Disconnect lo apaguen (2633-2637, 3942-3948). El Sleep de unos 1.5 s sin bombear (3906-3911) cae dentro de la espera serial. Que eso provoque el timeout depende de como entrega Async Pro sus eventos (certeza media).
+
+El riesgo es real, pero el impacto practico es acotado a escenarios poco comunes.
 - **Qué pasa:** TransmiteComando1/2 espera la respuesta con ServiceThread.ProcessRequests(False) desde el hilo principal. Esa llamada hace PeekMessage/DispatchMessage de la cola del hilo que llama, no del hilo del servicio. Como el socket se activa en Timer2Timer (hilo principal), cualquier mensaje del Bridge se procesa ANIDADO dentro de la transaccion. INITIALIZE (LiberaInicializacion + AgregaPosCarga reinician TPosCarga y MaxPosCarga), HALT (cierra pSerial), RUN (reinicia PosCiclo/NumPaso y envia JSON) o TERMINATE mutan el estado mientras Timer1 esta a medio paso; al regresar, Timer1 escribe Estatus/lecturas calculadas sobre registros ya reinicializados. Con el Bridge caido Timer2 tambien esta habilitado y su Sleep de ~1.5 s corre dentro de la espera serial, lo que provoca timeouts. No hay concurrencia real socket vs timers (certeza alta). Que los eventos de Async Pro tambien se reciban por este bombeo es inferido (certeza media). Si Esperamiliseg (ULIBGRAL, no incluida) bombea mensajes, tambien podria anidar Timer1/ProcesaComandos (no verificable).
 - **Evidencia:** 'repeat ServiceThread.ProcessRequests(False); until ( ( bListo ) or ( timerexpired(etTimeOut) ) or ( not pSerial.Open ) );' (1209-1211). El comentario de las lineas 1234-1235 lo reconoce: 'HALT o INITIALIZE pueden llegar mientras se espera respuesta'.
 - **Impacto:** Estados inconsistentes despues de INITIALIZE/HALT en caliente, comandos interrumpidos y timeouts seriales durante la reconexion.
 - **Recomendación:** No bombear la cola general en la espera: esperar un evento (TEvent que se prende en TriggerAvail) con MsgWaitForMultipleObjects filtrando solo los mensajes del puerto, o mover el sondeo serial a un TThread propio con una cola de comandos. Diferir INITIALIZE/HALT/RUN/TERMINATE a la cola TabCmnd para que Timer1 los aplique entre pasos.
 - **Esfuerzo:** L · **Riesgo del cambio:** alto · **Toca contrato:** no
-
-<a id="W2W-13"></a>
-#### W2W-13 · 🟠 Alta · protocolo · bug — PAYMENT lo confirma el Bridge, pero FINV lo puede rechazar en silencio y la venta cobrada reaparece como fin de venta
-
-- **Ubicación:** `UIGASWAYNE2W.pas` líneas 2246-2296, 2025, 2147, 2693-2699, 1289-1301, 3530-3543
-- **Se atiende en:** [E5.2](../PLAN_OPTIMIZACION.md#e52--confirmación-real-de-prices-authorize-y-payment)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** El Bridge confirma PAYMENT a OpenGas de inmediato y FinVenta solo encola 'FINV'. ProcesaComandos rechaza si Estatus no esta en [3,4] o si SwLecturaFinalPendiente; ese rechazo queda en TabCmnd y nadie lo consulta. Escenario plausible: falla la comunicacion justo al cobrar y despues de 3 fallas la posicion pasa a Estatus 0; el FINV se rechaza, SwVentaPagada no se prende, y al volver la comunicacion la bomba sigue In Use sin pistola con importe>0, asi que DameEstatus devuelve otra vez 3. OpenGas ve un fin de venta que ya cobro, y OCC/OCL rechazan presets (requieren estatus [1,5]) hasta un segundo PAYMENT.
-- **Evidencia:** 'if (TPosCarga[xpos].Estatus in [3,4]) then begin if TPosCarga[xpos].SwLecturaFinalPendiente then rsp:='Posicion aun tiene lectura final pendiente' else ... SwVentaPagada:=true' / 'else rsp:='Posicion aun no esta en fin de venta';' (2271-2291); DameEstatus: 'if (importe>0.001) and (not SwVentaPagada) then iStatus:=3' (1290-1292).
-- **Impacto:** Posicion bloqueada para prepago o venta reportada dos veces tras un cobro; diferencias entre OpenGas y la bomba.
-- **Recomendación:** Registrar el PAYMENT como intencion (SwVentaPagada pendiente) aunque la posicion este temporalmente en 0 o con lectura pendiente, y aplicarlo cuando la venta llegue a 3. Opcionalmente cambiar el contrato para que PAYMENT espere el resultado del driver por folio. Probar: desconectar la linea durante el cobro.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
-
-<a id="W2W-06"></a>
-#### W2W-06 · 🟡 Media · robustez · bug — TOTAL sin validar limite superior de la posicion y sin respuesta en posiciones sin comunicacion o en emulacion
-
-- **Ubicación:** `UIGASWAYNE2W.pas` líneas 3868-3881, 2367-2380, 2812, 2836-2844
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** TotalesBomba solo valida xpos>=1. En ProcesaComandos 'with TPosCarga[xpos]' escribe SwLeeTotales[PosActual]:=True con xpos sin validar: con xpos>100 corrompe memoria ($R- en PDISPENSARIOS.cfg) y con xpos 33..100 o no recibida nunca se lee. La lectura del paso 3 exige estatus>0, asi que con la posicion sin comunicacion el TOTAL queda '*' (pendiente) para siempre. En emulacion SwLeeTotales nunca se limpia y TOTAL nunca se contesta. Solo se refresca la manguera PosActual: las demas pueden reportar totales viejos.
-- **Evidencia:** 'if xpos<1 then ...' (3876) y luego 'xpos:=StrToIntDef(...,0); with TPosCarga[xpos] do begin ... SwLeeTotales[PosActual]:=True;' (2368-2378); paso 3: 'if (estatus>0)and(not swdeshabil) then' (2812).
-- **Impacto:** OpenGas consulta RESPCMND indefinidamente; posible corrupcion de memoria con un parametro malo; totales desactualizados de mangueras sin venta reciente.
-- **Recomendación:** Validar xpos con PosicionRecibida y responder error inmediato si no aplica o si SinComunicacion. Marcar SwLeeTotales en todas las mangueras de la posicion y agregar un timeout que responda error. En emulacion responder desde TotalLitros.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="W2W-14"></a>
 #### W2W-14 · 🟡 Media · rendimiento · optimizacion — Espera activa en cada transaccion serial: un nucleo al 100% de forma permanente
@@ -329,7 +367,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-19 · 🟡 Media · correccion · bug — DamePosOrdinal devuelve 4 cuando no encuentra la manguera fisica y compara contra TPosx obsoletos
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 291-300, 1312-1314, 1335, 1384-1386, 1407, 607, 624-630, 1480-1482
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El while termina con i=4 si no encuentra coincidencia y la condicion 'if i<=4' siempre se cumple, asi que nunca devuelve 0. Ademas recorre TPosx[1..4] aunque NoComb<4, y AgregaPosCarga solo pone NoComb:=0 sin limpiar TComb/TPosx/TMang, por lo que quedan valores de una inicializacion anterior. Una manguera fisica no mapeada (MapeoMangueras o HoseId distinto del grado fisico) deja PosActual/PosMangLev=4: Combustible/Manguera 0 o de otra configuracion, precio leido de TPosx[4] y totales en el indice 4.
 - **Evidencia:** 'while (TPosCarga[xPosCarga].TPosx[i]<>xPos)and(i<4) do inc(i); if i<=4 then result:=i else result:=0;' (295-299).
@@ -341,7 +379,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-20 · 🟡 Media · robustez · bug — AvanzaPosCiclo entra en un bucle infinito si no hay posiciones recibidas en 1..32
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2968-2989, 659-663, 2941-2946
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El repeat termina solo cuando encuentra una posicion con SwRecibida. Si INITIALIZE no trae Dispensers validos (lista vacia o DispenserId>32: MaxPosCarga se actualiza antes del filtro 1..32) y luego llega RUN, PosCiclo da vueltas sin fin entre 1 y MaxPosCarga y llama EstatusDispensarios en cada vuelta, congelando el hilo principal.
 - **Evidencia:** 'repeat inc(PosCiclo); if PosCiclo>MaxPosCarga then begin ... PosCiclo:=1; ... end; PonPuertoPos(PosCiclo); until TPosCarga[PosCiclo].SwRecibida and (...)' (2971-2982).
@@ -353,7 +391,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-21 · 🟡 Media · correccion · bug — Indices sin validar con range checking desactivado ($R- en PDISPENSARIOS.cfg)
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 659-663, 690-693, 884-891, 393-399, 1239-1247, 271-277
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** (1) MaxPosCarga toma el DispenserId antes de validar 1..32. Con ids >100, los ciclos 'for xpos:=1 to MaxPosCarga' (EstatusDispensarios, Bloquear, ActivaModoPrepago, AvanzaEmulacion) leen y escriben fuera de TPosCarga[1..100]. (2) LPrecios[productID] (array[1..4]) se asigna con el ProductId de INITIALIZE sin validar: un id 5 o 6 escribe sobre StCiclo/SegmActual/MaxPosCarga y el puntero de EstatusAnterior. (3) inc(NoComb) no tiene tope MCxP=4. (4) PosicionRecibida acepta la posicion 32, pero ControlByte devuelve 0 para xpos>31 y el comando sale a la direccion 0.
 - **Evidencia:** 'xpos:=...DispenserId...; if xpos>MaxPosCarga then MaxPosCarga:=xpos; if (xpos in [1..32]) then' (660-663); 'LPrecios[productID]:=productos.Child[i].Field['Price'].Value;' (891); 'if (xpos<=31)and(xcmnd<=7) then result:=xpos*8+xcmnd else result:=0;' (395-398).
@@ -365,7 +403,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-22 · 🟡 Media · robustez · bug — EjecutaComando: con la tabla llena accede TabCmnd[201], devuelve folio 0 y las entradas no se liberan al responder
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 981-1021, 3381, 3523, 3538, 3793, 2403-2408
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El repeat hace inc(ind) y evalua TabCmnd[ind] antes del 'until ... or (ind>200)', asi que con las 200 entradas activas lee y puede escribir TabCmnd[201] (memoria de LPrecios y globales). Las entradas nunca se liberan al responder (SwActivo sigue True); solo se reciclan las que tienen mas de 1 minuto. Con la tabla llena devuelve 0 y AUTHORIZE/STOP/PAYMENT responden 'True|0|' como si hubieran tenido exito. En el except Result queda indefinido.
 - **Evidencia:** 'repeat inc(ind); if (TabCmnd[ind].SwActivo)and((now-TabCmnd[ind].hora)>tmMinuto) then ... until (not TabCmnd[ind].SwActivo)or(ind>200);' (987-994); 'AddPeticionJSON(folio,'True|'+IntToStr(EjecutaComando(...))+'|');' (3381).
@@ -377,7 +415,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-23 · 🟡 Media · correccion · bug — Un preset con un combustible que no existe en la posicion autoriza todas las mangueras
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2051-2053, 2167-2169, 2545-2565, 2859-2865, 3369-3372
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** PosicionDeCombustible devuelve 0 si el producto no esta en la posicion, y 0 es tambien el valor de 'cualquier manguera' (comb '00'). El paso 4 entonces usa la rama 'PosPreset=0' y llama Autoriza (todas las mangueras). En presets por litros el cliente puede despachar un producto mas caro que el pagado.
 - **Evidencia:** 'xcomb:=StrToIntDef(ss,0); xp:=PosicionDeCombustible(xpos,xcomb);' (2052-2053) sin validar xp>0 cuando xcomb>0; paso 4: 'else if (swpreset)and(PosPreset=0) then ... Autoriza(PosCiclo)' (2859-2861).
@@ -389,7 +427,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-24 · 🟡 Media · correccion · bug — OCL envia el preset de litros como preset de pesos al recibir el comando
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2220, 2104-2116, 2853
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En modo serial, OCL llama EnviaPresetPesosBomba(xpos,1,xlitros): tipo 1 = pesos (Ext 21h/39h), es decir, '20 litros' se programa como '$20'. OCC si calcula xtipopre. El preset correcto (TipoPreset=2) se vuelve a enviar en el paso 4 al levantar la pistola. Si la bomba conserva ambos presets, o si el reenvio del paso 4 falla y el preset de pesos queda vigente, la venta se corta en $xlitros. Esta presente desde el primer commit (8ba4373). La certeza sobre la semantica de la bomba es media.
 - **Evidencia:** 'if EnviaPresetPesosBomba(xpos,1,xlitros) then begin ... TPosCarga[xpos].TipoPreset:=2;' (2220-2226).
@@ -545,7 +583,7 @@ Hilos: los eventos de Timer1/Timer2/ClientSocket1 corren en el hilo principal (c
 #### W2W-37 · 🟡 Media · correccion · riesgo — Un preset excedido detiene el despacho y la posicion puede quedarse en 8 sin detectar el fin de venta
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 2510-2543, 1316-1317, 1322-1328, 2713-2721
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** VigilaPresetExcedido llama DetenerDespacho. Con la bomba In Use, sin pistola y tbit4, DameEstatus primero calcula 3 y luego lo sobrescribe con 'if tbit[4] then iStatus:=8'. El fin de venta exige estatus [1,3,5], asi que la venta queda 'Detenida' hasta que OpenGas mande START, y ReanudaDespacho podria reanudar el flujo si el cliente sigue con la pistola. Solo en estado no-In Use + tbit4 el driver reanuda solo y devuelve 3. Certeza media (depende de la secuencia de bits de la bomba).
 - **Evidencia:** 'if tbit[4] then iStatus:=8;  // detenida' (1316-1317) despues de la clasificacion 3/1/9; 'if DetenerDespacho(xPosCarga) then AgregaLog('Despacho detenido por preset excedido...' (2534-2535).

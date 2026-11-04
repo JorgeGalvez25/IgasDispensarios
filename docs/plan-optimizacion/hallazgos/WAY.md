@@ -1,6 +1,6 @@
 # Hallazgos · WAY · Driver Wayne (Marca 1) · UIGASWAYNE.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -127,12 +127,16 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 ## Hallazgos (45)
 
 <a id="WAY-01"></a>
-#### WAY-01 · 🔴 Crítica · correccion · bug — Livelock en el paso de totales (NumPaso=4): una 'C' sin respuesta o con NAK congela todo el sondeo
+#### WAY-01 · 🟠 Alta (originalmente critica) · correccion · bug — Livelock en el paso de totales (NumPaso=4): una 'C' sin respuesta o con NAK congela todo el sondeo
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1280-1304, 1341-1378, 1842-1850, 682, 1569, 1886-1898
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El livelock es seguro en el código. El paso 4 reinicia el barrido en cada llamada (1339/1343) y pide la primera 'C' que tenga SwCargaTotales[k] en true (1359-1362). El flag solo se limpia si TPos[xpr]=i (1288-1293). Si no hay respuesta, después de 6 ticks se inyecta '.C00..' (1842-1848). Esa línea entra a la rama 'C' con xpos=0, no limpia nada y se vuelve a pedir la misma 'C'. Un NAK, o un BCC malo convertido en NAK (1419-1431), no entra a la rama 'C' y produce un bucle inmediato. Con NumPaso>1, Timer1 sale antes de enviar B00 (1832-1884 y 1886-1898), y TabCmnd solo se atiende con SwComandoB (1569). Todo queda congelado.
+Cambia el alcance:
+(a) Si la consola no responde, la situación se resuelve sola en cuanto la consola vuelve a contestar esa 'C'. Solo es permanente si la consola ignora o rechaza (NAK) la 'C' de un dispensario apagado en particular, y eso no se puede verificar porque depende del firmware.
+(b) La discrepancia de TPos (HoseId no contiguos, 659 y 674-675) es determinista. La petición usa el índice de manguera k (1362) y el borrado compara contra la posición física i. Pero se manifestaría desde el primer ciclo y se corregiría al poner en marcha la estación.
+Este bloque no ha cambiado desde la importación inicial (8ba4373), lo que sugiere que las configuraciones estándar no lo disparan con frecuencia. Si se dispara, la caída es de todo el driver. Bajo a alta por la incertidumbre del disparador; sería crítica si se comprueba que la consola manda NAK a la 'C' de dispensarios apagados (escenario: arrancar el servicio con un dispensario apagado, ver 682).
 - **Qué pasa:** El paso 4 reinicia el barrido en la posicion 1 en cada invocacion (PosicionCargaActual2:=0) y pide 'C' para el primer par (pos,k) con SwCargaTotales[k]=true. El flag solo se limpia en la rama 'C' cuando existe TPos[xpr]=i. Si la consola no responde a esa 'C' (dispensario apagado o sin comunicacion), responde NAK (LineaTimer=#21 no entra a la rama 'C') o devuelve una posicion fisica que no esta en TPos (HoseId no contiguos), el flag nunca se limpia: Timer1 inyecta '.C00..' tras 6 ticks, ProcesaLinea no limpia nada (xpos=0), vuelve a NumPaso=4 y pide la misma 'C' para siempre. NumPaso nunca regresa a 0/1, asi que no se vuelve a enviar 'B00' ni a activar SwComandoB.
 - **Evidencia:** 1343: PosicionCargaActual2:=0; 1359-1362: if SwCargaTotales[PosicionDispenActual] then begin ... ComandoConsolaBuff('C'+...); exit; end; 1288-1293: SwCargaTotales[i]:=false solo dentro de 'if TPos[xpr]=i'; 1844-1847: if ContEsperaPaso5>5 then begin LineaTimer:='.C00..'; ProcesaLinea; exit; end; 1832-1884: con NumPaso>1 Timer1Timer termina en exit sin llegar a 'B00' (1893-1898); 682: SwCargaTotales[NoComb]:=true para todas las mangueras al inicializar; 1569: TabCmnd solo se procesa si SwComandoB.
 - **Impacto:** Toda la estacion queda sin sondeo de estatus/importes; los presets (ya confirmados por el Bridge), STOP y PAYMENT nunca se ejecutan. Como el timeout sigue llamando ProcesaLinea, el JSON con datos congelados se envia cada 1.5-3 s y el Bridge lo considera dato real (no obsoleto), por lo que OpenGas ve estados viejos como vigentes. Puede ocurrir en el arranque si un dispensario esta apagado (todos los flags inician en true) o tras cualquier venta en un dispensario que deje de responder.
@@ -144,8 +148,8 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 682, 1247, 1284-1294, 1345-1361, 1774-1795
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
+- **Verificación:** ✅ confirmado por un verificador independiente — Lo verifiqué en UIGASWAYNE.pas. En 682, AgregaPosCarga marca SwCargaTotales[NoComb] por índice lógico. En 1247 se marca SwCargaTotales[PosDispActual], que es la posición física tomada de lin[4] (1163-1167). En 1286 la respuesta 'C' se descarta si i>nocomb; en 1288-1293 se guarda TotalLitros[xpr] y se limpia SwCargaTotales[i] (físico). En 1341-1361 el barrido usa k=1..NoComb y lo envía como posición física. En 1790-1792 TOTAL suma a TotalLitros[PosDispActual]. ApplyTotalLitrosToJSON (2277-2286) usa el índice lógico. El efecto es peor de lo que se describe. Con HoseId {1,3} (NoComb=2), el barrido pide 'C pos 2' y la respuesta, o el timeout '.C00..' (1842-1848), nunca limpia SwCargaTotales[2] porque ningún TPos vale 2. El bloque NumPaso=4 reinicia el barrido (1343) y vuelve a pedir lo mismo sin fin, así que no se vuelve a enviar 'B'. SwComandoB no se activa y los comandos de OpenGas dejan de procesarse (1568). El driver queda congelado desde el INITIALIZE; RUN (2785) solo reinicia el ciclo y se vuelve a atascar. El total de la manguera 3 nunca se pide. Si los HoseId son una permutación de 1..NoComb, SwCargaTotales es coherente y solo falla la estimación de TOTAL en 1791. Es un defecto latente, que depende de la configuración. Un hueco también puede aparecer si MapeoCombustibles asigna 0 a una manguera intermedia (Continue en 662-663).
 - **Qué pasa:** SwCargaTotales se inicializa por indice logico NoComb, se marca al fin de venta por posicion fisica PosDispActual (lin[4] de la trama 'A'), se limpia por posicion fisica i de la respuesta, y el barrido envia 'C'+pos+k con k=1..NoComb tratando el indice logico como posicion fisica. TotalLitros se guarda por indice logico xpr pero TOTAL usa TotalLitros[PosDispActual]. Solo es coherente si los HoseId son exactamente 1..NoComb.
 - **Evidencia:** 682: SwCargaTotales[NoComb]:=true; 1247: SwCargaTotales[PosDispActual]:=True; 1289-1293: if TPos[xpr]=i then begin TotalLitros[xpr]:=...; SwCargaTotales[i]:=false; end; 1361: 'C'+IntToClaveNum(PosicionCargaActual2,2)+IntToStr(PosicionDispenActual)+'0' con PosicionDispenActual en 1..NoComb; 1790-1792: ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen.
 - **Impacto:** Con mangueras en posiciones fisicas no contiguas (p.ej. HoseId 1 y 3, o diesel solo en 3) la manguera fisica 3 nunca se consulta, su flag nunca se limpia, la 'C' de la posicion 2 provoca el livelock del hallazgo anterior y TOTAL devuelve totales de otra manguera o estimados.
@@ -157,86 +161,34 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1011-1018, 1037-1046, 1250-1271, 1317-1319, 1385-1387
 - **Módulos afectados:** UIGASWAYNE, UIGASBRIDGE
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisé 1011-1018: el JSON se escribe con el estatus crudo (1) antes de la lógica virtual de 1037-1046, y el mapeo a 2 solo cubre estatus=3 con swcargando. Responder(GenerateText(rootJSON)) se ejecuta en el finally de cada ProcesaLinea (1386) y envía de inmediato por el socket (2954-2962). Por eso el snapshot de la trama 'B' sale con Estatus=1 y el Importe/Volumen de la última 'A' leída durante el despacho. La 'A' final (pedida por NumPaso=2, 1312-1320) actualiza los importes. Antes, en 1250-1258, convierte el 3 virtual en 1 (finventa=0), de modo que 1270-1271 no publica 3 y el Estatus sigue en 1. Wayne 2W corrigió este mismo problema en e4a7475 ('esperar lectura final', con SwLecturaFinalPendiente publicando 2), y eso confirma que el riesgo es real. El impacto depende de que OpenGas consulte TRANSACTION dentro de esa ventana (uno o más viajes seriales), lo que es plausible.
 - **Qué pasa:** En la trama 'B' el Estatus del JSON se actualiza con el valor crudo antes de aplicar la conversion a fin de venta virtual (2->1 => 3); el mapeo a 2 solo cubre (estatus=3) and swcargando. El snapshot de esa trama sale al Bridge con Estatus=1 e Importe/Volumen de la lectura 'A' anterior (durante el despacho). La lectura final 'A' llega despues; con finventa=0 (siempre, ver hallazgo de finventa) el 3 virtual se convierte en 1 sin publicar nunca 3.
 - **Evidencia:** 1011: estatus:=StrToIntDef(ss[xpos],0); 1015-1018: if (estatus=3) and (swcargando) then ActualizaCampoJSON(xpos,'Estatus',2) else ActualizaCampoJSON(xpos,'Estatus',estatus); 1038-1041: if (estatus=1)and(estatusant=2) then begin sw3virtual:=true; ... estatus:=3; end; 1250-1258: if finventa=0 ... if sw3virtual then ... estatus:=1; 1270: Estatus solo se publica en 'A' si estatus=3; 1386: Responder(TlkJSON.GenerateText(rootJSON)) al final de cada trama.
 - **Impacto:** Durante una o varias tramas (un 'A' por cada posicion activa de numero menor mas comandos encolados) el Bridge responde STATUS=1 y TRANSACTION con importe/volumen parciales. Si OpenGas cierra la venta al ver un estatus distinto de 2, registra un importe o volumen incorrecto (cobro incorrecto). El estado 3 virtual nunca es visible para OpenGas.
 - **Recomendación:** Mover la publicacion de Estatus despues de la logica virtual y publicar 2 mientras swcargando sea true (crudo 1 o 3); publicar 1/3 solo en la rama 'A' despues de actualizar Importe/Volumen/Precio (1265-1271). Validar registrando en LogDispPetRes el orden de snapshots de una venta 2->1.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
-<a id="WAY-04"></a>
-#### WAY-04 · 🟠 Alta · correccion · bug — La cadena de estados 'ss' se sobrescribe dentro del bucle de la trama 'B'
-
-- **Ubicación:** `UIGASWAYNE.pas` líneas 1001, 1011, 1093-1099, 1134-1146
-- **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** El bucle recorre 'for xpos:=1 to length(ss)' (limite evaluado una sola vez) leyendo ss[xpos], pero cuando una posicion pasa de 2 a 9 se reutiliza ss para armar el comando de paro. Las posiciones siguientes de ese ciclo leen estatus de los caracteres 'E0n' o de memoria fuera de la cadena ($R-). El segundo bucle (enllavado) usa la longitud del ss sobrescrito.
-- **Evidencia:** 1096-1098: if estatusant=2 then begin ss:='E'+IntToClaveNum(xpos,2); ComandoConsolaBuff(ss); end; 1011: estatus:=StrToIntDef(ss[xpos],0); 1134: for xpos:=1 to length(ss) do ...; 1141-1143 tambien reutilizan ss para 'h'/'k'.
-- **Impacto:** En ese ciclo, una posicion que esta despachando puede leerse como 1 o 0: se dispara fin de venta virtual, SwDesp/SwPidiendoTotales, logs de desconexion y se publica un Estatus erroneo que OpenGas puede interpretar como fin de venta con importe parcial.
-- **Recomendación:** Usar una variable local distinta para los comandos (cmd) y conservar la cadena de estados en una variable inmutable (estados:=copy(lin,4,...)).
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
 <a id="WAY-05"></a>
 #### WAY-05 · 🟠 Alta · correccion · bug — Variable 'i' sin inicializar decide si se reanuda (G) o se libera (R) un dispensario detenido
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1080-1092
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ✅ confirmado por un verificador independiente — i se declara como local de ProcesaLinea (947) y la única asignación dentro del procedimiento está en 1284, en la rama 'C'; la de 931 pertenece a ResultadoComando. En la rama 'B' (1080-1091), 'if i<3' lee un valor sin inicializar, de registro o de pila (Delphi 7 da el warning W1036). Según esa basura, ante un estatus 8 no originado por el sistema (SwParado=false, que solo se pone en DVC/PARAR, 1763-1764) se envía hasta 5 veces G (reanudar) o R (liberar o cerrar, el mismo comando que usa FINV). El código viene así desde el commit inicial (8ba4373). La reanudación automática de un paro hecho en la isla es un hecho comprobado en el código y es un problema de seguridad operativa.
 - **Qué pasa:** En estatus 8 (detenido) no originado por el sistema, el driver envia G o R hasta 5 ciclos segun 'if i<3', pero i es local de ProcesaLinea y en la rama 'B' nunca se asigna (solo en la rama 'C'). El comportamiento depende de basura en registro/pila. Ademas, la reanudacion automatica revierte un paro hecho en la isla.
 - **Evidencia:** 1083-1089: if (not SwParado) then begin inc(ContDetenido); if ContDetenido<6 then begin if i<3 then ComandoConsolaBuff('G'+inttoclavenum(xpos,2)) else ComandoConsolaBuff('R'+inttoclavenum(xpos,2)); end; end; — i solo se asigna en 1284.
 - **Impacto:** Respuesta no determinista ante un paro: puede reanudar un despacho que el despachador detuvo (riesgo de seguridad) o enviar 'R' (liberar/fin de venta) a una venta en curso.
 - **Recomendación:** Reemplazar por la condicion intencionada (probablemente ContDetenido<3) y decidir con operacion si debe existir la reanudacion automatica; registrar en log cada G/R automatico. Activar los warnings de variable no inicializada del compilador.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
-<a id="WAY-06"></a>
-#### WAY-06 · 🟠 Alta · protocolo · bug — finventa de AUTHORIZE se lee del elemento 6 del comando, que no existe: la espera de fin de venta nunca se activa
-
-- **Ubicación:** `UIGASWAYNE.pas` líneas 1629-1630, 1699-1700, 2322-2329, 1250-1261, 1740-1748
-- **Módulos afectados:** UIGASWAYNE, UIGASTEAM
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** AutorizarVenta arma 'OCC|OCL pos cantidad comb finv' (5 elementos separados por espacio) pero Timer1Timer toma tipopago del elemento 5 y finventa del elemento 6 (vacio => 0). El comando EFV, que tambien pone finventa, no se genera desde ningun comando del Bridge.
-- **Evidencia:** 2329: EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv); 1629-1630: tipopago:=StrToIntDef(ExtraeElemStrSep(Comando,5,' '),0); finventa:=StrToIntDef(ExtraeElemStrSep(Comando,6,' '),0); UIGASBENNETT 1461 y UIGASPAM 1460 leen finventa del elemento 5.
-- **Impacto:** El parametro de OpenGas para esperar el pago se ignora: en 1250-1259 el fin de venta virtual se limpia en la primera lectura y la posicion se publica libre antes del PAYMENT; tipopago recibe el valor de finv.
-- **Recomendación:** Leer finventa del elemento 5 (como Bennett/PAM) y fijar tipopago de forma explicita, o documentar que Wayne no soporta espera de fin de venta. Probar AUTHORIZE con finv=0 y verificar que la posicion queda en 3 hasta PAYMENT.
-- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="WAY-07"></a>
-#### WAY-07 · 🟠 Alta · correccion · bug — AgregaPosCarga no reinicia 'existe' por manguera: tras un producto repetido se descartan todas las mangueras siguientes
-
-- **Ubicación:** `UIGASWAYNE.pas` líneas 651, 653-690
-- **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** existe:=false se ejecuta una vez por posicion, fuera del bucle de mangueras; en cuanto una manguera repite producto, todas las posteriores quedan descartadas. Ademas se compara TComb (ProductId sin mapear) contra xcomb (mapeado por MapeoCombustibles).
-- **Evidencia:** 651: existe:=false; 664-667: for k:=1 to NoComb do if TComb[k]=xcomb then existe:=true; if not existe then begin ... TComb[NoComb]:=mangueras.Child[j].Field['ProductId'].Value; — UIGASWAYNE2W 685 y UIGASTEAM 859 ponen existe:=false dentro del bucle.
-- **Impacto:** En dispensarios con dos mangueras del mismo producto, el producto de las mangueras siguientes desaparece: AUTHORIZE responde 'Combustible no existe en esta posicion' y no se leen ni publican sus totales.
-- **Recomendación:** Mover existe:=false dentro del for j, comparar con el mismo identificador que se almacena (TCombx o TComb) y registrar en log las mangueras omitidas.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
-<a id="WAY-08"></a>
-#### WAY-08 · 🟠 Alta · robustez · bug — Indices fuera de rango por parametros externos con range checking desactivado
-
-- **Ubicación:** `UIGASWAYNE.pas` líneas 627-630, 664-682, 891-898, 1537, 1540, 1771-1779, 2747-2753
-- **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** Varios arreglos estaticos se indexan con valores recibidos de OpenGas sin validar: TPosCarga[1..32] con DispenserId, TComb/TPos[1..4] con NoComb sin tope y TPrec/TDigvol/TDigPreset con HoseId, LPrecios[1..4] con el indice de PRICES, TPosCarga[xpos] en TOTAL, y TabCmnd[201] en EjecutaComando. El proyecto compila con -$R- -$Q-.
-- **Evidencia:** 627-630: xpos:=...DispenserId; with TPosCarga[xpos]; 668: inc(NoComb) sin limite; 678-681: TPrec[TPos[NoComb]]...; 1537: LPrecios[CPRECIndice]:=precioComb (CPRECTotal=NoElemStrSep); 1540: 'a'+IntToStr(CPRECIndice) con 2 digitos para >=10; 1773-1779: with TPosCarga[xpos] ... SwCargaTotales[1..4]:=true con xpos solo validado >=1 (2748); 898: until (not TabCmnd[ind].SwActivo)or(ind>200) evalua TabCmnd[201]; PDISPENSARIOS.cfg 17-18.
-- **Impacto:** Corrupcion silenciosa de memoria: p.ej. un PRICES con 5 precios escribe sobre las globales declaradas despues de LPrecios (MaxPosCarga, ContDA), cambiando el numero de posiciones sondeadas; DispenserId>32 o TOTALS con posicion>32 escriben fuera de TPosCarga. Posibles AV o comportamiento erratico dificil de diagnosticar.
-- **Recomendación:** Validar en la frontera y responder False|...: 1<=DispenserId<=32, NoComb<4, 1<=HoseId<=4, indice de precio 1..4 (o arreglo dinamico), 1<=xpos<=MaxPosCarga con NoComb>0 en TOTALS; reescribir el bucle de EjecutaComando como for ind:=1 to 200. Compilar builds de prueba con {$R+}{$Q+}.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
 <a id="WAY-09"></a>
 #### WAY-09 · 🟠 Alta · correccion · bug — Cambio de precios sin verificacion: precios invalidos o rechazados se descartan en silencio
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 713-724, 1533-1566, 1806-1820, 2048-2073
 - **Módulos afectados:** UIGASWAYNE, UIGASBRIDGE
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
+- **Verificación:** ✅ confirmado por un verificador independiente — Lo verifiqué. IniciaPrecios responde True si EjecutaComando>0 (713-724). CPREC pone rsp:='OK' de inmediato (1816) y el Bridge ya había confirmado PRICES a OpenGas (AddPeticion). En 1531-1566, LPrecios se actualiza en 1537 antes de ValidaCifra, y los precios inválidos se saltan sin log en 1554-1556. Los 'a' se envían con ComandoConsola directo (775-798: limpia LineaBuff y sobrescribe LinCmnd/SwEsperaRsp) sin revisar SwEsperaRsp, así que pueden cruzarse con un B/A/C pendiente. ProcesaLinea no tiene rama para 'a' ni verifica ACK/NAK (pSerialTriggerAvail 1408-1437 solo cierra la línea), y 'CPREC Finalizado' se registra siempre. PreciosInicio solo se asigna a False (455, 2066); git log -S confirma que nunca hubo un True, así que IniciarPrecios no se alcanza. Matiz: los precios mexicanos habituales (<100 y con 2 decimales) pasan ValidaCifra, por lo que el salto silencioso afecta sobre todo a precios con 3 decimales. El riesgo principal es que se pierda un 'a' sin que nadie lo detecte.
 - **Qué pasa:** CPREC se responde OK de inmediato (y el Bridge ya confirmo PRICES a OpenGas). En la aplicacion, los precios que no pasan ValidaCifra(precio,2,2) (>=100.00 o con 3 decimales) se saltan sin log ni error; los comandos 'a' se envian con ComandoConsola directo (fuera de la cola, limpiando LineaBuff) con EsperaMiliSeg entre ellos, y el ACK/NAK de la consola no se verifica. LPrecios se actualiza antes de validar. IniciarPrecios (reaplicacion al arranque) es inalcanzable porque PreciosInicio nunca es True.
 - **Evidencia:** 1816: rsp:='OK'; // se responde de una vez; 1554-1556: else begin Inc(CPRECIndice); // precio invalido; 1540-1549: ComandoConsola('a'+...); EsperaMiliSeg(250); ...; 1564: AgregaLog('CPREC Finalizado') siempre; 455 y 2066: PreciosInicio:=False (nunca True).
 - **Impacto:** Los dispensarios pueden seguir vendiendo al precio anterior mientras OpenGas factura con el nuevo (cobro incorrecto) sin ninguna alerta. Los envios directos pueden corromper la respuesta en curso de otro comando del ciclo.
@@ -326,7 +278,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1190-1206
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Dentro de with TPosCarga[xpos], el bloque AjusteWayne3 usa los campos importe, volumen y precio (valores previos) en lugar de ximporte/xvolumen/xprecio recien leidos; ademas redondea el importe al peso cuando los centavos son >=95 o <=5 y repite la condicion AjusteWayne3.
 - **Evidencia:** 1199-1205: if (importe<(volumen*precio*0.9)) then ximporte:=trunc(volumen*precio*100)/100 else begin xvol:=ajustafloat(dividefloat(importe,precio),3); if abs(volumen-xvol)<0.02 then xvolumen:=xvol; end; 1192-1197: centavos:=Round(Frac(ximporte)*100); if centavos >= 95 then ximporte:=ximpo+1 else if centavos <= 5 then ximporte:=ximpo; 1191: if AjusteWayne3='Si' redundante.
@@ -353,20 +305,92 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1509-1514, 1123-1124, 2713-2721, 297
 - **Módulos afectados:** UIGASWAYNE
 - **Se atiende en:** [E2.3](../PLAN_OPTIMIZACION.md#e23--arranque-y-paro-ordenados-del-servicio)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Los hechos base se sostienen. Linea 297: ReinicioDiario (default 'No'). Linea 312: horaInicio:=Now solo en ServiceExecute y nunca se reinicia (grep: 106, 312, 1509). Lineas 1123-1124: horaDespacho solo se actualiza con estatus=2; antes del primer despacho es campo del objeto y vale 0. Lineas 1509-1514: Detener(0); Terminar(0); Shutdown(0); Exit. Lineas 2716-2720: Shutdown llama ServiceThread.Terminate. Lineas 1909-1911: el finally re-arma Timer1. No se revisan posiciones en 3/5/9 ni TabCmnd. Esta logica solo existe en UIGASWAYNE.pas. instalador.bat solo hace /INSTALL.
+
+El MECANISMO esta mal descrito: lo mas probable es que el servicio NO termine. Certeza media-alta, basada en el codigo de SvcMgr, ExtCtrls y ScktComp de Delphi 7.
+- Timer1 y Timer2 vienen del .dfm. TTimer.Create hace AllocateHWnd en el constructor, y Application.CreateForm (dpr) corre en el hilo principal, asi que Timer1Timer corre en el hilo principal.
+- ClientSocket1.Active:=True solo se ejecuta en Timer2Timer (linea 2926, hilo principal). Por eso la HWND perezosa del socket tambien pertenece al hilo principal. pSerial se abre desde Iniciar/ClientSocket1Read, tambien en el hilo principal.
+- El hilo del servicio queda bloqueado en ServiceThread.ProcessRequests(True), es decir en GetMessage (lineas 318-319), sin ninguna ventana propia.
+- En D7, TThread.Terminate solo pone FTerminated:=True y no despierta a GetMessage. ServiceExecute no sale hasta que el SCM mande un control (por ejemplo Stop).
+
+Resultado real: tras el primer disparo, el finally re-arma Timer1 (pese a que Terminar lo deshabilito) y la condicion sigue verdadera. Cada 250 ms se repite Detener ('False|El proceso no se ha iniciado aun|'), Terminar ('True|') y Shutdown ('True|'), los tres con folio 0. Como AddPeticionJSON (2236-2237) conserva maximo 2 peticiones, esto puede desplazar resultados reales. Si OpenGas reenvia INITIALIZE+START, Iniciar (2513-2573) pone estado=1 y habilita Timer1, y en el siguiente tick se vuelve a detener. El SCM ve el servicio como 'Running', de modo que las acciones de recuperacion no aplican ni aunque la salida fuera anormal. Solo un sc stop/start manual (o un reinicio del proceso) lo recupera.
+
+El impacto, un driver fuera de servicio sin re-arranque, es igual o peor que el descrito. Ademas, la recomendacion de 'sc failure' no sirve. Mantengo alta, condicionada a ReinicioDiario=Si (no es el default).
 - **Qué pasa:** Con ReinicioDiario=Si, tras 24 h y 30 s sin ninguna posicion en estatus 2, se ejecuta Detener+Terminar+Shutdown, que llama ServiceThread.Terminate (salida normal, codigo 0). No se revisan posiciones autorizadas (9), en fin de venta (3) o comandos pendientes. En los repos no hay mecanismo de re-arranque (instalador.bat solo hace /INSTALL; las acciones de recuperacion del SCM no aplican a una salida normal).
 - **Evidencia:** 1509-1513: if (reinicioDiario) and (HoursBetween(Now,horaInicio)>=24) and (SecondsBetween(Now,horaDespacho)>=30) then begin Detener(0); Terminar(0); Shutdown(0); Exit; end; horaDespacho solo se actualiza con estatus=2 (1123-1124); 2719: ServiceThread.Terminate; el finally de Timer1Timer (1911) re-arma Timer1 tras Detener.
 - **Impacto:** Si no existe un vigilante externo, la estacion queda sin driver hasta intervencion manual; con un preset autorizado o una venta esperando PAYMENT se pierde el estado en memoria (TabCmnd, flags, totales).
 - **Recomendación:** Antes de reiniciar verificar que ninguna posicion este en [2,3,5,8,9] y que TabCmnd no tenga comandos activos; documentar o automatizar el re-arranque (sc failure con flag de fallas no criticas o reinicio coordinado por OpenGas), o preferir una reinicializacion interna sin terminar el proceso.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
+<a id="WAY-04"></a>
+#### WAY-04 · 🟡 Media (originalmente alta) · correccion · bug — La cadena de estados 'ss' se sobrescribe dentro del bucle de la trama 'B'
+
+- **Ubicación:** `UIGASWAYNE.pas` líneas 1001, 1011, 1093-1099, 1134-1146
+- **Módulos afectados:** UIGASWAYNE
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El problema es real. En 1001 el límite length(ss) se evalúa una sola vez, y en 1096-1097 ss pasa a ser 'E'+2 dígitos dentro del bucle. Con p=1 las posiciones 2 y 3 leen '0' y '1'; con p=2 la posición 3 lee '2'. Con p>=3 se lee fuera de la cadena (con $R-): el índice 4 es #0, que da 0, y después hay basura del heap. Pero solo se dispara en la transición 2->9, que es anómala (el código responde con STOP; Wayne2W la trata como 'Desautoriza'), y el daño dura un ciclo: la siguiente 'B' corrige. Los efectos posibles en ese ciclo son reales: Estatus 0 espurios publicados; al volver de 0 a 1, la rama 1 (1063-1071) reinicia FinVenta, TipoPago, SwOcc y ContOcc; con p=1, un '1' falso en la posición 3 si estaba despachando produce un fin de venta virtual y swcargando:=false; y si la basura trae dígitos, puede salir un 'E' o un G/R espurio. La reutilización de 1141-1143 va seguida de exit (1145), así que no afecta al bucle. El segundo bucle (1134) solo cubre las posiciones 1..3 en ese ciclo. Bajo la severidad porque el disparador es poco frecuente y el efecto es transitorio.
+- **Qué pasa:** El bucle recorre 'for xpos:=1 to length(ss)' (limite evaluado una sola vez) leyendo ss[xpos], pero cuando una posicion pasa de 2 a 9 se reutiliza ss para armar el comando de paro. Las posiciones siguientes de ese ciclo leen estatus de los caracteres 'E0n' o de memoria fuera de la cadena ($R-). El segundo bucle (enllavado) usa la longitud del ss sobrescrito.
+- **Evidencia:** 1096-1098: if estatusant=2 then begin ss:='E'+IntToClaveNum(xpos,2); ComandoConsolaBuff(ss); end; 1011: estatus:=StrToIntDef(ss[xpos],0); 1134: for xpos:=1 to length(ss) do ...; 1141-1143 tambien reutilizan ss para 'h'/'k'.
+- **Impacto:** En ese ciclo, una posicion que esta despachando puede leerse como 1 o 0: se dispara fin de venta virtual, SwDesp/SwPidiendoTotales, logs de desconexion y se publica un Estatus erroneo que OpenGas puede interpretar como fin de venta con importe parcial.
+- **Recomendación:** Usar una variable local distinta para los comandos (cmd) y conservar la cadena de estados en una variable inmutable (estados:=copy(lin,4,...)).
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="WAY-06"></a>
+#### WAY-06 · 🟡 Media (originalmente alta) · protocolo · bug — finventa de AUTHORIZE se lee del elemento 6 del comando, que no existe: la espera de fin de venta nunca se activa
+
+- **Ubicación:** `UIGASWAYNE.pas` líneas 1629-1630, 1699-1700, 2322-2329, 1250-1261, 1740-1748
+- **Módulos afectados:** UIGASWAYNE, UIGASTEAM
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo está confirmado. AutorizarVenta (2322-2329) arma 'OCx pos cantidad comb finv', con 5 elementos. En 1629-1630 y 1699-1700 tipopago se toma del elemento 5 (finv) y finventa del 6, que viene vacío y da 0. Bennett (1461) y PAM (1460) usan el mismo formato de comando (2076/2108) y leen finventa del elemento 5. EFV solo se maneja en 1740-1748; no hay ningún EjecutaComando('EFV') en el repo. Matices: solo afecta a consolas que pasan de 2 a 1. Si la consola reporta un 3 real, el 3 se mantiene hasta el 'R' sin importar finventa (1250-1261 solo actúa con sw3virtual). El impacto depende de que OpenGas necesite que la posición se retenga hasta PAYMENT; en prepago es OpenGas quien autoriza la siguiente venta. Ojo: corregir solo esto provocaría que el Estatus parpadee 1/3 en cada ciclo, porque 1018 publica el 1 crudo en cada 'B' y 1270-1271 publica 3 en la 'A'. Debe corregirse junto con WAY-03.
+- **Qué pasa:** AutorizarVenta arma 'OCC|OCL pos cantidad comb finv' (5 elementos separados por espacio) pero Timer1Timer toma tipopago del elemento 5 y finventa del elemento 6 (vacio => 0). El comando EFV, que tambien pone finventa, no se genera desde ningun comando del Bridge.
+- **Evidencia:** 2329: EjecutaComando(cmd+' '+posCarga+' '+cantidad+' '+comb+' '+finv); 1629-1630: tipopago:=StrToIntDef(ExtraeElemStrSep(Comando,5,' '),0); finventa:=StrToIntDef(ExtraeElemStrSep(Comando,6,' '),0); UIGASBENNETT 1461 y UIGASPAM 1460 leen finventa del elemento 5.
+- **Impacto:** El parametro de OpenGas para esperar el pago se ignora: en 1250-1259 el fin de venta virtual se limpia en la primera lectura y la posicion se publica libre antes del PAYMENT; tipopago recibe el valor de finv.
+- **Recomendación:** Leer finventa del elemento 5 (como Bennett/PAM) y fijar tipopago de forma explicita, o documentar que Wayne no soporta espera de fin de venta. Probar AUTHORIZE con finv=0 y verificar que la posicion queda en 3 hasta PAYMENT.
+- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
+
+<a id="WAY-07"></a>
+#### WAY-07 · 🟡 Media (originalmente alta) · correccion · bug — AgregaPosCarga no reinicia 'existe' por manguera: tras un producto repetido se descartan todas las mangueras siguientes
+
+- **Ubicación:** `UIGASWAYNE.pas` líneas 651, 653-690
+- **Módulos afectados:** UIGASWAYNE
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El problema es real. existe:=false está en 651, fuera del for j (653). Después de la primera manguera con producto repetido, todas las siguientes se descartan sin dejar log. En 664-666 se compara TComb[k] (el ProductId sin mapear, guardado en 669) contra xcomb (mapeado por MapCombs, 655-656); TCombx (670) se escribe pero nunca se lee. Con un mapeo que intercambie productos, se descartan mangueras válidas. Wayne2W (684) y Team (858) reinician existe dentro del bucle. Bajo la severidad porque solo se manifiesta con productos duplicados en una misma posición o con MapeoCombustibles no identidad. El efecto se ve al poner en marcha la estación: OCC/OCL responden 'Combustible no existe' (1636/1705). Aun así, si hay una venta en una manguera omitida, CombustibleEnPosicion devuelve TComb[1] por defecto (1480-1486) y reporta el producto equivocado.
+- **Qué pasa:** existe:=false se ejecuta una vez por posicion, fuera del bucle de mangueras; en cuanto una manguera repite producto, todas las posteriores quedan descartadas. Ademas se compara TComb (ProductId sin mapear) contra xcomb (mapeado por MapeoCombustibles).
+- **Evidencia:** 651: existe:=false; 664-667: for k:=1 to NoComb do if TComb[k]=xcomb then existe:=true; if not existe then begin ... TComb[NoComb]:=mangueras.Child[j].Field['ProductId'].Value; — UIGASWAYNE2W 685 y UIGASTEAM 859 ponen existe:=false dentro del bucle.
+- **Impacto:** En dispensarios con dos mangueras del mismo producto, el producto de las mangueras siguientes desaparece: AUTHORIZE responde 'Combustible no existe en esta posicion' y no se leen ni publican sus totales.
+- **Recomendación:** Mover existe:=false dentro del for j, comparar con el mismo identificador que se almacena (TCombx o TComb) y registrar en log las mangueras omitidas.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="WAY-08"></a>
+#### WAY-08 · 🟡 Media (originalmente alta) · robustez · bug — Indices fuera de rango por parametros externos con range checking desactivado
+
+- **Ubicación:** `UIGASWAYNE.pas` líneas 627-630, 664-682, 891-898, 1537, 1540, 1771-1779, 2747-2753
+- **Módulos afectados:** UIGASWAYNE
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Todos los accesos citados existen y PDISPENSARIOS.cfg tiene -$Q- y -$R- (17-18). DispenserId se usa sin validar en 627-630. NoComb no tiene tope en 668, y en 672-675 incluso hay un caso previsto para NoComb>4 que escribe TPos[5]. TPrec/TDigvol/TDigPreset se indexan con HoseId en 678-681. LPrecios[CPRECIndice] en 1537: LPrecios[5] sobrescribiría MaxPosCarga/ContDA, declarados justo después (257-259). TOTAL usa xpos validado solo como >=1 (2748) y en 1773-1779 escribe SwCargaTotales; además, con nocomb=0, swAllTotals queda sin inicializar (1782-1788). En 891-898 se lee TabCmnd[201] y puede escribir en él si SwActivo/hora traen basura. Bajo la severidad porque casi todos los valores vienen de la configuración o de comandos de OpenGas, que normalmente están bien formados. TabCmnd[201] requiere 200 comandos activos en menos de un minuto (los slots solo se liberan al expirar, 892-896). El caso más plausible es PRICES con más de 4 precios positivos, que corrompe variables globales en silencio.
+- **Qué pasa:** Varios arreglos estaticos se indexan con valores recibidos de OpenGas sin validar: TPosCarga[1..32] con DispenserId, TComb/TPos[1..4] con NoComb sin tope y TPrec/TDigvol/TDigPreset con HoseId, LPrecios[1..4] con el indice de PRICES, TPosCarga[xpos] en TOTAL, y TabCmnd[201] en EjecutaComando. El proyecto compila con -$R- -$Q-.
+- **Evidencia:** 627-630: xpos:=...DispenserId; with TPosCarga[xpos]; 668: inc(NoComb) sin limite; 678-681: TPrec[TPos[NoComb]]...; 1537: LPrecios[CPRECIndice]:=precioComb (CPRECTotal=NoElemStrSep); 1540: 'a'+IntToStr(CPRECIndice) con 2 digitos para >=10; 1773-1779: with TPosCarga[xpos] ... SwCargaTotales[1..4]:=true con xpos solo validado >=1 (2748); 898: until (not TabCmnd[ind].SwActivo)or(ind>200) evalua TabCmnd[201]; PDISPENSARIOS.cfg 17-18.
+- **Impacto:** Corrupcion silenciosa de memoria: p.ej. un PRICES con 5 precios escribe sobre las globales declaradas despues de LPrecios (MaxPosCarga, ContDA), cambiando el numero de posiciones sondeadas; DispenserId>32 o TOTALS con posicion>32 escriben fuera de TPosCarga. Posibles AV o comportamiento erratico dificil de diagnosticar.
+- **Recomendación:** Validar en la frontera y responder False|...: 1<=DispenserId<=32, NoComb<4, 1<=HoseId<=4, indice de precio 1..4 (o arreglo dinamico), 1<=xpos<=MaxPosCarga con NoComb>0 en TOTALS; reescribir el bucle de EjecutaComando como for ind:=1 to 200. Compilar builds de prueba con {$R+}{$Q+}.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
 <a id="WAY-19"></a>
-#### WAY-19 · 🟠 Alta · configuracion · bug — Ajuste de digitos del preset inconsistente: DigitoAjustePreset/DigitoAjusteVol/Con_Precio nunca se inicializan
+#### WAY-19 · 🟡 Media (originalmente alta) · configuracion · bug — Ajuste de digitos del preset inconsistente: DigitoAjustePreset/DigitoAjusteVol/Con_Precio nunca se inicializan
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 42-45, 594, 678-681, 1966-2015
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Los hechos son correctos. Con_Precio, DigitoAjusteVol y DigitoAjustePreset (lineas 42-45) son campos del objeto que nunca se asignan, asi que valen 0. grep -i: solo se usan en 678-681.
+- TPrec solo aparece en comentarios (1973, 1997).
+- TDigvol solo se lee en 1291 (rama WayneFusion de totales /10), que queda muerta.
+- Con_DigitoAjuste SI se inicializa: linea 396 (=0) y 426-427 (variable CONDIGITOAJUSTE de INITIALIZE). El titulo lo agrupa de forma imprecisa, aunque la descripcion lo separa bien.
+- Linea 594: TDigPreset[j]:=-1. Linea 681: solo TDigPreset[TPos] recibe 0, con TPos=HoseId (674-675). Si la posicion no tiene HoseId 1, TDigPreset[1] queda en -1.
+- Lineas 1983-1991: con DecimalesPresetWayne fuera de 0..3 (default -1, linea 394), ndig sale de tdigpreset[1] (0) o de tdiga[1] (=Con_DigitoAjuste) segun ese accidente.
+- La lectura (1169-1171) aplica Tdiga[1] a todas las posiciones, asi que la inconsistencia entre preset y lectura es real.
+- Lineas 1998-2003: case 1..4 sin else. sval, string local, queda '' y se envia un preset malformado; aun asi rsp queda 'OK'.
+- Lineas 1974-1975: con DecimalesPresetWayne=0, FormatFloat('00000000') redondea a entero.
+
+Por que bajo la severidad: con la configuracion por omision (CONDIGITOAJUSTE=0, DecimalesPresetWayne=-1, DecimalesPresetWayneLitros=3) ndig=0 en ambos caminos y no hay ningun efecto observable. El error de preset por un factor 10^ndig solo aparece con CONDIGITOAJUSTE>0, sin DECIMALESPRESETWAYNE y en posiciones sin HoseId 1 (o en las demas, segun cual sea la semantica correcta, que no es verificable). El valor vacio en litros requiere un ini mal configurado. El redondeo con decimales=0 es el formato configurado del dispensario, mas una limitacion que un bug. Real pero condicionado a configuracion no estandar: media.
 - **Qué pasa:** Las variables Con_Precio, DigitoAjusteVol y DigitoAjustePreset nunca se asignan (0 desde la version inicial). TDiga[1] recibe Con_DigitoAjuste siempre en el indice 1 y TDigPreset[TPos] recibe 0 solo para posiciones fisicas existentes; TDigPreset[1] queda en -1 si la posicion no tiene manguera en la posicion fisica 1. Con DecimalesPresetWayne=-1 (default) el preset usa TDigPreset[1] o TDiga[1] segun ese accidente. DecimalesPresetWayneLitros fuera de 1..4 deja el valor vacio y DecimalesPresetWayne=0 redondea el importe a entero.
 - **Evidencia:** 679: TDiga[1]:=Con_DigitoAjuste; 681: TDigPreset[TPos[NoComb]]:=DigitoAjustePreset; 1984-1990: if TPosCarga[SnPosCarga].tdigpreset[1]>=0 then ndig:=...tdigpreset[1] else ndig:=...tdiga[1]; if ndig>0 then begin sval:=IntToClaveNum(0,ndig)+sval; sval:=copy(sval,1,8); end; 1998-2003: case DecimalesPresetWayneLitros of 1..4 (sin else); 1974-1975: FormatFloat('00000000',SnImporte).
 - **Impacto:** Con CONDIGITOAJUSTE>0 y sin DECIMALESPRESETWAYNE, las posiciones sin manguera en la posicion fisica 1 reciben el preset desplazado un digito (200.00 se envia como 20.00) mientras las demas no, aunque la lectura aplica el ajuste a todas. Preset distinto al pagado.
@@ -378,7 +402,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1207-1215
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Con AjusteWayne, AjusteWayne2 y AjusteWayne3 en 'No' (default), si el importe no es menor al 90% de vol*precio se reemplaza el volumen leido por ajustafloat(importe/precio,3); en caso contrario se reemplaza el importe por vol*precio truncado. Si el precio leido es 0, el resultado depende de DivideFloat (ULIBGRAL, no incluido).
 - **Evidencia:** 1208-1214: if (ximporte<(xvolumen*xprecio*0.9)) then begin ximporte:=trunc(xvolumen*xprecio*100)/100; ... end else begin xvolumen:=ajustafloat(dividefloat(ximporte,xprecio),3); end;
@@ -391,7 +415,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1168-1183
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El importe se lee con 3 decimales, en V3 se cambia a 2 si queda mas cerca de vol*precio, WayneAjusteImporte lo multiplica por 10 y, fuera de V3, se divide entre 10 si 2*vol*precio<importe. Con volumen 0 al inicio de una venta cualquier importe positivo se divide entre 10.
 - **Evidencia:** 1174: ximporte:=StrToFloat(simp)/1000; 1177-1179: if (WayneFusionV3='Si')and(xvolumen>0)and(xprecio>0)and(abs(StrToFloat(simp)/100-...)<abs(...)) then ximporte:=StrToFloat(simp)/100; 1180-1181: ximporte:=10*ximporte; 1182-1183: if (WayneFusionV3<>'Si')and(2*xvolumen*xprecio<ximporte) then ximporte:=ximporte/10;
@@ -404,7 +428,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1235-1238
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El umbral de swAvanzoVenta usa IfThen(xcomb=3,80,40), pero xcomb es local de ProcesaLinea y en la rama 'A' nunca se asigna (en 'B' solo es variable de control de bucles, cuyo valor posterior es indefinido).
 - **Evidencia:** 1236: swAvanzoVenta:=(importe<>importeant) and (SwCargando) and (importe>0) and ((importeant>0) or (importe-importeant<IfThen(xcomb=3,80,40)));
@@ -443,7 +467,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1137-1147, 1324-1329, 1450-1495, 1899-1902
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** MapeaPosicion recorre 1..NoComb como si fueran posiciones fisicas y concatena IntToStr(CombustibleEnPosicion), que devuelve TComb[1] cuando no hay TPos coincidente y genera 2 caracteres para ProductId>=10. El campo Mapa nunca se asigna. El comando se envia con ComandoConsola directo y EsperaMiliSeg(1000), una posicion por ciclo, re-procesando la ultima trama 'B'.
 - **Evidencia:** 1462-1463: for xpr:=1 to nocomb do ss:=ss+IntToStr(CombustibleEnPosicion(xpos,xpr)); 1483: result:=TComb[1]; 1458: if length(mapa)=nocomb (mapa siempre vacio); 1326-1327: ComandoConsola(ValorMapeo); EsperaMiliSeg(1000); 1139-1146: SwReinicio:=true; ... exit.
@@ -456,7 +480,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 2028-2046, 1263-1266
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** La funcion que debe devolver la manguera (TMang) usa TComb[1] como valor por omision cuando PosDispActual no coincide con ningun TPos.
 - **Evidencia:** 2034: result:=TComb[1]; 2036-2037: if TPos[i]=xposcarga then result:=TMang[i]; UIGASBENNETT 1755 usa TMang[1] y UIGASPAM 1847 usa 0.
@@ -469,7 +493,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 2253-2288, 1295
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Asume que PosCarga esta ordenado y sin huecos (DispenserId=indice+1). ActualizaCampoJSON si busca por DispenserId y el Bridge advierte que PosCarga puede llegar en cualquier orden; Wayne2W ya corrigio esta funcion.
 - **Evidencia:** 2268-2272: posIndex0 := xpos - 1; if (posIndex0 < 0) or (posIndex0 >= posCargaList.Count) then Exit; posObj := TlkJSONobject(posCargaList.Child[posIndex0]); UIGASWAYNE2W 3314-3322 busca por DispenserId.
@@ -482,7 +506,7 @@ Hilos: timers (creados en el hilo principal por Application.CreateForm), socket 
 
 - **Ubicación:** `UIGASWAYNE.pas` líneas 1769-1805, 2740-2762
 - **Módulos afectados:** UIGASWAYNE
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si 3 s despues de una venta no se leyo el total, se suma el volumen de la venta al total anterior y se responde como real. El importe por manguera se calcula como litros acumulados por LPrecios del mismo indice (indice de manguera usado como indice de producto de PRICES). Solo se reportan 3 mangueras. swAllTotals queda sin inicializar si NoComb=0. TOTALS responde True|0|0|0|0|0|0|folio antes de tener datos.
 - **Evidencia:** 1790-1795: ToTalLitros[PosDispActual]:=ToTalLitros[PosDispActual]+volumen; ... swAllTotals:=True; 1798-1800: FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[1])... (3 mangueras); 1782-1788: swAllTotals solo se asigna dentro del for; 2757.

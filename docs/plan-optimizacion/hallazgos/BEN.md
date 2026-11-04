@@ -1,6 +1,6 @@
 # Hallazgos · BEN · Driver Bennett (Marca 2) · UIGASBENNETT.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -205,36 +205,36 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 
 ## Hallazgos (43)
 
-<a id="BEN-01"></a>
-#### BEN-01 · 🔴 Crítica · concurrencia · bug — Acceso concurrente sin sincronizacion entre el hilo del servicio (socket) y el hilo principal (timers/serial)
-
-- **Ubicación:** `UIGASBENNETT.pas` líneas 276, 290-291, 320-407 (331), 409-436 (413,419), 438-471, 575-615, 637-655, 820-821, 897-934, 1398-1403, 1678-1689, 1765-1797 (1784-1795), 1918, 1937, 2470-2501
-- **Módulos afectados:** UIGASBENNETT, UIGASWAYNE2W, UIGASWAYNE, UIGASTEAM, UIGASPAM, UIGASGILBARCO, UIGASHONGYANG, UIGASTRITON
-- **Se atiende en:** [E0.2](../PLAN_OPTIMIZACION.md#e02--identificar-el-hilo-de-cada-evento-instrumentación), [E2.6](../PLAN_OPTIMIZACION.md#e26--bennett-todo-en-un-solo-hilo)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** ServiceExecute activa ClientSocket1 (linea 276) y bombea mensajes con ServiceThread.ProcessRequests(True) (lineas 290-291). En ScktComp de Delphi 7 el HWND del socket se crea con AllocateHWnd en el hilo que lo activa por primera vez y no se destruye al cerrar. Por eso OnRead, OnConnect y OnDisconnect corren en el hilo del servicio, aunque Timer2 lo reactive despues. Timer1 y Timer2 se crean en Application.CreateForm, en el hilo principal, que corre el bucle Forms.Application.HandleMessage, asi que sus eventos corren ahi. OnTriggerAvail de Async Pro llega al hilo principal (sincronizado) o a su hilo despachador; en ambos casos queda en un hilo distinto al del socket. No hay ninguna seccion critica en el driver (grep de CriticalSection/Synchronize vacio). Certeza alta para socket y timers, media para el hilo de la serial; las fuentes VCL y APRO no estan en el repo.
-- **Evidencia:** ClientSocket1Read (hilo del servicio) hace AgregaLogPetRes('R '+mensaje) en la linea 331 y AddPeticionJSON, que hace petArr.Delete(0) y Add en las lineas 456-463. Al mismo tiempo ProcesaLinea (linea 1681) y Timer2Timer (lineas 598-600) hacen GenerateText(rootJSON) y Responder, que registra 'E '+JSON con AgregaLogPetRes en la linea 419 DESPUES del SendText de la linea 413. La respuesta del Bridge, que es local (unos 1 ms), llega mientras el hilo principal todavia escapa el JSON caracter por caracter, y los dos hilos ejecutan 'while Count>10000 do Delete(0); Add(lin2)' sobre el mismo TStringList. Hay mas casos: EjecutaComando pone SwActivo:=true (linea 1790) antes de copiar Comando (linea 1791) mientras NumPaso=4 recorre TabCmnd (lineas 1398-1403); IniciaPrecios llega a ComandoConsola y escribe pSerial, SwEsperaRsp y ListaCmnd desde el socket; Detener y LiberaInicializacion cierran pSerial (lineas 1937 y 2476-2477); AgregaPosCarga borra PosCarga (lineas 820-821) con Timer2 activo; Iniciar llama Responder desde el socket (linea 1918).
-- **Impacto:** AV intermitentes y corrupcion de heap: conteo de referencias de strings, FCount/FList de TStringList y objetos JSON liberados mientras GenerateText los recorre. Tambien JSON invalido hacia el Bridge, y la posible reejecucion de un comando viejo (OCC con el Comando anterior) en la ventana entre SwActivo y Comando. Puede terminar en caida del servicio sin causa clara. La exposicion es mayor que en Wayne2W/Gilbarco porque Bennett envia y registra el JSON en cada trama (5-20 por segundo).
-- **Recomendación:** Serializar el trabajo en un solo hilo. En ClientSocket1Read solo encolar el texto recibido en una cola protegida y avisar al hilo principal con PostMessage a un HWND propio, o drenar la cola en Timer1/Timer2. Asi los comandos (INITIALIZE, PRICES, AUTHORIZE...) se ejecutan en el mismo hilo que ProcesaLinea. Otra opcion es activar el socket solo desde el hilo principal (quitar la linea 276 y habilitar Timer2 al final de ServiceExecute). Como paliativo inmediato, proteger ListaLog, ListaLogPetRes, rootJSON, TabCmnd, ListaCmnd y pSerial con un TCriticalSection unico. Validar con un Bridge simulado que conteste en menos de 1 ms a 20 mensajes/s durante 24 h, con FastMM FullDebugMode.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
-
 <a id="BEN-02"></a>
 #### BEN-02 · 🔴 Crítica · protocolo · bug — TERMINATE apaga Timer2: el driver deja de emitir y el protocolo pull queda bloqueado
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 2503-2519 (2508-2509, 2517)
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Verificación:** ✅ confirmado por un verificador independiente — UIGASBENNETT.pas 2503-2519: Terminar (solo si estado<=0) hace Timer1.Enabled:=False y Timer2.Enabled:=False (2508-2509), cierra pSerial (2510) y deja 'True|' en Peticiones (2517). Bennett es el único driver que apaga Timer2 en Terminar; Gilbarco, HongYang, PAM, Team, Triton, Wayne y Wayne2W solo apagan Timer1. El driver solo transmite desde Timer2Timer (575-615), desde el finally de ProcesaLinea (1678-1689, sin serial ni Timer1) y desde Iniciar (1918, que requiere recibir RUN). En el Bridge, el único envío hacia el driver es la respuesta en SSocketPDispClientRead (762/767): no hay push ni cierre por inactividad que dispare ClientSocket1Disconnect (el único que reactiva Timer2). Además, AddPeticion (409-412) cancela y apaga SSocketOG tras 10 s sin actividad del driver, y solo SSocketPDispClientRead lo reactiva (755-756), así que OpenGas también queda fuera hasta reiniciar un servicio. Matiz propio de Bennett: Terminar corre en el hilo del socket (BEN-01). Si se ejecuta antes del finally de Timer2Timer (612-613), Timer2.Enabled:=(not conectado) or (estado<=0) lo vuelve a encender (estado=-1) y el bloqueo no ocurre. Como el Bridge parsea el JSON antes de responder, lo habitual es que el finally ya haya corrido, así que el bloqueo es lo más probable pero no es determinista.
 - **Qué pasa:** Terminar hace Timer1.Enabled:=False y Timer2.Enabled:=False. El driver solo envia algo al Bridge desde Timer2Timer, desde ProcesaLinea (que necesita Timer1 o eventos serial; el puerto queda cerrado en la linea 2510) o desde Iniciar (que necesita recibir RUN). El Bridge solo manda comandos como respuesta a un mensaje del driver. Ni Wayne, ni Wayne2W, ni PAM apagan Timer2 en Terminar.
 - **Evidencia:** Lineas 2508-2509: 'Timer1.Enabled:=False; Timer2.Enabled:=False;'. El resultado 'True|' de la linea 2517 se queda en Peticiones y nunca se envia. En el Bridge, AddPeticion (UIGASBRIDGE.pas 410-413) cancela las peticiones y hace SSocketOG.Active:=False cuando lleva 10 s sin actividad del driver, y solo lo reactiva en SSocketPDispClientRead, es decir, cuando el driver vuelve a enviar algo.
 - **Impacto:** Despues de TERMINATE (por ejemplo en la secuencia HALT, TERMINATE, INITIALIZE, RUN) no se acepta ningun INITIALIZE ni RUN, OpenGas recibe timeout y luego pierde el puerto 1001, y los dispensarios quedan sin control hasta reiniciar PDISPENSARIOS o el Bridge. Solo la desconexion TCP reactiva Timer2 via ClientSocket1Disconnect.
 - **Recomendación:** Quitar 'Timer2.Enabled:=False' de Terminar (dejar Timer2 encendido como hace LiberaInicializacion en la linea 2500). Opcionalmente responder de inmediato con Responder(GenerateText(rootJSON)). Validar la secuencia HALT, TERMINATE, INITIALIZE, RUN contra el Bridge comprobando que cada paso responde True.
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
+<a id="BEN-01"></a>
+#### BEN-01 · 🟠 Alta (originalmente critica) · concurrencia · bug — Acceso concurrente sin sincronizacion entre el hilo del servicio (socket) y el hilo principal (timers/serial)
+
+- **Ubicación:** `UIGASBENNETT.pas` líneas 276, 290-291, 320-407 (331), 409-436 (413,419), 438-471, 575-615, 637-655, 820-821, 897-934, 1398-1403, 1678-1689, 1765-1797 (1784-1795), 1918, 1937, 2470-2501
+- **Módulos afectados:** UIGASBENNETT, UIGASWAYNE2W, UIGASWAYNE, UIGASTEAM, UIGASPAM, UIGASGILBARCO, UIGASHONGYANG, UIGASTRITON
+- **Se atiende en:** [E0.2](../PLAN_OPTIMIZACION.md#e02--identificar-el-hilo-de-cada-evento-instrumentación), [E2.6](../PLAN_OPTIMIZACION.md#e26--bennett-todo-en-un-solo-hilo)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — La existencia de las dos hebras se sostiene con certeza alta. UIGASBENNETT.pas 276 activa ClientSocket1 en ServiceExecute, y 290-291 bombea con ProcessRequests. En ScktComp (D7) el HWND se crea de forma perezosa en GetHandle, en el hilo que activa, y no se libera al cerrar. Los TTimer hacen AllocateHWnd en su constructor (CreateForm en el hilo principal, PDISPENSARIOS.dpr) y el hilo principal ejecuta Forms.Application.HandleMessage, así que los timers corren en el principal y OnRead/OnConnect/OnDisconnect en el del servicio. Lo único que podría invertirlo es la carrera de arranque: Timer2 viene activo desde el .dfm, pero solo activa el socket tras Sleep(500), y ServiceExecute normalmente llega antes. No hay ninguna sincronización (el grep da vacío). Verifiqué las citas: 331, 456-463 (Delete(0)/Add en Peticiones), 413/419, 598-600, 1681, 1790-1791, 727-750 (IniciaPrecios -> ComandoConsolaBuff/ComandoConsola desde el socket: pSerial, SwEsperaRsp, ListaCmnd, LineaBuff), 1937, 2470-2477, 814-821 y 1918. Matices: el ejemplo principal está sobredimensionado. Antes de responder, el Bridge registra y parsea con ParseText el JSON completo (UIGASBRIDGE 752-760, 785-798), así que su respuesta suele llegar después de que el driver termina el AgregaLogPetRes('E'). Las colisiones reales dependen de coincidencias de µs a ms: OnRead/AddPeticionJSON, que corre en cada respuesta NOTHING, contra el siguiente ProcesaLinea/GenerateText, o PRICES/AUTHORIZE contra el ciclo serial. Se esperan fallas esporádicas (AV, listas o cola corruptas, comandos duplicados), no sistemáticas. El hilo de Async Pro sigue con certeza media, pero no cambia la conclusión.
+- **Qué pasa:** ServiceExecute activa ClientSocket1 (linea 276) y bombea mensajes con ServiceThread.ProcessRequests(True) (lineas 290-291). En ScktComp de Delphi 7 el HWND del socket se crea con AllocateHWnd en el hilo que lo activa por primera vez y no se destruye al cerrar. Por eso OnRead, OnConnect y OnDisconnect corren en el hilo del servicio, aunque Timer2 lo reactive despues. Timer1 y Timer2 se crean en Application.CreateForm, en el hilo principal, que corre el bucle Forms.Application.HandleMessage, asi que sus eventos corren ahi. OnTriggerAvail de Async Pro llega al hilo principal (sincronizado) o a su hilo despachador; en ambos casos queda en un hilo distinto al del socket. No hay ninguna seccion critica en el driver (grep de CriticalSection/Synchronize vacio). Certeza alta para socket y timers, media para el hilo de la serial; las fuentes VCL y APRO no estan en el repo.
+- **Evidencia:** ClientSocket1Read (hilo del servicio) hace AgregaLogPetRes('R '+mensaje) en la linea 331 y AddPeticionJSON, que hace petArr.Delete(0) y Add en las lineas 456-463. Al mismo tiempo ProcesaLinea (linea 1681) y Timer2Timer (lineas 598-600) hacen GenerateText(rootJSON) y Responder, que registra 'E '+JSON con AgregaLogPetRes en la linea 419 DESPUES del SendText de la linea 413. La respuesta del Bridge, que es local (unos 1 ms), llega mientras el hilo principal todavia escapa el JSON caracter por caracter, y los dos hilos ejecutan 'while Count>10000 do Delete(0); Add(lin2)' sobre el mismo TStringList. Hay mas casos: EjecutaComando pone SwActivo:=true (linea 1790) antes de copiar Comando (linea 1791) mientras NumPaso=4 recorre TabCmnd (lineas 1398-1403); IniciaPrecios llega a ComandoConsola y escribe pSerial, SwEsperaRsp y ListaCmnd desde el socket; Detener y LiberaInicializacion cierran pSerial (lineas 1937 y 2476-2477); AgregaPosCarga borra PosCarga (lineas 820-821) con Timer2 activo; Iniciar llama Responder desde el socket (linea 1918).
+- **Impacto:** AV intermitentes y corrupcion de heap: conteo de referencias de strings, FCount/FList de TStringList y objetos JSON liberados mientras GenerateText los recorre. Tambien JSON invalido hacia el Bridge, y la posible reejecucion de un comando viejo (OCC con el Comando anterior) en la ventana entre SwActivo y Comando. Puede terminar en caida del servicio sin causa clara. La exposicion es mayor que en Wayne2W/Gilbarco porque Bennett envia y registra el JSON en cada trama (5-20 por segundo).
+- **Recomendación:** Serializar el trabajo en un solo hilo. En ClientSocket1Read solo encolar el texto recibido en una cola protegida y avisar al hilo principal con PostMessage a un HWND propio, o drenar la cola en Timer1/Timer2. Asi los comandos (INITIALIZE, PRICES, AUTHORIZE...) se ejecutan en el mismo hilo que ProcesaLinea. Otra opcion es activar el socket solo desde el hilo principal (quitar la linea 276 y habilitar Timer2 al final de ServiceExecute). Como paliativo inmediato, proteger ListaLog, ListaLogPetRes, rootJSON, TabCmnd, ListaCmnd y pSerial con un TCriticalSection unico. Validar con un Bridge simulado que conteste en menos de 1 ms a 20 mensajes/s durante 24 h, con FastMM FullDebugMode.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
+
 <a id="BEN-03"></a>
 #### BEN-03 · 🟠 Alta · protocolo · bug — PosCarga[].HoraOcc nunca se actualiza: TRANSACTION via Bridge siempre da 1899-12-30T00:00
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 807, 842, 1129-1130, 1434, 1508, 2239-2262 (2256)
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** AgregaPosCarga publica HoraOcc con TPosCarga.HoraOcc=0 (lineas 807 y 842) y no hay ningun ActualizaCampoJSON(...,'HoraOcc',...) en el archivo. El Bridge arma TRANSACTION con posObj.Field['HoraOcc'].Value (UIGASBRIDGE.pas 727). Antes del commit 0e02888 el driver contestaba TRANSACTION con TransaccionPosCarga, que usaba HoraFinv (linea 2256); al pasar esa respuesta al Bridge, el campo quedo sin alimentar.
 - **Evidencia:** grep "'HoraOcc'": Bennett solo tiene la linea 842 (Add). Wayne (2018), Wayne2W (2804, 4447), Gilbarco (2697), Team (1760, 2669), PAM (1199), HongYang (1578) y Triton (804, 1275) si lo actualizan. HoraFinv se calcula en las lineas 1129-1130 y HoraOcc en OCC/OCL (lineas 1434 y 1508), pero ninguno de los dos llega al JSON.
@@ -246,7 +246,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-04 · 🟠 Alta · robustez · bug — La perdida de comunicacion con la consola no se refleja: los estatus quedan congelados
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 2101-2111 (2106), 1019-1029, 918-920, 1344-1390 (1369, 1390)
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Cuando B00 hace timeout, Timer1Timer simula LineaTimer:=idStx+idStx+'B00'+idEtx+'.*' (linea 2106). ProcesaLinea solo recorta hasta el primer STX y copia desde la posicion 2 (lineas 1020-1022), asi que lin[1]=#2 y no entra al case 'B': TPosCarga[].estatus se queda igual. El mecanismo ContadorAlarma>10, que pone LinEstadoGen en ceros (lineas 919-920), se pierde porque ProcesaLinea sobrescribe LinEstadoGen:=xestado en la linea 1390. El JSON (Estatus, linea 1369) se sigue calculando con el estatus viejo y se envia en cada timeout (linea 1681).
 - **Evidencia:** Timer1Timer, linea 2106: caso 'B' con STX duplicado. ProcesaLinea, lineas 1020-1029: case lin[1] sin rama para #2. Linea 1390: LinEstadoGen:=xestado sin condicion.
@@ -270,7 +270,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-06 · 🟠 Alta · correccion · bug — Un preset pendiente no caduca y se vuelve a aplicar cuando regresa la comunicacion
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1398-1400, 1417-1430, 1431-1466, 1491-1504, 1505-1556, 1765-1777 (1772)
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Despues del primer EnviaPreset quedan SwOCC=true y SwCmndB=false. Si no llega una respuesta 'B' valida (SwCmndB:=true solo en la linea 1047), la rama 'else SwAplicaCmnd:=false' (lineas 1429 y 1503) deja el comando pendiente sin limite. La unica caducidad (mas de tmMinuto) se revisa en EjecutaComando, y solo al buscar un slot libre (linea 1772). NumPaso=4 procesa cualquier TabCmnd activo y sin respuesta sin revisar 'hora'.
 - **Evidencia:** Cuando vuelve la consola se cumple SwOCC, SwCmndB, estatus in [1,3] y ContOCC>0, asi que se hace SwOCC:=false (lineas 1419-1421) y la condicion de la linea 1431 reenvia K, P, L y S con el SnImporte del comando original (lineas 1444-1463).
@@ -282,7 +282,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-07 · 🟠 Alta · correccion · bug — Precios no programados: PRICES se ignora si aun no hubo respuesta B y los precios de INITIALIZE nunca se envian
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 727-759 (734, 738-741), 1035-1039, 2457-2459, 2494, 2584-2608
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** IniciaPrecios itera hasta MaxPosCargaActiva (linea 734). LiberaInicializacion pone esa variable en 0 (linea 2494) y solo se recalcula al procesar una respuesta 'B' (linea 1035). Un PRICES que llega despues de INITIALIZE o RUN y antes de la primera respuesta B contesta 'True|' sin mandar ningun U. Inicializar guarda Products[].Price en LPrecios (linea 2457) pero pone PreciosInicio:=False (linea 2459) y nada lo pone en True, asi que IniciarPrecios (lineas 1038-1039 y 2584-2608) nunca se ejecuta. Ademas, si un precio es invalido se sale con Exit (lineas 738-741) cuando ya se mandaron U a las posiciones anteriores.
 - **Evidencia:** grep PreciosInicio: solo hay asignaciones a False (lineas 2459 y 2607). PRICES es fire-and-forget en el Bridge (UIGASBRIDGE.pas 377-387), asi que OpenGas siempre recibe True.
@@ -294,7 +294,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-08 · 🟠 Alta · memoria_recursos · bug — Escrituras fuera de rango en LPrecios[1..4] y en TComb/TPos/TMang[1..MCxP]
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 221, 2451-2458 (2457), 744, 858-864, 149-153
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** LPrecios es array[1..4] of Double (linea 221). Inicializar escribe LPrecios[productID] con el ProductId del JSON sin validar (lineas 2452-2457), e IniciaPrecios escribe LPrecios[TComb[i]] (linea 744) sin el filtro 'TComb[i] in [1..4]' que si tiene IniciarPrecios (linea 2592). AgregaPosCarga hace inc(NoComb) y escribe TComb[NoComb] sin tope MCxP=4 (lineas 862-864). Delphi 7 compila sin {$R+} por defecto, asi que no hay excepcion: se escribe sobre memoria ajena.
 - **Evidencia:** Linea 2457: 'LPrecios[productID]:=productos.Child[i].Field['Price'].Value;' sin validar el rango. Lineas 862-864: 'inc(NoComb); TComb[NoComb]:=...'.
@@ -368,7 +368,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-14 · 🟡 Media · correccion · bug — La reautorizacion en estado 3 se descarta porque el estatus se enmascara antes de EnviaPreset
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1105-1116 (1112-1114), 1698-1701
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si estatusant=4 y PresetImpo>=0.01, se incrementa PresetImpoN y, mientras sea <=3, se asigna estatus:=estatusant (4) ANTES de llamar EnviaPreset (lineas 1111-1114). EnviaPreset rechaza con 'Posicion no Disponible' si el estatus no esta en [1..3] (lineas 1698-1701). Resultado: los tres primeros 'reintentos' no mandan nada, el rsp se ignora, y solo en el cuarto ciclo se reenvia K/P/L/S.
 - **Evidencia:** Linea 1113: 'estatus:=estatusant;'. Linea 1114: 'EnviaPreset(rsp,PresetComb);'. Linea 1698: 'if not (TPosCarga[xpos].estatus in [1..3]) then ... exit'.
@@ -392,7 +392,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-16 · 🟡 Media · correccion · riesgo — El volumen y el importe que se publican se reescriben por calculo, no son los medidos
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1183-1193, 1220-1222
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Despues de leer de la consola, si |volumen*precio - importe| es mayor o igual a 900, el driver reemplaza importe:=AjustaFloat(volumen*precio,2) (lineas 1184-1188). Luego calcula xvol:=AjustaFloat(importe/precio,3) y, si |volumen-xvol| es menor a 0.05, reemplaza el volumen medido por xvol (lineas 1191-1193 y 1220-1222).
 - **Evidencia:** Linea 1193 (y 1222): 'if abs(volumen-xvol)<0.05 then volumen:=xvol;'.
@@ -404,7 +404,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-17 · 🟡 Media · correccion · bug — Manguera y Combustible del JSON no corresponden a la lectura de importe y volumen
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1048-1050, 1371-1376, 1751-1763
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** PosActual se toma de cada B00, y si viene 0 se fuerza a 1 (lineas 1048-1050). CombActual y MangActual se recalculan y publican en cada trama (lineas 1371-1376), pero Volumen, Importe y Precio solo cambian con las lecturas A/1. El Bridge arma TRANSACTION con los cuatro campos (UIGASBRIDGE.pas 727-728).
 - **Evidencia:** Linea 1371: 'xcomb:=CombustibleEnPosicion(xpos,PosActual)' para todas las posiciones registradas en cada ProcesaLinea, sin importar el estatus.
@@ -416,7 +416,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-18 · 🟡 Media · correccion · bug — TOTAL: importes calculados con el precio actual, indices sin validar, rama artificial y respuesta truncada
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1629-1663 (1646-1648, 1652-1657), 193, 790-791
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Los 'totales en pesos' se calculan como TotalLitros[k]*LPrecios[TComb[k]], es decir con el precio actual, no con un totalizador monetario. Solo se reportan 3 mangueras aunque MCxP=4. Con NoComb<3, TComb[2..3] quedan en 0 o con valores de un INITIALIZE anterior (AgregaPosCarga no los limpia), y LPrecios[0] se lee fuera de rango. La rama estatus=9 suma el volumen a TotalLitros[MangActual], que es un indice de manguera y no de producto, y MangActual puede valer 0. RegCmnd.Respuesta es string[80] (linea 193): con totalizadores de 7 digitos la cadena pasa de 80 caracteres y se trunca sin aviso.
 - **Evidencia:** Lineas 1646-1648: 'OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[TComb[1]])... Linea 1653: 'TotalLitros[MangActual]:=TotalLitros[MangActual]+volumen'.
@@ -549,7 +549,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-29 · 🟡 Media · correccion · bug — En modo de 6 digitos no se cierra la venta con J cuando finventa=0
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1169-1206, 1228-1233, 1127-1133
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** La rama '1' (8 digitos) manda 'J' de inmediato al leer estatus 7/8 con finventa=0 (lineas 1228-1233). La rama 'A' (6 digitos) no lo hace, y solo queda el cierre automatico despues de SegundosFinv (30 s por defecto) en la rama 'B' (lineas 1129-1132) o un PAYMENT.
 - **Evidencia:** Comparando 1169-1206 con 1207-1242: el bloque 'if (TPosCarga[xpos].finventa=0) then ... J' solo existe en la rama '1'.
@@ -573,7 +573,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-31 · 🟡 Media · correccion · bug — AgregaPosCarga: 'existe' no se reinicia por manguera y el mapeo de mangueras y productos es inconsistente
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 837, 853-880, 855, 863-872, 1751-1763
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** existe:=false se asigna una sola vez por posicion (linea 837) y no dentro del for j. Despues de la primera manguera con producto repetido, todas las siguientes se descartan aunque su producto sea nuevo. TComb, TPos y TMang no se limpian al reinicializar. HoseId=3 se mapea a 4 (lineas 865-867), asi que si se configura una HoseId 4 choca con ella. Hoses[].HoseId publica 4 para la manguera 3 mientras 'Manguera' publica 3. Con MapeoCombustibles, el StrToInt sin default de la linea 855 aborta INITIALIZE, y Hoses[].ProductId publica el producto mapeado mientras 'Combustible' publica el original.
 - **Evidencia:** Linea 837: 'existe:=false;' fuera del bucle de la linea 853. Lineas 858-860: 'for k:=1 to NoComb do if TCombx[k]=xcomb then existe:=true;'.
@@ -645,7 +645,7 @@ Tiempos efectivos (estimados para 9600 bps, sin medicion):
 #### BEN-37 · ⚪ Baja · memoria_recursos · bug — EjecutaComando accede a TabCmnd[201] antes de revisar el limite
 
 - **Ubicación:** `UIGASBENNETT.pas` líneas 1770-1782
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El repeat incrementa ind y lee y escribe TabCmnd[ind] antes de evaluar ind>200. Si los 200 slots estan activos (comandos del ultimo minuto), se accede a TabCmnd[201], fuera de rango, cuya memoria es la de LPrecios y otras globales, antes de salir. Ademas los slots solo se liberan cuando caducan, no cuando se responden.
 - **Evidencia:** Lineas 1770-1777: 'repeat inc(ind); if (TabCmnd[ind].SwActivo)and(...) ... until (not TabCmnd[ind].SwActivo)or(ind>200);'.

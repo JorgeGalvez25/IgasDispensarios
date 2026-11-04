@@ -1,6 +1,6 @@
 # Hallazgos · HYA · Driver Hong Yang (Marca 5) · UIGASHONGYANG.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -177,7 +177,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 2136-2147, 2187-2198, 1356-1372
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En ProcesaComandosExternos (OCC y OCL), Delphi evalúa `(not TMangueras[i].estatus in [1,3])` como `(not estatus) in [1,3]`. Sobre un Integer, `not` es complemento bit a bit (not 1 = -2, not 5 = -6), que nunca pertenece a [1,3]. Por eso el rechazo 'Posicion de carga no esta disponible' jamás se ejecuta y solo se valida la manguera destino. Aunque se corrija, el rsp asignado antes del Break se sobrescribe después con ValidaCifra si xmang ya se había encontrado. Además, el driver publica una sola manguera por posición: posactual2 solo cambia si SwDisponible (1358-1361), e Importe/Volumen/Precio solo se escriben si poscomb=posactual2 (1368-1372). Una segunda venta simultánea en otra manguera de la misma posición (cada manguera es un CPU distinto según ConfPos) no llega a PosCarga.
 - **Evidencia:** 2141 y 2192: `if (not TMangueras[i].estatus in [1,3]) then begin rsp:='Posicion de carga no esta disponible'; Break; end;` seguido de 2147-2151: `if (xmang in [1..MaxMangueras]) then begin if (TMangueras[xmang].estatus in [1,3]) then begin ... rsp:=ValidaCifra(xImporte,4,2);` y 2168 MeteACola('S'...). El bug es exclusivo de este driver (grep en los demás).
@@ -203,7 +203,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 2149-2158, 2200-2209
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** OCC y OCL validan con ValidaCifra(x,4,2), que responde 'Numero de decimales excede maximo permitido' si el valor no es exacto con 2 decimales. El commit 60e5fde corrigió esto en Wayne 2W porque OpenGas envía cantidades con 5 decimales (p.ej. litros calculados). Aquí el preset se descarta y, por el fire-and-forget del Bridge, OpenGas no se entera. Además, cualquier importe 0<x<1 se convierte en 9999 (venta 'lleno').
 - **Evidencia:** 2150-2154: xImporte:=StrToFLoat(...); rsp:=ValidaCifra(xImporte,4,2); if rsp='OK' then if (xImporte<1) then xImporte:=9999; 2201-2205: igual para litros con mínimo 0.5. UIGASWAYNE2W.pas (60e5fde) trunca a 2 decimales antes de validar.
@@ -216,7 +216,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 732, 1570-1589, 1924-1940, 2236-2240, 705
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** HoraOcc solo se escribe al crear PosCarga (732) y en ProcesoComandoN cuando hay diferencia en el totalizador (1577-1578). ProcesoComandoN solo corre si SwCargaTotales=True. Eso ocurre al inicializar (705) y únicamente con un TOTAL, y solo para la manguera activa (2238); tras la primera lectura queda en False (1570). Al terminar una venta (5→1) HoraOcc no cambia. Si OpenGas pide TRANSACTION antes que TOTALS recibe la hora de la venta anterior o la de INITIALIZE. Ese mismo bloque es el único que reencola 'C' (prepago) tras la venta (1579-1580).
 - **Evidencia:** Las únicas referencias a 'HoraOcc' son 732 y 1578. SwCargaTotales: 705 (True), 1570 (False), 2238 (True por TOTAL). Team, PAM, Gilbarco y Wayne 2W actualizan HoraOcc al procesar la venta (UIGASTEAM.pas 1760/2669, UIGASPAM.pas 1199, UIGASWAYNE2W.pas 2804).
@@ -229,7 +229,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 2232-2255, 1558-1570
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** TOTAL marca SwCargaTotales y encola 'N' solo para PosManguera[PosActual2]. Las demás mangueras de la posición conservan el TotalLitros de su última lectura (2244-2247), que puede tener horas si se despachó por otra manguera. El importe total que se responde es FormatoMoneda(TotalLitros*LPrecios[...]), no el totalizador de importe que el dispensario manda en los bytes 15-20 de la respuesta N; ProcesoComandoN solo lee los bytes 9-14 (1562). En posiciones con menos de 3 mangueras Combustible[3]=0 y se lee LPrecios[0], fuera de rango. FormatFloat('0.000') depende del DecimalSeparator.
 - **Evidencia:** 2238-2239: TMangueras[PosManguera[PosActual2]].SwCargaTotales:=True; MeteACola('N'+inttoclavenum(PosManguera[PosActual2],2)); 2248: rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[Combustible[1]])+...; 1562: totallitros:=ExtraeBCD(ss,9,14).
@@ -242,7 +242,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 194-202, 2248-2250, 2270, 2462-2469
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Con 3 mangueras la respuesta de TOTAL es 'OK' más tres bloques (litros '0.000' + '|' + importe FormatoMoneda + '|'). Con totalizadores de millones de litros (p.ej. 5000000.000 L y 120,000,000.00 = ~27 caracteres por manguera) pasa de 80 caracteres. Al asignarla a un ShortString de 80 se corta en silencio y RESPCMND devuelve el último bloque recortado. Comando también es string[80].
 - **Evidencia:** 201: Respuesta :string[80]; 2270: TabCmnd[xcmnd].Respuesta:=rsp; RespuestaComando 2466: resp:=copy(resp,3,Length(resp)-2)+'|'.
@@ -268,7 +268,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1700-1712, 1879-1893
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Ante un BCC inválido se reencola LinCmnd una sola vez, controlado por SwReintentoCmnd. Pero esa bandera se pone en False al inicio de cada tick sin espera (1880), así que el reintento se repite sin límite. La cola tiene prioridad absoluta: con CmndProc='A' y ApCola>0, cada tick manda un comando de la cola y hace Exit sin avanzar MangCiclo. Si una manguera responde siempre con BCC incorrecto (ruido, CPU dañado o dirección duplicada en ConfPos), el driver queda reintentando ese comando y deja de sondear todas las demás. El reintento además va al final de la cola.
 - **Evidencia:** 1880: SwReintentoCmnd:=false; 1706-1710: if not SwReintentoCmnd then begin SwReintentoCmnd:=true; MeteACola(LinCmnd); end; 1888-1891: if ApCola>0 then begin SacaDeCola(xcmnd); ComandoConsola(xcmnd); Exit; end;
@@ -294,7 +294,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1987-1996, 1900
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si la respuesta no llega en 1 s, Timer1 pone estatus:=0 a la manguera, escribe Estatus=0 en el JSON de la posición y fija ProxSondeo:=Now+5 s. La condición de sondeo pide Now>=ProxSondeo o Estatus>1, y el estatus ya es 0, así que una manguera que estaba despachando deja de leerse 5 s. No hay tolerancia (Wayne 2W y Gilbarco esperan 3 fallas, commits 7160ea2 y 34a7278) ni reintento del comando: si era 'S', 'L' o 'U' se pierde. Si la manguera que falló no es posactual2, el siguiente PublicaEstatusDispensarios reescribe el estatus de la otra manguera y la posición parpadea entre 0 y 1.
 - **Evidencia:** 1987-1995: else if ((Now-TimeCmnd)>TmSegundo) then begin SwEsperaCmnd:=false; with TMangueras[MangCmnd] do begin estatus:=0; descestat:='Sin Comunicacion'; ProxSondeo:=Now+5*TmSegundo; ActualizaCampoJSON(PosCarga, 'Estatus', 0); end; end;
@@ -307,7 +307,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 918-940, 1290, 1599-1641, 1942-1958, 603, 687, 2573-2592
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** IniciaPrecios escribe LPrecios[Combustible] y el precio de la manguera en cuanto llega PRICES, y encola 'U' sin mirar el estatus, es decir también a mangueras que despachan. Si el 'U' falla (bit de error, timeout o cola llena) no hay reintento: ActualizarPrecio se asigna pero nunca se usa para reenviar. LPrecios queda con el precio nuevo, que ProcesoComandoA publica en cada sondeo, mientras el dispensario sigue cobrando el anterior. El precio físico (V) solo se lee después de un 'U' exitoso. Los precios de INITIALIZE se guardan pero nunca se envían ni se verifican, porque IniciarPrecios no se llama. El precio de una venta en curso cambia en el JSON al llegar PRICES. Un precio >=100.00 no cabe en IntToClaveNum(ii,4) / copy(LinCmnd,4,4) y se envía recortado, sin validación.
 - **Evidencia:** 929-932: LPrecios[Combustible]:=precioComb; ... precio:=precioComb; MeteACola('U'+IntToClaveNum(i,2)+inttoclavenum(ii,4)); 1290: precio:=LPrecios[Combustible]; 1608-1611: if not SwErr then begin ActualizarPrecio:=false; LeerPrecio:=true; end; 687: LeerPrecio:=false al inicializar.
@@ -320,7 +320,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 222-231, 597-604, 663-672, 725-787, 1564-1569, 1819-1821, 1898-1901, 2867-2875
 - **Módulos afectados:** UIGASHONGYANG.pas, PDISPENSARIOS.cfg
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   PDISPENSARIOS.cfg compila con -$R- y -$Q-, así que estos accesos escriben memoria vecina en silencio:
@@ -393,7 +393,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1143-1182, 2070-2101, 2133-2136, 2232-2255, 2550-2566, 2594-2670, 1229-1254
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos), [E8.3](../PLAN_OPTIMIZACION.md#e83--código-muerto-variables-globales-y-duplicación-interna)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos), [E8.3](../PLAN_OPTIMIZACION.md#e83--código-muerto-variables-globales-y-duplicación-interna)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   Problemas de validación:
@@ -427,7 +427,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1276-1284, 1435-1454, 1388-1433
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** ProcesoComandoA sale sin actualizar nada si DameEstatus detecta el bit de error (bit 5): no registra nada ni cambia el estatus. Si el CPU reporta error de forma persistente durante una venta, la posición queda 'despachando' con los últimos importes indefinidamente. ExtraeBCD une los bytes en hexadecimal y los convierte con StrToInt. Un nibble A-F (pantalla en blanco o reset) lanza una excepción que se relanza hasta el Visor de eventos. Un totalizador mayor a 21,474,836.47 L (12 dígitos en ExtraeBCD(ss,9,14)) desborda Integer y ProcesoComandoN falla siempre, así que TOTAL nunca se responde.
 - **Evidencia:** 1280-1282: ee:=DameEstatus(ss,SwEnllavado,SwErrorCmnd); if SwErrorCmnd then exit; 1447: result:=strtoint(ss)/100;
@@ -440,7 +440,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1288-1289, 2200-2205
 - **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El importe de la venta se lee de 3 bytes BCD (ExtraeBCD(ss,3,5)) y el volumen de otros 3 (9-11). OCL acepta presets de hasta 9,999.99 L, lo que con precios actuales supera 9,999.99 pesos (p.ej. 450 L de diésel). Wayne 2W corrigió el mismo caso (commit ea8feb7) recalculando con el volumen; Hong Yang publica el importe tal cual. No está verificado si el CPU Hong Yang limita la venta a 6 dígitos ni qué contienen los bytes 6-8 de la respuesta A.
 - **Evidencia:** 1288: importe:=ExtraeBCD(ss,3,5); 1289: volumen:=ExtraeBCD(ss,9,11); 2202: rsp:=ValidaCifra(xLitros,4,2) sin tope por importe estimado.
@@ -453,7 +453,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1294-1323, 1581-1582, 1819-1832, 2160, 2211, 2256-2266
 - **Módulos afectados:** UIGASHONGYANG.pas, UIGASBRIDGE.pas
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si el estatus sigue en 5 y el importe baja más de 0.5 (nueva venta sin ver el estado 1), el código intercambia importe, volumen y precio con los anteriores, pone swdesp:=true (bandera que nadie lee) y los restaura de inmediato. No guarda la venta previa en ningún lado, y como el driver solo publica la última lectura por posición, esa venta se sobrescribe. Los estados 7/8 ('Fin de venta', externo 3) son inalcanzables porque FinVenta nunca vale 1 (las asignaciones están comentadas en 2160 y 2211). La posición pasa de 2 a 1 directamente: si otro cliente usa otra manguera (posactual2 cambia) antes de que OpenGas lea TRANSACTION, la venta se reemplaza. El estatus 2 de una manguera que no es posactual2 no se publica (1820).
 - **Evidencia:** 1296-1305: ximp:=importe; importe:=importeant; ... try swdesp:=true; finally importe:=ximp; volumen:=xvol; precio:=xpre; end; 1307: if (estatus=1)and(finventa=1)and(swfinventa) then (finventa siempre 0).

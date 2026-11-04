@@ -1,6 +1,6 @@
 # Hallazgos · PAM · Driver PAM 1000 (Marca 4) · UIGASPAM.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -178,8 +178,8 @@ Tramas parciales (784-823):
 #### PAM-01 · 🔴 Crítica · robustez · bug — El sondeo serial se bloquea para siempre: B00 se encola sin ningun comando en vuelo (HALT/RUN, '0'/'1', timeout en NumPaso=1)
 
 - **Ubicación:** `UIGASPAM.pas` líneas 2240-2252, 2918-2924, 1290-1295, 2358-2373, 2421-2435, 386-408, 1699-1702
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisé UIGASPAM.pas 714-737 (ComandoConsola), 784-823 (pSerialTriggerAvail), 825-1072 (rama 'B'), 1290-1295, 1690-1702, 2195-2252 (Timer1Timer), 2358-2444 (Detener/Iniciar), 386-407 (comandos '0'/'1'), 2735-2758 (LiberaInicializacion) y 2918-2924. Todas las llamadas directas a ComandoConsola (912, 973-979, 989, 1006, 1293) están dentro de ProcesaLinea, y ProcesaLinea solo corre por datos seriales o por la inyección del timer en NumPaso 2-5 (2209-2233). En NumPaso=1, el timeout (2241-2252) pone SwEsperaRsp:=False y llama ComandoConsolaBuff('B00'), que solo transmite si ListaCmnd está vacía. Si no lo está, encola el B00 y no se envía nada. Así nunca llega una trama y el ciclo se repite cada 11x250 ms, con la cola creciendo. El caso HALT/RUN es determinista: Detener (2366-2372) no limpia SwEsperaRsp ni ListaCmnd, y Iniciar (2427-2434) solo pone numPaso:=0. Si había un comando en vuelo, el primer B00 tras RUN se encola (la cola queda en [B00]) y la siguiente vuelta ya no despacha. El comando '1' (390-393) limpia SwEsperaRsp pero no la cola. En operación normal se necesita perder una respuesta mientras NumPaso=1 con la cola no vacía (por ejemplo, salidas tempranas de la rama 'B' en 912/989-991 tras encolar 'L' en 949) o el 'ERROR PASO 5' (1700-1701). Timer1 sigue mandando el JSON (finally 2257-2259), así que el Bridge no detecta datos obsoletos y OpenGas ve estatus congelados. Solo LiberaInicializacion (2748-2749) o reiniciar el servicio lo recupera. El ~30% de SwEsperaRsp en reposo es plausible pero no lo medí.
 - **Qué pasa:**
   La cola ListaCmnd solo se vacia en la linea 1290, dentro de ProcesaLinea, y ProcesaLinea solo corre cuando llega una trama o cuando Timer1 inyecta un timeout en NumPaso 2/3/4. ComandoConsolaBuff solo transmite si la cola esta vacia y no hay respuesta pendiente; en otro caso encola.
   
@@ -202,11 +202,11 @@ Tramas parciales (784-823):
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="PAM-02"></a>
-#### PAM-02 · 🔴 Crítica · correccion · bug — Un preset de importe mayor a 9999 se convierte en venta libre ('S'+pos)
+#### PAM-02 · 🟠 Alta (originalmente critica) · correccion · bug — Un preset de importe mayor a 9999 se convierte en venta libre ('S'+pos)
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1433-1447, 1734-1739, 1800-1805
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo es real. En UIGASPAM.pas 1433-1449, 'if SnImporte>9999 then SnImporte:=0' deja rsp='OK' y se salta ValidaCifra. Luego 1451-1464 llama EnviaPreset/EnviaPreset3, que con snimporte=0 y SnLitros=0 mandan 'S'+pos, venta libre, con ImportePreset=999 (1734-1739 y 1800-1805), y el comando responde OK. Matices: el código viene del commit inicial (8ba4373) y en este ecosistema 0/9999 sirve como centinela de 'tanque lleno' (Team 2058, Wayne2W 2495). Lo más probable es que la regla sea intencional para valores centinela (>9999 -> lleno). Además, en PAM no-v3 ValidaCifra(x,3,2) rechaza 1000-9999, de modo que solo los importes >9999 se vuelven venta libre. El riesgo existe porque un prepago real mayor de 9999 no se distingue del centinela, y los commits 4d45d27 y ea8feb7 de Wayne2W muestran que esas ventas ocurren. Bajo la severidad a alta: afecta solo a ventas grandes y poco frecuentes, el despacho sigue supervisado y TRANSACTION registra lo realmente despachado. El daño es sobredespacho en prepago, no una pérdida sistemática.
 - **Qué pasa:** En OCC, si el importe solicitado es mayor a 9999 se pone SnImporte:=0, y la validacion ValidaCifra solo corre cuando SnImporte<>0. EnviaPreset y EnviaPreset3 interpretan snimporte=0 como venta libre: mandan 'S'+pos (autorizacion sin limite) con ImportePreset=999. El comando responde OK.
 - **Evidencia:** 1440-1441: 'if SnImporte>9999 then SnImporte:=0;'; 1442: 'if SnImporte<>0 then begin ... ValidaCifra'; 1801-1804: 'if (snimporte=0) then begin ss:=''S''+IntToClaveNum(xpos,2); TPosCarga[xpos].ImportePreset:=999;'. Team rechaza el mismo caso (UIGASTEAM.pas 2059-2060: 'Importe fuera de rango valido'). Wayne2W lo convierte a litros (commit 4d45d27).
 - **Impacto:** Un prepago de 10,000 pesos o mas (camiones de diesel) deja la bomba sin limite y el cliente puede cargar mas de lo pagado. El POS recibe True de inmediato porque AUTHORIZE es fire-and-forget en el Bridge.
@@ -214,11 +214,11 @@ Tramas parciales (784-823):
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="PAM-03"></a>
-#### PAM-03 · 🔴 Crítica · robustez · bug — Ciclo infinito en la lectura de totales (NumPaso=3) que deja de sondear la estacion entera
+#### PAM-03 · 🟠 Alta (originalmente critica) · robustez · bug — Ciclo infinito en la lectura de totales (NumPaso=3) que deja de sondear la estacion entera
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1329-1361, 2212-2218, 1219-1277, 2003, 1183
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revisé UIGASPAM.pas 1219-1277 ('@'/'C'), 1329-1380 (NumPaso=3), 2212-2218 (timeout '.N00..'), 1993-2003 (SwTotales:=true al inicializar), 1635-1638 y el .cfg (-$R-). Se confirma que cada entrada a NumPaso=3 reinicia el barrido en (1,1) (1332-1336) y vuelve a pedir el primer slot con SwTotales y estatus en [1,3]. No hay límite de reintentos: mientras el flag no se limpie, el ciclo nunca regresa a NumPaso 4 ni a B00. Como estatus solo se actualiza con 'B', la condición queda congelada. Solo un NAK escapa (813-814). Qué cambia: un timeout o una trama corrupta transitoria NO dejan el ciclo infinito; el siguiente reintento con respuesta válida limpia el flag, y solo se pierden unos 2.5 s por timeout sin B00. El bucle permanente exige una condición persistente: un grado reportado que no coincide con IntToStr(TComb[i]) (producto >=10, MapOff=Si con mapeo distinto, o una manguera de OpenGas que la PAM no reporta) o una respuesta '@' corta. Con $R- no hay excepción: lin[37] fuera de rango lee basura, no coincide y el flag queda. Casi todas esas condiciones son de configuración y se manifiestan desde el arranque, así que son detectables en la puesta en marcha o tras cambiar la configuración. El efecto, eso sí, es el paro total de la estación. Por eso bajo la severidad a alta.
 - **Qué pasa:**
   Cada vez que se entra a NumPaso=3, PosicionDispenActual:=0 hace que el barrido empiece otra vez en (posicion 1, slot 1). Se pide el primer slot con SwTotales=True de una posicion en [1,3]. Si la respuesta no limpia ese flag, se vuelve a pedir lo mismo para siempre.
   
@@ -243,7 +243,7 @@ Tramas parciales (784-823):
 #### PAM-04 · 🟠 Alta · correccion · bug — EnviaPreset3 reporta error con un SwError de la trama ANTERIOR aunque el preset si se envio
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1817-1825, 814-816
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   EnviaPreset3 primero encola o envia el preset y despues revisa SwError. SwError refleja si la ultima trama recibida fue un NAK, no la respuesta a este preset, que todavia no llega.
@@ -258,7 +258,7 @@ Tramas parciales (784-823):
 #### PAM-05 · 🟠 Alta · correccion · bug — PRICES (CPREC) responde OK aunque el precio no se aplique: precio con 3 decimales o >= 100, NAK sin reintento, LPrecios actualizado antes de validar
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1666-1691, 1284-1287
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   Por cada precio:
@@ -284,7 +284,7 @@ Tramas parciales (784-823):
 #### PAM-06 · 🟠 Alta · correccion · bug — Escrituras y lecturas fuera de rango sin validar en arreglos globales, compiladas con {$R-}
 
 - **Ubicación:** `UIGASPAM.pas` líneas 2719, 1672, 1957-1960, 1991-2001, 1628-1638, 2341-2347, 1183, 1649-1651, 1790-1797, 2041-2048, 1657-1659, 234-238
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   PDISPENSARIOS.cfg compila con -$R- y -$Q-, asi que ningun indice se verifica. Indices que vienen de datos externos:
@@ -333,7 +333,7 @@ Tramas parciales (784-823):
 #### PAM-08 · 🟠 Alta · robustez · bug — La perdida de comunicacion con la PAM no se refleja en el JSON: Estatus queda congelado
 
 - **Ubicación:** `UIGASPAM.pas` líneas 720-724, 2240-2246, 877, 2309-2333
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si la consola deja de responder (cable, falla de energia, puerto), Timer1 reenvia B00 cada 2.75 s pero nada pone Estatus=0. El unico indicador, ContadorAlarma>10, solo pone en ceros LinEstadoGen, que solo lee EstadoPosiciones, y esa funcion es codigo muerto (el Bridge responde STATUS con el snapshot). Timer1 sigue mandando el JSON con los ultimos estatus cada 250 ms, asi que el Bridge lo considera fresco.
 - **Evidencia:** 722-724: 'inc(ContadorAlarma); if ContadorAlarma>10 then LinEstadoGen:=CadenaStr(length(LinEstadoGen),''0'');'. Estatus solo se escribe al procesar 'B' (877). Gilbarco implementa SinComunicacion con MaxFallasEstatus=3 (UIGASGILBARCO.pas 217, 2585-2640).
@@ -345,7 +345,7 @@ Tramas parciales (784-823):
 #### PAM-09 · 🟠 Alta · correccion · bug — HoraOcc se publica como Now en cada lectura A final: la hora de la venta se mueve y aparecen ventas fantasma al arrancar
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1199, 1969, 1304-1309
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En el bloque 'venta concluida', cada lectura A sobrescribe HoraOcc con la hora actual (resolucion de minuto). Las posiciones en 3 (EOT, esperando PAYMENT) y en 8 se leen en cada ciclo (estatus>1), asi que su HoraOcc avanza minuto a minuto hasta que se cobran. Al inicializar (swinicio2) o tras cada cambio de estatus (SwA) se relee la ultima venta y se publica con hora nueva. El campo HoraOcc del registro nunca se asigna; AgregaPosCarga lo publica como '1899-12-30T00:00'.
 - **Evidencia:** 1199: 'ActualizaCampoJSON(xpos, ''HoraOcc'', FormatDateTime(''yyyy-mm-dd'',now)+''T''+FormatDateTime(''hh:nn'',now));' dentro del bloque que se ejecuta en cada lectura A con grado. Otros drivers usan una hora fija de fin de venta: UIGASWAYNE.pas 2018, UIGASGILBARCO.pas 2697, UIGASHONGYANG.pas 1578 (HoraFV).
@@ -357,7 +357,7 @@ Tramas parciales (784-823):
 #### PAM-10 · 🟠 Alta · correccion · bug — Con ValidarManguera=Si, la primera lectura final pone la venta en ceros y se publica en el JSON
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1152-1164, 1194-1199
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Durante el despacho, MangAnterior:=0 (1096). En la primera lectura final se entra al else: MangAnterior:=manguera; importe:=0; precio:=0; volumen:=0. MangActual y CombActual quedan en 0. Aun asi las lineas 1194-1199 publican Volumen/Precio/Importe en 0, Manguera/Combustible en 0 y HoraOcc=Now. La venta correcta solo aparece en la siguiente lectura, si la posicion se vuelve a leer (depende de SwA o estatus>1).
 - **Evidencia:** 1158-1163: 'else begin MangAnterior:=MangueraEnPosicion(xpos,PosActual); importe:=0; precio:=0; volumen:=0; end;' y despues, sin condicion, 1194: 'ActualizaCampoJSON(xpos, ''Volumen'', volumen);'.
@@ -378,12 +378,12 @@ Tramas parciales (784-823):
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="PAM-12"></a>
-#### PAM-12 · 🟠 Alta · robustez · riesgo — Una desconexion del Bridge detiene tambien el sondeo de la PAM: se pierden ventas durante la caida
+#### PAM-12 · 🟡 Media (originalmente alta) · robustez · riesgo — Una desconexion del Bridge detiene tambien el sondeo de la PAM: se pierden ventas durante la caida
 
 - **Ubicación:** `UIGASPAM.pas` líneas 361-367, 1171-1184
 - **Módulos afectados:** UIGASPAM.pas, UIGASTEAM.pas, UIGASWAYNE.pas, UIGASGILBARCO.pas
 - **Se atiende en:** [E2.1](../PLAN_OPTIMIZACION.md#e21--desacoplar-timer1-sondeo-serial-de-la-conexión-con-el-bridge)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo existe, pero el alcance y la severidad son menores de lo que se describe. (1) Lo que se confirma: ClientSocket1Disconnect (UIGASPAM.pas 361-367) pone conectado:=False y Timer1.Enabled:=False. Timer1 (250 ms en el .dfm) inicia cada ciclo serial con B00 en Timer1Timer (2195-2252) y vigila los timeouts de los pasos 2-5. La deteccion de fin de venta (1171-1184) exige SwCargando, que solo se pone en True al ver estatus 2 (928). Una venta que empieza y termina sin sondeo no dispara el EOT, no marca SwTotales y no se piden totales. Ademas, si la posicion vuelve a estatus 1, al reconectar la condicion de 1303 (estatus<>estatusant o estatus>1) no pide la lectura 'A', y el JSON se queda con el Volumen/Importe de la venta anterior. Gilbarco (3064-3069), Team (346-352) y Wayne (2909-2915) hacen lo mismo, y tambien Wayne2W (3942-3949), HongYang (408-413), Bennett (312-317) y Triton (323-328). Por eso la recomendacion de seguir el modelo 'como Gilbarco o Wayne2W' es incorrecta: ambos apagan Timer1 igual. (2) Lo que cambia: (a) Es falso que 'Timer1 se reactiva solo en Timer2Timer (340-343)'. Tambien lo reactivan el finally de pSerialTriggerAvail (821) y el de ComandoConsola (736). El ciclo PAM avanza por respuestas seriales (ProcesaLinea, 1290-1373, manda el siguiente comando). Si la desconexion cae con un comando en vuelo (SwEsperaRsp=True), la respuesta vuelve a habilitar Timer1 y el sondeo sigue: Responder no falla, porque SendText con el socket desconectado no envia nada y no lanza excepcion. El paro solo ocurre si la desconexion cae en el hueco ocioso entre el fin de la cadena (NumPaso:=0, 1698) y el siguiente tick, asi que es probabilistico, no determinista. (b) El disparador real es solo una caida o reinicio del Bridge: el Bridge nunca cierra el socket del driver (en 411 solo apaga SSocketOG). Mientras el Bridge esta caido, OpenGas no puede consultar nada. La perdida de la primera de dos ventas en la misma posicion ocurre aunque Timer1 siga activo, porque el snapshot solo guarda la ultima venta por posicion. No se le puede atribuir al apagado de Timer1. (c) Una venta que ya iba en curso al desconectarse no se pierde: SwCargando y swAvanzoVenta quedan en True y el EOT ocurre al reconectar. Solo se pierden las ventas que empiezan y terminan completas dentro de la caida, y en un reinicio rapido del Bridge (segundos) eso es poco probable. Si OpenGas registra la venta perdida depende de su logica, que no esta en los repos. (3) Hilos: en PAM, ClientSocket1.Active:=True se ejecuta en Timer2Timer (326-327), asi que el HWND del socket se crea en el mismo hilo que los TTimer. OnDisconnect y los timers no compiten entre si. Que pSerialTriggerAvail reactive Timer1 desde el hilo correcto depende del despacho de Async Pro; certeza media, aunque el uso en produccion sugiere que funciona. Conclusion: es un problema de robustez real pero acotado (caida del Bridge mas caer en el hueco ocioso mas una venta completa durante la caida). La severidad baja a media.
 - **Qué pasa:** ClientSocket1Disconnect hace Timer1.Enabled:=False, y Timer1 es el motor de todo el ciclo serial. Mientras el Bridge esta caido o reiniciando no se lee la PAM. Una venta que empieza y termina en ese tiempo no pasa por estatus 2, asi que SwCargando no se activa, la deteccion EOT (1171-1184) no ocurre y los totales no se piden. Si en ese lapso hay dos ventas en la misma posicion, la primera se pierde porque la PAM solo entrega la ultima. El patron se comparte con Team (346-352), Wayne (2909-2915) y Gilbarco (3064-3069).
 - **Evidencia:** 365: 'Timer1.Enabled:=False;' en OnDisconnect; Timer1 se reactiva solo en Timer2Timer al reconectar (340-343).
 - **Impacto:** Transacciones perdidas o sin totales cada vez que se reinicia o falla el Bridge (despliegues, caidas); posiciones sin control.
@@ -445,7 +445,7 @@ Tramas parciales (784-823):
 #### PAM-16 · 🟡 Media · correccion · riesgo — La heuristica x10 corrige el importe hacia volumen*precio y digiVol/digiPrec no tienen else: importes alterados en silencio
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1141-1144, 1119-1124, 1128-1133, 1146-1150, 1172
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Tras leer la venta se aplica 'si 2*vol*precio<importe entonces importe/10' y 'si 2*importe<vol*precio entonces importe*10'. El importe que cobra la PAM se ajusta al volumen y precio leidos. Si DECIMALESLITROS o DECIMALESPRECIO estan mal configurados (la convencion es confusa: digi=1 significa /100), o si el precio sale 0, el importe se divide o multiplica por 10 sin registrar nada. Ademas, si digiVol o digiPrec quedan fuera de 1..3, volumen y precio no se asignan y conservan el valor de la venta anterior, que despues alimenta la heuristica. El umbral de swAvanzoVenta usa IfThen(xcomb=3,80,40): supone que el producto 3 es diesel, y xcomb puede quedar sin inicializar.
 - **Evidencia:** 1141-1144: 'if (2*volumen*precio<importe) then importe:=importe/10; if (2*importe<volumen*precio) then importe:=importe*10;'. 1119-1124: 'if digiVol=1 then ... else if digiVol=2 then ... else if digiVol=3 then ...' sin else.
@@ -486,7 +486,7 @@ Tramas parciales (784-823):
 #### PAM-19 · 🟡 Media · correccion · bug — AgregaPosCarga no reinicia 'existe' por manguera: tras un producto repetido se descartan los productos siguientes
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1964, 1979-2011
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** existe:=false se asigna una vez por posicion, antes del bucle de mangueras. Despues de la primera manguera con un producto ya registrado, existe queda en True y ninguna manguera posterior se agrega (ni TComb, ni mapeo X, ni totales, ni Hoses en el JSON). Ejemplo: mangueras [1:P1, 2:P1, 3:P2], P2 nunca se registra. Team y Wayne2W ya lo corrigieron.
 - **Evidencia:** 1964: 'existe:=false;' fuera del 'for j:=0 to mangueras.Count-1' (1979); 1986-1988: 'for k:=1 to NoComb do if TComb[k]=xcomb then existe:=true;'. Compara UIGASTEAM.pas 859 y UIGASWAYNE2W.pas 685, que lo reinician por manguera.
@@ -522,7 +522,7 @@ Tramas parciales (784-823):
 #### PAM-22 · 🟡 Media · robustez · bug — Una excepcion en NumPaso 4 aborta todos los comandos, deja el comando sin respuesta reejecutandose y fuerza NumPaso:=0
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1378-1702
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   El bucle 'for xcmnd:=1 to 200' esta dentro de un solo try. Una excepcion en un comando tiene tres efectos:
@@ -539,7 +539,7 @@ Tramas parciales (784-823):
 #### PAM-23 · 🟡 Media · correccion · bug — EnviaPreset (VersionPam1000 distinta de 3), preset en litros con combustible '00' o manguera fuera de 1..4: ss='' y AV en ComandoConsola
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1746-1753, 718-719, 744, 2096-2099
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En el preset por litros, ss solo se asigna si CombustibleEnPosicion(xpos,xp)=xcomb para xp 1..4. AutorizarVenta pone comb='00' cuando viene vacio, y en posiciones de 2 productos que suman 5 se fuerza xcomb:=0 (1455-1457). PosicionDeCombustible(xpos,0) devuelve 99 y deja pasar la validacion. Con ss vacio, ComandoConsolaBuff('') llega a ComandoConsola, que lee LinCmnd[1] sobre una cadena vacia (puntero nil) y provoca un AV. El preset no se envia y entra al ciclo de reintentos de la excepcion de NumPaso 4. Solo afecta a la version distinta de 3; EnviaPreset3 maneja xcomb=0 con xprodauto.
 - **Evidencia:** 1747-1749: 'for xp:=1 to 4 do if CombustibleEnPosicion(xpos,xp)=xcomb then ss:=''P''+...'; 1753: 'ComandoConsolaBuff(ss);'; 719: 'CharCmnd:=LinCmnd[1];'.
@@ -551,7 +551,7 @@ Tramas parciales (784-823):
 #### PAM-24 · 🟡 Media · correccion · bug — Logica de reintento de preset (SwOCC/ContOCC) fragil: cuando levantan la pistola el contador se reinicia y el preset falla sin reintento
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1400-1431, 1489-1520, 917-923, 938-945
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Primer envio: ContOCC:=3 y SwCmndB:=false. En el siguiente B, si la posicion sigue en [1,5] y ContOCC>0, se reenvia (dec y EsperaMiliSeg(500)); si ContOCC<=0, se responde 'Error al aplicar PRESET'. El proceso de 'B' pone ContOcc:=0 en cada transicion a 1 o a 5 (921-922, 942-944). Si el cliente levanta la pistola entre el envio y el siguiente B (transicion 1->5), el contador queda en 0 y el driver reporta error sin reintentar, aunque la PAM pueda aplicar el preset un momento despues. Los bloques OCC (1395-1483) y OCL (1484-1566) son copias de unas 85 lineas.
 - **Evidencia:** 938-944: '5:begin ... if (estatusant<>estatus) then begin swautorizada:=false; ... ContOcc:=0; end;'; 1413-1418: 'else if (estatus in [1,5])and(ContOCC<=0) then begin rsp:=''Error al aplicar PRESET''; ...'.
@@ -651,7 +651,7 @@ Tramas parciales (784-823):
 #### PAM-31 · 🟡 Media · correccion · bug — Se mezclan indices de slot y de posicion de manguera en SwTotales y TotalLitros: totales del producto equivocado
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1108-1111, 1183, 1649-1651, 1225-1249, 1338-1352
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** PosActual es la posicion de manguera de la PAM (PosActual:=TPosx[i], igual a HoseId y usada en xprodauto 1..6). Sin embargo SwTotales y TotalLitros se indexan por slot (1..NoComb) en '@'/'C' y en el barrido del paso 3. En el fin de venta (1183) y en TOTAL (1649-1651) se usa SwTotales[PosActual] y TotalLitros[PosActual]+=volumen. Si las HoseId no son 1..NoComb en orden (p.ej. mangueras 1 y 3, o posiciones 5/6 de la PAM), se marca o suma el slot equivocado, el total del producto real no se refresca, y con PosActual mayor a 4 se escribe sobre TMang dentro del registro.
 - **Evidencia:** 1111: 'PosActual:=TPosx[i];'; 1183: 'SwTotales[PosActual]:=True;'; 1650: 'ToTalLitros[PosActual]:=ToTalLitros[PosActual]+volumen;' frente a 1226: 'SwTotales[i]:=false; TotalLitros[i]:=...' con i = slot.
@@ -664,7 +664,7 @@ Tramas parciales (784-823):
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1628-1665, 2351
 - **Módulos afectados:** UIGASPAM.pas, OpenGas
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:**
   Problemas de la respuesta TOTAL:
@@ -896,7 +896,7 @@ Tramas parciales (784-823):
 #### PAM-48 · ⚪ Baja · correccion · bug — ApplyTotalLitrosToJSON localiza la posicion por indice (xpos-1) y no por DispenserId
 
 - **Ubicación:** `UIGASPAM.pas` líneas 2926-2961
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Supone que PosCarga[] esta ordenado y es contiguo desde 1. Con huecos (p.ej. IDs 1,2,5,6) o con un orden distinto en el INITIALIZE, los totales se escriben en Hoses de otra posicion o se descartan. ActualizaCampoJSON si busca por DispenserId, y el Bridge advierte que PosCarga puede llegar en cualquier orden (UIGASBRIDGE.pas 639-640). Hoy el Bridge no consume Hoses[].Total, asi que el impacto es solo de diagnostico.
 - **Evidencia:** 2941-2945: 'posIndex0 := xpos - 1; ... posObj := TlkJSONobject(posCargaList.Child[posIndex0]);'.

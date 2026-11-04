@@ -1,6 +1,6 @@
 # Hallazgos · BRG · Bridge (UIGASBRIDGE.pas)
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -94,12 +94,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 ## Hallazgos (41)
 
 <a id="BRG-01"></a>
-#### BRG-01 · 🔴 Crítica · protocolo · bug — Sin framing Bridge<->PDISPENSARIOS: fragmentos y mensajes pegados rompen snapshot, resultados y parametros de comandos
+#### BRG-01 · 🟠 Alta (originalmente critica) · protocolo · bug — Sin framing Bridge<->PDISPENSARIOS: fragmentos y mensajes pegados rompen snapshot, resultados y parametros de comandos
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 745-774 (753, 757-767), 785-814
 - **Módulos afectados:** UIGASBRIDGE.pas, UIGASWAYNE2W.pas, UIGASWAYNE.pas, UIGASPAM.pas, UIGASBENNETT.pas, UIGASGILBARCO.pas, UIGASHONGYANG.pas, UIGASTEAM.pas, UIGASTRITON.pas, uLkJSON.pas
 - **Se atiende en:** [E0.4](../PLAN_OPTIMIZACION.md#e04--simuladores-de-opengas-y-de-driver--batería-de-pruebas-de-protocolo), [E6.1](../PLAN_OPTIMIZACION.md#e61--framing-y-buffer-por-conexión-en-los-dos-sentidos-y-del-lado-de-opengas)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El defecto existe: no hay framing en ningun sentido. Lo verifique en UIGASBRIDGE.pas 745-774: 753 ReceiveText lee lo que haya, 757-758 parsea, y 762/767 hacen SendText sin terminador y una respuesta por cada evento. Tambien en uLkJSON.pas 2030: js_base no comprueba que idx llegue al final, asi que con dos JSON pegados se queda con el primero. En el driver, UIGASWAYNE2W 3951-3963 concatena los elementos 4..N. El caso (c) es real: AutorizarVenta (3342-3381) toma el elemento 3 como importe ('500'+'0' da 5000) y el 5 como finv ('0' pasa a '00', y eso cambia finv de '1' a '0'). El Bridge corre en un solo hilo: SSocketPDisp.Active y TimerTimeout se crean en ServiceExecute (250-261). Matices que bajan la severidad: 1) el despliegue por defecto es loopback (127.0.0.1) y el JSON normal pesa unos pocos KB, una sola escritura, asi que la fragmentacion es rara. Solo es frecuente con LOG/LOGREQ grandes (3732-3781) o con PDisp en otro host, y aun ahi 'siempre' es exagerado. 2) El driver conserva en Peticiones los dos ultimos resultados (3276-3290) y los reenvia en el siguiente JSON, que sale cada 150 ms (Timer1 de 50 ms y xTurnoSocket=3, lineas 2640 y 2959). Por eso lo perdido en (a)/(b) suele recuperarse, salvo que dos respuestas nuevas lo desplacen. 3) La via realista hacia (c) es (a): dos respuestas casi simultaneas. Mientras la cabeza de la cola este Enviada (TryStartNext 125-142), ambas respuestas son NOTHING y el resultado es inocuo. Para que salga mal hace falta un comando sin enviar en la cabeza justo en ese momento. Con el Bridge bloqueado se produce (b), no (c), porque ReceiveText lee ambos mensajes juntos. Las lineas citadas de PAM 397-398 y Wayne2W 3700-3701 son un solo envio cada una, desde el handler de lectura, aparte del envio periodico. Un hallazgo extra que lo refuerza: si se pega un 'PING' con un JSON, AnsiContainsText (757) hace que el JSON no se parsee. El riesgo es real pero de baja probabilidad en loopback, por eso alta y no critica.
 - **Qué pasa:**
   SSocketPDispClientRead trata cada Socket.ReceiveText, que lee lo que haya en el buffer (FIONREAD), como un mensaje completo del driver, y responde exactamente una vez por evento. Ningun sentido tiene terminador ni prefijo de longitud.
   (a) JSON fragmentado: pasa siempre si PDisp corre en otro host y el JSON supera el MSS; en loopback, con JSON grandes (LOG/LOGREQ) o bajo carga. ParseText devuelve nil en cada fragmento, asi que se pierden el snapshot y las Peticiones de ese mensaje, y el Bridge manda DOS respuestas al driver por un solo mensaje.
@@ -118,12 +118,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Esfuerzo:** L · **Riesgo del cambio:** alto · **Toca contrato:** sí
 
 <a id="BRG-02"></a>
-#### BRG-02 · 🔴 Crítica · correccion · bug — PRICES/AUTHORIZE/PAYMENT se confirman 'True|0|' antes de llegar al driver y el resultado real se descarta
+#### BRG-02 · 🟠 Alta (originalmente critica) · correccion · bug — PRICES/AUTHORIZE/PAYMENT se confirman 'True|0|' antes de llegar al driver y el resultado real se descarta
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 372-375, 384-389, 839-851, 885-890
 - **Módulos afectados:** UIGASBRIDGE.pas, OpenGas (externo), UIGASWAYNE2W.pas
 - **Se atiende en:** [E5.2](../PLAN_OPTIMIZACION.md#e52--confirmación-real-de-prices-authorize-y-payment)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo coincide exactamente con el codigo. La linea 373 pone CliSock:=nil para PRICES/AUTHORIZE/PAYMENT. En 384-389, ResponderOG responde 'True|0|' justo despues del Push (380), sin que se haya enviado nada. En 842, ProcesaRespuestasJSON no tiene else. En 885, TimerTimeoutTimer no avisa a OG. La confirmacion inmediata es deliberada: aa6821c la introdujo y 01e1868 puso CliSock=nil para evitar la doble respuesta. Las citas del driver son correctas: UIGASWAYNE2W 3358, 3365, 3381 ('True|'+IntToStr(EjecutaComando)), 3587-3590 y RESPCMND 3800-3821. Kairos 533-550 si responde el resultado real. Matices: 1) 'sin registrar nada' no es exacto. El JSON crudo con el Resultado False queda en LogPDisp (754, 'R '+respTxt) y el vencimiento se registra como 'TIMEOUT [folio]' (878-881); lo que falta es avisar a OG y una alerta especifica. 2) El 'True|<folio>' del driver solo significa 'encolado en TabCmnd' (EjecutaComando 981-1021). El resultado real en la bomba siempre fue asincrono, tambien en el driver legado, asi que lo que se pierde en operacion normal son los rechazos sincronos y el folio para RESPCMND. Los rechazos sincronos son sobre todo validaciones de parametros, la tabla llena, el precio invalido de Bennett o la posicion deshabilitada de Triton, y son poco frecuentes con un OG bien formado. 3) El caso grave, 'el driver nunca recibe el comando', es el de BRG-03. Es real y relevante, pero por ser un diseño deliberado y por su impacto en operacion normal le asigno alta y no critica.
 - **Qué pasa:**
   AddPeticion encola los tres comandos con CliSock=nil y responde de inmediato 'DISPENSERS|<CMD>|True|0|' (384-389), cuando la peticion apenas esta en la cola y ni siquiera se envio. Cuando el driver contesta, ProcesaRespuestasJSON la saca de la cola y la libera sin registrar ni avisar nada (842, Assigned(p.CliSock)=False); si vence, TimerTimeoutTimer tampoco avisa (885).
   Asi, OG recibe exito aunque el driver conteste, por ejemplo:
@@ -145,12 +145,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
 
 <a id="BRG-03"></a>
-#### BRG-03 · 🔴 Crítica · correccion · bug — Con PDISPENSARIOS caido los comandos se confirman y luego se cancelan, o quedan sin TTL y se ejecutan tarde al reconectar
+#### BRG-03 · 🟠 Alta (originalmente critica) · correccion · bug — Con PDISPENSARIOS caido los comandos se confirman y luego se cancelan, o quedan sin TTL y se ejecutan tarde al reconectar
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 177-201 (190), 384-389, 409-412, 549-550
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E3.1](../PLAN_OPTIMIZACION.md#e31--disponibilidad-puerto-1001-siempre-activo-y-driver-caído-detectado)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Verificado. La comprobacion de inactividad (409-412) esta fuera del case, despues del Push (380) y del ResponderOG True (384-389). CancelarPeticiones (415-437) solo notifica si CliSock esta asignado (427), asi que los comandos fire-and-forget se cancelan sin aviso. TryPopExpired (177-201) solo vence la cabeza con Enviada=True (190), y las peticiones no enviadas no tienen TTL. TimerTimeoutTimer (869-903) no revisa horaAct. IntentaRecuperarPDispensarios sale si horaAct tiene 10 s o mas (549-550). SSocketPDisp no tiene OnClientDisconnect (.dfm), asi que horaAct es la unica señal de vida. Matices de alcance: 1) Confirmar y luego cancelar ocurre en una ventana de 10 s o menos, mas el primer mensaje que llega despues. En ese momento, la linea 411 desactiva SSocketOG, OG queda desconectado y no puede reconectar hasta que PDisp vuelva a enviar (755-756), y eso es una señal visible. 2) La ejecucion tardia exige que OG no envie NADA, ni siquiera STATE/STATUS/TRANSACTION, que tambien pasan por la linea 409, entre el comando y la reconexion del driver. Eso es improbable porque el snapshot existe precisamente para atender sondeos frecuentes de OG. Aun asi es posible, por ejemplo si OG se cae o queda inactivo, y entonces un AUTHORIZE viejo se ejecutaria. Tambien hay retrasos de pocos segundos dentro de la ventana. Es real, pero su probabilidad lo deja en alta y no en critica.
 - **Qué pasa:**
   La verificacion de inactividad (SecondsBetween(Now,horaAct)>=10) esta al FINAL de AddPeticion (409-412): despues de encolar y despues de responder True a PRICES/AUTHORIZE/PAYMENT. Luego CancelarPeticiones no avisa a esos comandos, porque su CliSock es nil.
   Entre 0 y 10 s de inactividad las peticiones se encolan sin enviarse, y TryPopExpired solo vence las que tienen Enviada=True (190), asi que no tienen TTL. Si OG deja de enviar (la linea 409 ya no se ejecuta) y el driver reconecta minutos despues, la cola se vacia sobre el driver y este ejecuta un AUTHORIZE, PRICES o PAYMENT viejo. TimerTimeout no revisa la inactividad del driver.
@@ -169,7 +169,7 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 757
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E3.2](../PLAN_OPTIMIZACION.md#e32--validación-del-snapshot-de-las-peticiones-y-de-los-parámetros)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ✅ confirmado por un verificador independiente — Revise UIGASBRIDGE.pas 745-774 (757: `if not AnsiContainsText(respTxt,'PING')`) y 785-859. El filtro es por subcadena y sin distinguir mayusculas: cualquier JSON con 'ping' en cualquier parte se descarta sin parsear, asi que no se actualizan rootJSON ni horaUltimoDatoReal y no se emparejan sus Peticiones. El caso LOGREQ es real. En UIGASWAYNE2W, Responder (534-552) registra `AgregaLogPetRes('E '+resp)` en la linea 544, que incluye 'E PING' mientras respJson=False (3915-3916). ObtenerLogPetRes (3761-3781) devuelve esas lineas dentro de Resultado. Lo mismo pasa en Bennett, Gilbarco, HongYang, PAM, Team, Triton y Wayne, que tambien loguean 'E '+resp y responden LOGREQ. En PAM (406) y Wayne (2800) respJson vuelve a False despues de un '0', asi que hay PING nuevos durante la operacion. El hallazgo no menciona un agravante: ningun driver vacia Peticiones despues de enviarlo (solo AddPeticionJSON lo recorta a 2: Wayne2W 3274-3290). Por eso el resultado contaminado viaja en TODOS los JSON siguientes hasta que lo desplazan 2 resultados nuevos. Esos resultados tambien se descartan y vencen por TimeoutRespSrv, de modo que el snapshot queda congelado varios segundos (STATE/STATUS/TRANSACTION responden 'Datos obsoletos') hasta que el auto-kick o nuevos comandos lo desplazan. Correccion menor: AnsiContainsText en D7 es `AnsiPos(AnsiUppercase(ASubText), AnsiUppercase(AText))`, asi que hace UNA copia en mayusculas del JSON (mas la de 'PING'), no dos; el costo es despreciable. Los casos 'stopping', 'mapping' y similares son posibles pero especulativos, porque no encontre literales con 'ping' en los drivers (grep -i). 'PING' pegado a un JSON fallaria al parsear de todos modos.
 - **Qué pasa:**
   Para decidir si un mensaje es heartbeat, el Bridge usa AnsiContainsText(respTxt,'PING'), que busca la subcadena en TODO el texto sin distinguir mayusculas. Cualquier JSON que contenga 'ping' en cualquier valor se descarta completo: no se actualizan rootJSON ni horaUltimoDatoReal y no se procesan sus Peticiones.
   Casos reales:
@@ -182,13 +182,30 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Recomendación:** Comparar exacto: `if Trim(respTxt)='PING'`, y tratar como JSON solo lo que empiece con '{'. Con framing (hallazgo 1), hacer la evaluacion por mensaje. Validar con un Resultado que contenga 'Stopping' y con LOGREQ 50.
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
+<a id="BRG-09"></a>
+#### BRG-09 · 🟠 Alta · seguridad · riesgo — Ambos puertos escuchan en todas las interfaces sin autenticacion: snapshot falsificable y comandos de venta abiertos a la red
+
+- **Ubicación:** `UIGASBRIDGE.pas` líneas 237-238, 261-262, 320-332, 745-767; UIGASBRIDGE.dfm 9-24
+- **Módulos afectados:** UIGASBRIDGE.pas, UIGASBRIDGE.dfm, instalador
+- **Se atiende en:** [E5.5](../PLAN_OPTIMIZACION.md#e55--seguridad-de-red-del-bridge)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revise UIGASBRIDGE.dfm 9-24 (solo Port, ServerType y OnClientRead) y UIGASBRIDGE.pas 237-238, 262, 320-334 y 745-767. Con grep no hay OnClientConnect, RemoteAddress ni ninguna validacion de origen. TServerSocket de D7 no publica Address/Host (son protegidos en TAbstractSocket), asi que DoActivate hace Listen con direccion vacia, es decir INADDR_ANY. Cualquiera que llegue al puerto PDisp puede instalar un snapshot arbitrario (ProcesaRespuestasJSON no valida nada), que el Bridge usara para contestar STATE/STATUS/TRANSACTION, y recibir las peticiones de la cola (TryStartNext se entrega a cualquier conexion). En el puerto OG, DISPENSERSX omite el CRC (329); de todos modos el CRC no es autenticacion. Matices que no cambian la severidad: la falta de autenticacion del lado OG es heredada del protocolo legado (Kairos escucha igual en 1001); la exposicion real depende del Firewall de Windows del equipo de la estacion; y los comandos si quedan en ListaLogOG ('R '+mensaje), aunque sin la IP de origen, asi que 'no se detectaria' es algo exagerado. Un AUTHORIZE o PRICES no autenticado desde la LAN sobre un controlador de combustible justifica alta. PDisp deberia aceptar solo loopback por defecto (los drivers usan ServidorSocket=127.0.0.1:1004, Wayne2W 420-421).
+- **Qué pasa:**
+  Los dos TServerSocket escuchan en INADDR_ANY (el TServerSocket de D7 no publica la direccion de bind), sin autenticacion ni lista de IPs. Cualquier equipo de la red puede:
+  (a) conectarse al puerto PDisp y enviar un JSON propio: el Bridge lo instala como snapshot y responde STATE/STATUS/TRANSACTION con datos falsos (importe y volumen de la venta). Ademas se lleva las peticiones de la cola, que se entregan a la primera conexion que hable.
+  (b) conectarse al puerto OG y mandar AUTHORIZE, PRICES, HALT, SHUTDOWN, TERMINATE o LOGREQ (lectura de logs), usando DISPENSERSX para no calcular el CRC.
+  Como no hay OnClientConnect, las conexiones no quedan registradas y un abuso no se detectaria.
+- **Evidencia:** El dfm solo define Port y ServerType; no hay OnClientConnect con validacion de RemoteAddress; 329 `if (not chks_valido) and (cabecera <> 'DISPENSERSX')`.
+- **Impacto:** Manipulacion de importes reportados (cobro incorrecto), autorizaciones o paros remotos y fuga de logs, en redes de estacion que suelen ser planas.
+- **Recomendación:** Claves de ini 'IPsPermitidasPDisp' (default 127.0.0.1) e 'IPsPermitidasOG'. En OnClientConnect validar Socket.RemoteAddress y cerrar con log si no esta permitida. Limitar PDisp a una sola conexion. Deshabilitar DISPENSERSX por configuracion en produccion y agregar una regla de firewall en el instalador. Evaluar el bind a loopback con una clase derivada (TCustomWinSocket.Listen recibe Address); verificarlo en el fuente de ScktComp de D7.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
+
 <a id="BRG-05"></a>
-#### BRG-05 · 🟠 Alta · protocolo · bug — El lado OpenGas no tiene buffer de tramas: tramas pegadas o partidas se pierden o se procesan como basura
+#### BRG-05 · 🟡 Media (originalmente alta) · protocolo · bug — El lado OpenGas no tiene buffer de tramas: tramas pegadas o partidas se pierden o se procesan como basura
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 287, 291-294, 301-318
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E6.1](../PLAN_OPTIMIZACION.md#e61--framing-y-buffer-por-conexión-en-los-dos-sentidos-y-del-lado-de-opengas)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revise UIGASBRIDGE.pas 279-345. El defecto de codigo existe: un ReceiveText equivale a una trama, se toma el primer STX (301-306) y el ultimo ETX (307-313), checksum es una variable local que arranca vacia y no hay buffer por conexion. Los escenarios descritos son correctos. Con dos tramas pegadas, el CRC final no coincide y se responde 'Checksum invalido' con el comando de la primera. Con DISPENSERSX se procesa la primera con parametros basura y la segunda se pierde; si la primera es STATE, se contesta bien desde el snapshot. Matices: (1) Que pase en la practica depende del patron de envio de OpenGas, que no esta en el repo. El servidor legado de Kairos (UIGASKAIROS.pas 421-440) usa exactamente la misma suposicion de una trama por lectura, lo que sugiere que OG trabaja en peticion-respuesta y que con tramas chicas en LAN o loopback casi no hay fragmentacion. Lo hacen mas probable las pausas largas del hilo del Bridge, como los SaveToFile de logs grandes, mientras OG envia sin esperar respuesta. (2) El atajo '0'/'1' disparado por un fragmento de 1 byte es practicamente imposible, porque las tramas empiezan con SOH. (3) Un fragmento corto con menos de 2 elementos recibe 'Comando desconocido', no 'Checksum invalido'. Es un bug latente de robustez y no uno que se manifieste de forma rutinaria, por eso baja a media.
 - **Qué pasa:**
   SSocketOGClientRead procesa cada ReceiveText como una sola trama: toma el PRIMER STX y el ULTIMO ETX.
   - Dos tramas que llegan juntas (p.ej. STATE y STATUS consecutivos) dejan el payload 'DISPENSERS|STATE|<ETX>CRC<ETB><SOH><STX>DISPENSERS|STATUS|'. El CRC final no coincide, se responde 'Checksum invalido' y se pierden ambas. Con cabecera DISPENSERSX se procesa la basura como un solo comando y la segunda peticion se pierde sin respuesta.
@@ -201,12 +218,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="BRG-06"></a>
-#### BRG-06 · 🟠 Alta · rendimiento · optimizacion — Cola con bloqueo de cabeza: una peticion por viaje y una respuesta perdida congela toda la cola 2-2.5 s
+#### BRG-06 · 🟡 Media (originalmente alta) · rendimiento · optimizacion — Cola con bloqueo de cabeza: una peticion por viaje y una respuesta perdida congela toda la cola 2-2.5 s
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 120-139, 177-201, 760-764
 - **Módulos afectados:** UIGASBRIDGE.pas, todos los drivers (AddPeticionJSON/ClientSocket1Read)
 - **Se atiende en:** [E3.4](../PLAN_OPTIMIZACION.md#e34--cola-prioridad-límite-y-deduplicación), [E6.2](../PLAN_OPTIMIZACION.md#e62--push-de-comandos-resultados-inmediatos-y-ack)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revise 120-139 (TryStartNext solo entrega FList[0] si no fue enviada), 141-162, 177-201 (TryPopExpired solo revisa la cabeza; el invariante 'solo la cabeza en vuelo' se cumple porque solo TryStartNext marca Enviada), 760-767 y 869-902 (timer de 500 ms con SecondsBetween>=2, o sea 2 a 2.5 s). El bloqueo de cabeza y el maximo de una peticion por mensaje del driver son reales. En el mismo ClientRead se hace pop de la respuesta y se envia la siguiente, asi que es 1 comando por ciclo del driver: 200 ms con Timer2, o el ciclo serial cuando estado>0 (Wayne2W 2958-2960). Matices: (1) Es una limitacion de diseno o rendimiento, no un bug. (2) 'Una respuesta perdida' es menos frecuente de lo que sugiere el texto: como el driver nunca vacia Peticiones (AddPeticionJSON solo recorta a 2), un JSON perdido o descartado no pierde el resultado, que vuelve a llegar en el siguiente. Con una sola peticion en vuelo, que la ventana de 2 desplace el resultado de la cabeza solo ocurre con resultados diferidos o anomalos del driver. El congelamiento de 2 a 2.5 s ocurre sobre todo con BRG-04, con JSON que no parsea de forma persistente o con un reinicio del driver. (3) PRICES, AUTHORIZE y PAYMENT ya se confirmaban de inmediato a OG, asi que el retraso afecta la ejecucion real en el dispensario, no la respuesta a OG. (4) El TRACE automatico solo se encola cuando los datos ya estan obsoletos. El impacto operativo, unos segundos de demora al autorizar en rafagas o despues de una perdida, justifica media, no alta.
 - **Qué pasa:**
   TryStartNext solo entrega FList[0] y solo si no se ha enviado. Mientras la cabeza espera su resultado, cada mensaje del driver recibe 'NOTHING'.
   - El rendimiento maximo es 1 peticion por ida y vuelta del driver (~150-250 ms, mas en drivers con ciclo serial lento): una rafaga de N comandos (p.ej. PRICES por posicion o varios AUTHORIZE) tarda N veces ese tiempo.
@@ -222,12 +239,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
 
 <a id="BRG-07"></a>
-#### BRG-07 · 🟠 Alta · robustez · bug — Activar SSocketOG dentro de la lectura del driver: si el puerto OG esta ocupado, el driver nunca recibe respuesta y se vuelca un log por segundo
+#### BRG-07 · 🟡 Media (originalmente alta) · robustez · bug — Activar SSocketOG dentro de la lectura del driver: si el puerto OG esta ocupado, el driver nunca recibe respuesta y se vuelca un log por segundo
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 755-756, 768-772
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E3.1](../PLAN_OPTIMIZACION.md#e31--disponibilidad-puerto-1001-siempre-activo-y-driver-caído-detectado)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revise 745-774, 261, 409-412 y la historia con git -L 755,756: viene de la version inicial 4af6278 y es intencional, para abrir el puerto de OG solo cuando el driver esta vivo; AddPeticion lo cierra despues de 10 s sin actividad. El mecanismo se confirma. En D7, TServerSocket.Active:=True llama a Listen con Block=True por defecto, que hace bind de forma sincrona; si el puerto esta ocupado lanza ESocketError (10048) dentro del try y FActive sigue en False, asi que el error se repite con cada mensaje del driver. ProcesaRespuestasJSON y la respuesta al driver se saltan, y el except llama a GuardaLogPDisp (861-867) en cada mensaje. Correcciones: (1) El ejemplo de Kairos (Marca 7) es imposible. Con Marca 7 PDISPENSARIOS no se conecta al puerto PDisp del Bridge y solo hay un servicio PDISPENSARIOS, asi que SSocketPDispClientRead nunca se dispara y no hay bucle. (2) Si otro proceso ocupa el puerto OG, el Bridge es inutil de todos modos para OG, asi que 'el snapshot nunca se actualiza' y 'el driver no recibe respuesta' no agregan dano real. El dano adicional verdadero es la tormenta de E/S: un SaveToFile de ListaLogPDisp, que puede llegar a 10000 lineas con JSON completos, por cada mensaje del driver, unas 5 por segundo. Eso bloquea el hilo y podria llenar el disco si FechaHoraToStr (ULIBGRAL, no incluido, no verificable) genera nombres por segundo. Depende de un error de despliegue (puerto 1001 ocupado), por eso baja a media.
 - **Qué pasa:** En cada mensaje del driver, si SSocketOG no esta activo se ejecuta Active:=True dentro del try general. Si el puerto OG esta ocupado (otro proceso, una instancia vieja del Bridge, o PDISPENSARIOS con Marca 7 Kairos, que escucha en 1001 con su propio ServerSocket), el bind lanza ESocketError en CADA mensaje. Entonces se saltan ProcesaRespuestasJSON y la respuesta al driver, y el except llama a GuardaLogPDisp, que vuelca el log completo a un archivo nombrado por segundo (unos 5 intentos por segundo). El snapshot nunca se actualiza y OG no puede conectarse.
 - **Evidencia:** 755-756 `if not SSocketOG.Active then SSocketOG.Active:=True;` ocurre antes de 757-767; 768-772: except -> `GuardaLogPDisp;`.
 - **Impacto:** Servicio inutil en silencio (sin snapshot ni peticiones) y el disco se llena de archivos de log.
@@ -235,12 +252,12 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="BRG-08"></a>
-#### BRG-08 · 🟠 Alta · robustez · bug — Volcados de log sin proteccion dentro de bloques except: rutaLog inexistente o disco lleno encadena excepciones y se pierden respuestas
+#### BRG-08 · 🟡 Media (originalmente alta) · robustez · bug — Volcados de log sin proteccion dentro de bloques except: rutaLog inexistente o disco lleno encadena excepciones y se pierden respuestas
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 236, 273-274, 338-343, 502-506, 737-743, 768-772, 799-804, 853-857, 861-867
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E2.4](../PLAN_OPTIMIZACION.md#e24--bitácoras-que-no-bloquean-append-incremental-rotación-y-sin-json-repetido)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revise 236 (sin ForceDirectories ni CreateDir en ningun repo; instalador.bat solo hace /INSTALL), 271-276, 338-343, 502-507, 684-689, 737-743, 768-773, 797-805, 853-858 y 861-867. Las cadenas descritas son correctas. Con rutaLog invalida o disco lleno, SaveToFile lanza dentro de los except. En 341 impide el ResponderOG de 342. En 505 la excepcion sale de ResponderOG, atraviesa el try/finally de 841-850, aborta el bucle de Peticiones, vuelve a fallar en 856 y en 771, y escapa del handler hacia el WndProc de ScktComp (ApplicationHandleException), asi que el driver no recibe respuesta en ese ciclo. En ServiceExecute, una excepcion antes de 251 produce un AV en 273 (se traslapa con BRG-10). Ademas, el guardado periodico de 296-298 falla dentro del try y vuelve a fallar en 341, lo que hace perder un mensaje de OG por cada periodo minutosLog. Correcciones: (1) 'Ningun guardado esta protegido' es inexacto: el de TRACE en AddPeticion (391-398) si tiene try/except. (2) Todo depende de la precondicion: carpeta inexistente, disco lleno o archivo bloqueado. C:\OpenGas\Logs es la ruta de la propia instalacion de OpenGas y normalmente existe; con la carpeta presente, el problema solo aparece con disco lleno, que BRG-07 si podria provocar. Las excepciones que escapan no tumban el servicio (WndProc de TTimer y ScktComp las capturan), solo se pierden respuestas. Media.
 - **Qué pasa:**
   Ningun guardado de log esta protegido, y GuardaLogOG, GuardaLogPDisp y los SaveToFile directos se llaman casi siempre DESDE bloques except. Si rutaLog no existe (default 'C:\OpenGas\Logs', que nunca se crea con ForceDirectories), el disco esta lleno o el archivo esta bloqueado, SaveToFile lanza EFCreateError dentro del except y esa segunda excepcion escapa:
   - en SSocketOGClientRead (341) impide enviar el error a OG (342);
@@ -251,30 +268,13 @@ El ritmo del intercambio lo marca el driver: Timer2 cada 200 ms, o en Wayne2W Ti
 - **Recomendación:** ForceDirectories(rutaLog) al arrancar, con la carpeta del exe como respaldo. Un unico procedimiento GuardarLogSeguro con try/except interno que nunca propague. No hacer E/S pesada dentro de un except: marcar una bandera y guardar desde el timer, con un maximo de 1 volcado por minuto. Validar con RutaLog apuntando a una carpeta inexistente.
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
-<a id="BRG-09"></a>
-#### BRG-09 · 🟠 Alta · seguridad · riesgo — Ambos puertos escuchan en todas las interfaces sin autenticacion: snapshot falsificable y comandos de venta abiertos a la red
-
-- **Ubicación:** `UIGASBRIDGE.pas` líneas 237-238, 261-262, 320-332, 745-767; UIGASBRIDGE.dfm 9-24
-- **Módulos afectados:** UIGASBRIDGE.pas, UIGASBRIDGE.dfm, instalador
-- **Se atiende en:** [E5.5](../PLAN_OPTIMIZACION.md#e55--seguridad-de-red-del-bridge)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:**
-  Los dos TServerSocket escuchan en INADDR_ANY (el TServerSocket de D7 no publica la direccion de bind), sin autenticacion ni lista de IPs. Cualquier equipo de la red puede:
-  (a) conectarse al puerto PDisp y enviar un JSON propio: el Bridge lo instala como snapshot y responde STATE/STATUS/TRANSACTION con datos falsos (importe y volumen de la venta). Ademas se lleva las peticiones de la cola, que se entregan a la primera conexion que hable.
-  (b) conectarse al puerto OG y mandar AUTHORIZE, PRICES, HALT, SHUTDOWN, TERMINATE o LOGREQ (lectura de logs), usando DISPENSERSX para no calcular el CRC.
-  Como no hay OnClientConnect, las conexiones no quedan registradas y un abuso no se detectaria.
-- **Evidencia:** El dfm solo define Port y ServerType; no hay OnClientConnect con validacion de RemoteAddress; 329 `if (not chks_valido) and (cabecera <> 'DISPENSERSX')`.
-- **Impacto:** Manipulacion de importes reportados (cobro incorrecto), autorizaciones o paros remotos y fuga de logs, en redes de estacion que suelen ser planas.
-- **Recomendación:** Claves de ini 'IPsPermitidasPDisp' (default 127.0.0.1) e 'IPsPermitidasOG'. En OnClientConnect validar Socket.RemoteAddress y cerrar con log si no esta permitida. Limitar PDisp a una sola conexion. Deshabilitar DISPENSERSX por configuracion en produccion y agregar una regla de firewall en el instalador. Evaluar el bind a loopback con una clase derivada (TCustomWinSocket.Listen recibe Address); verificarlo en el fuente de ScktComp de D7.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
-
 <a id="BRG-10"></a>
-#### BRG-10 · 🟠 Alta · robustez · bug — ServiceExecute: un ini invalido o el puerto ocupado detienen el servicio sin error visible ni recuperacion del SCM
+#### BRG-10 · 🟡 Media (originalmente alta) · robustez · bug — ServiceExecute: un ini invalido o el puerto ocupado detienen el servicio sin error visible ni recuperacion del SCM
 
 - **Ubicación:** `UIGASBRIDGE.pas` líneas 230-277 (235, 239, 251, 262, 271-276)
 - **Módulos afectados:** UIGASBRIDGE.pas
 - **Se atiende en:** [E2.3](../PLAN_OPTIMIZACION.md#e23--arranque-y-paro-ordenados-del-servicio)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revise UIGASBRIDGE.pas 230-277 y el dfm (solo OnExecute; con grep no hay OnStop, OnShutdown ni config.Free). Punto 1, confirmado: StrToInt en 239 se ejecuta antes de crear ListaLogOG (251); con un MinutosLog no numerico, o vacio ('MinutosLog='), el except de 273 hace ListaLogOG.Add sobre nil, que es un AV. La excepcion sale de ServiceExecute, TServiceThread.Execute la manda al Visor de eventos y el servicio termina. Punto 2, confirmado con certeza media-alta: si SSocketPDisp.Active falla, ServiceExecute retorna normal, el hilo termina y TService queda en csStopped con Win32ExitCode=0 (ErrCode y Win32ErrCode nunca se asignan), asi que la recuperacion del SCM, que actua ante caidas o paradas con error, no se dispara. La causa 'instancia previa cerrandose' es poco probable porque el SCM no arranca otra hasta que la anterior reporta Stopped, pero otro programa en el puerto si es posible. Punto 3, mayormente teorico: el WndProc de TTimer y el de TCustomWinSocket capturan las excepciones de los eventos (Application.HandleException o ApplicationHandleException), y ProcessRequests captura las de los codigos de control, asi que es muy raro que algo escape del bucle. Punto 4, real pero trivial: es una sola fuga de TIniFile al arrancar. Punto 5, real: los logs en memoria se pierden al detener, salvo con minutosLog>0. Todo se dispara por configuracion invalida o un puerto ocupado al arrancar; el efecto (servicio detenido en silencio y sin reinicio automatico) es importante pero poco frecuente. Media.
 - **Qué pasa:**
   1) MinutosLog se lee con StrToInt(ReadString(...)) (239). Un valor no numerico lanza EConvertError ANTES de crear ListaLogOG (251); el except (273) usa ListaLogOG=nil y produce un AV dentro del except. La excepcion sale de ServiceExecute, TServiceThread solo la manda al Visor de eventos y el servicio se detiene sin log propio.
   2) Si SSocketPDisp.Active:=True falla (puerto ocupado por una instancia previa que aun se esta cerrando, u otro programa), el except escribe el log y ServiceExecute retorna normal. El servicio queda Detenido con codigo de salida 0, asi que las acciones de recuperacion del SCM ('reiniciar ante error') no se disparan (certeza media-alta sobre la semantica de SvcMgr D7).

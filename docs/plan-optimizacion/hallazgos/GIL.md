@@ -1,6 +1,6 @@
 # Hallazgos · GIL · Driver Gilbarco 2W (Marca 6) · UIGASGILBARCO.pas
 
-> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre.
+> Anexo del [plan de optimización](../PLAN_OPTIMIZACION.md). Código auditado: `IgasDispensarios@26ccfb4`, `IgasDispensariosBridge@99edafd`. Las líneas pueden haber cambiado: ubica las rutinas por su nombre. Kairos (Marca 7) y Triton (Marca 10) quedan fuera de alcance: si el texto los menciona, es solo como contexto.
 
 ## Cómo funciona este módulo
 
@@ -186,8 +186,8 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2588-2615, 2655-2700, 2777-2796, 2862-2869, 2998-3000, 2913-2914
 - **Módulos afectados:** UIGASGILBARCO.pas, UIGASBRIDGE.pas (consumidor del snapshot), OpenGas
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisé UIGASGILBARCO.pas 2525-2560 (Timer1Timer: un NumPaso por tick, xTurnoSocket), 2580-2640 (paso 1), 2655-2700 (paso 2), 2777-2800 (paso 5), 2862-2902 (L01), 2910-2922 (finally) y 2924-3004 (DameEstatus y EstatusDispensarios), y también UIGASBRIDGE.pas 640-730. DameEstatus convierte $A/$B/$3 en 3. En el paso 1, EstatusDispensarios publica ActualizaCampoJSON(xpos,'Estatus',estatus) sin enmascarar; el '3 -> 2 si swcargando' de 2985-2989 solo afecta a la cadena de log xestado. SwLeeVenta se arma en L01 (2866-2871), así que la lectura $40 (DameLecturas6/8), que es la única que actualiza HoraOcc, Volumen, Precio e Importe en el JSON, ocurre en un tick posterior. Mientras tanto el JSON trae lo del paso 5 (volumen y precio en 0, importe parcial), Manguera y Combustible en 0 (PosActual:=0 con estatus 2 y EstatusDispensarios publica 0) y la HoraOcc de la venta anterior. El finally (2913-2914) manda el snapshot cada 3 ticks: en 1 de cada 3 fines de venta el tick del paso 1 sale con Estatus=3 y esos datos, y el Bridge los conserva hasta el siguiente envío, unos 3 ticks más el tiempo serial. Si $40 falla, la ventana se alarga, porque SwLeeVenta solo se limpia con éxito. Lo mismo pasa con el 3 forzado de 2607-2613. ObtenerTranPosCarga (Bridge 692-730) no revisa Estatus. Wayne (1015-1016), Wayne2W (2772-2775, commit e4a7475) y Bennett (1356-1360, 1369) sí enmascaran. Cuántas ventas resultan mal registradas depende de la frecuencia de sondeo de OpenGas y de si valida Volumen=0, cosa que no está en los repos.
 - **Qué pasa:** DameEstatus convierte $A, $B y $3 (EOT) en 3. En el paso 1, EstatusDispensarios publica ActualizaCampoJSON(xpos,'Estatus',estatus) con ese valor crudo. SwLeeVenta se arma después, en L01 (2862-2869), y la lectura $40 que actualiza Volumen, Precio, Importe, HoraOcc, Manguera y Combustible ocurre en el paso 2, en un tick posterior. Mientras tanto el JSON trae lo que dejó el paso 5 durante el despacho (Volumen=0, Precio=0, Importe parcial del $60) y la HoraOcc de la venta anterior. El finally de Timer1Timer envía el snapshot cada 3 ticks, así que puede salir Estatus=3 con esos datos. Pasa lo mismo con el estatus 3 forzado al recuperar comunicación (2607-2613). Si DameLecturas falla (hasta 4 visitas × 3 intentos), la ventana dura segundos o vueltas completas. El Bridge contesta STATUS y TRANSACTION directo del snapshot (UIGASBRIDGE.pas 664-676 y 729-730). Wayne, Wayne 2W y Bennett enmascaran el 3 como 2 hasta tener la lectura final; Gilbarco no lo hace.
 - **Evidencia:** Línea 3000: ActualizaCampoJSON(xpos, 'Estatus', estatus). Líneas 2779-2780: volumen := 0; precio := 0 en el paso 5. En cambio, UIGASWAYNE.pas 1015-1016 hace 'if (estatus = 3) and (swcargando) then ActualizaCampoJSON(xpos,'Estatus',2)', y UIGASWAYNE2W.pas 2772-2773 usa 'if SwLecturaFinalPendiente then ActualizaCampoJSON(PosCiclo,'Estatus',2)' (commit e4a7475 'esperar lectura final de dispensario antes de FINV').
 - **Impacto:** OpenGas puede registrar la venta con Volumen 0, Precio 0 e Importe parcial, o con la HoraOcc de la venta anterior, o mandar PAYMENT antes de la lectura final. Esto da cobros o ventas mal registradas y diferencias en los controles volumétricos.
@@ -198,7 +198,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-02 · 🟠 Alta · correccion · bug — EsperaFinVenta se lee del token 6, que no existe: el estatus 3 nunca queda fijo hasta PAYMENT
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 726-733, 2160, 2168, 2263, 2271, 2625-2632, 2316-2345
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** AutorizarVenta arma 'OCC|OCL pos cantidad comb finv', que tiene 5 tokens. ProcesaComandos asigna tipopago desde el token 5 (es el finv invertido) y Esperafinventa := StrToIntDef(ExtraeElemStrSep(Comando, 6, ' '), 0), que siempre da 0. Por eso, en 2625-2632, al pasar a reposo nunca se fuerza Estatus := 3 en espera de PAYMENT, y el parámetro finv de OpenGas no tiene efecto. Además, FINV (2323-2337) contesta 'Posicion no esta despachando' cuando la posición está en EOT con swcargando=True, y su rama 'swcargando and Estatus=1' es inalcanzable.
 - **Evidencia:** Líneas 2168 y 2271: ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 6, ' '). UIGASWAYNE2W.pas 2054 y 2170, y UIGASKAIROS.pas 2304 y 2357, usan el token 5. El error existe desde el commit inicial 8ba4373.
@@ -210,7 +210,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-03 · 🟠 Alta · protocolo · bug — Una dirección de bomba mayor que 16 desborda el byte de comando: el sondeo de la posición 17 autoriza la bomba 1
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 1244-1246, 1755-1760, 210, 227
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** TransmiteComando forma chComando := char(iComando + xNPos) y solo convierte 16 en 0. AgregaPosCarga acepta cualquier DispenserId (MaximoDePosiciones=32, TPosCarga[1..32]) sin validar el rango 1..16 del lazo Gilbarco 2W. Para xNPos=17, un sondeo de estatus ($00+17) sale como $11, que es el comando de autorizar la bomba 1; $40+17 = $51 pide totales a la bomba 1; $20+17 = $31 detiene la bomba 1.
 - **Evidencia:** Líneas 1244-1246: 'if (xNPos = 16) then xNPos := 0; chComando := char(iComando + xNPos);'. Línea 1757: xpos := posiciones.Child[i].Field['DispenserId'].Value, sin validar.
@@ -222,7 +222,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-04 · 🟠 Alta · correccion · bug — CPREC sale con Exit sin responder: queda activo para siempre, repite los cambios de precio y bloquea los comandos de slots posteriores
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2402-2420, 2121-2127, 2451-2459, 772-809
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si un precio no se puede convertir (StrToFloatDef(..., -1) = -1; por ejemplo, PRICES trae menos precios que los productos configurados o usa coma decimal), CPREC asigna rsp y hace Exit de TODO ProcesaComandos sin marcar SwResp. El comando sigue en SwActivo y sin respuesta. En cada llamada siguiente (al inicio de cada tick con CmndNuevo y en el paso 6 de cada posición), ProcesaComandos vuelve a ejecutarlo: reenvía los cambios de precio a las posiciones anteriores al fallo y vuelve a salir. Los comandos que estén en slots posteriores de TabCmnd nunca se procesan. Los slots solo se liberan de forma perezosa en EjecutaComando, cuando la búsqueda pasa por ellos y tienen más de 1 minuto.
 - **Evidencia:** Líneas 2412-2417: 'precioComb := StrToFloatDef(ExtraeElemStrSep(precios, TComb[i], '|'), -1); if precioComb = -1 then begin rsp := ...; Exit; end;'. Las líneas 2451-2459 (SwResp := true) nunca se alcanzan.
@@ -235,7 +235,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2402-2448, 1334, 1340, 1356, 2427, 2438, 2913-2914
 - **Módulos afectados:** UIGASGILBARCO.pas, UIGASBRIDGE.pas
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado), [E4.3](../PLAN_OPTIMIZACION.md#e43--ciclo-serial-eficiente)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado), [E4.3](../PLAN_OPTIMIZACION.md#e43--ciclo-serial-eficiente)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** CPREC recorre todas las posiciones y productos y hace 2 transacciones $20 por producto (nivel 1 y nivel 2) más Sleep(50). Cada $20 lleva: espera de respuesta (hasta GtwTimeout/3), Sleep(10), bloque de datos byte a byte con espera activa, Sleep(GtwTiempoCmnd=100) y un sondeo de confirmación. Son ≈0.3-0.8 s por producto: 16 posiciones × 3 productos ≈ 15-40 s, y ≈75 s en el peor caso con timeouts. Todo pasa dentro de un Timer1Timer, así que el JSON (que sale en el finally cada 3 ticks) no se envía. En el Bridge, después de TimeoutDatosObsoletos (5 s) STATE, STATUS y TRANSACTION responden False y se manda un TRACE automático. Si pasan 10 s sin actividad, AddPeticion hace CancelarPeticiones y SSocketOG.Active:=False (UIGASBRIDGE.pas 409-412). Las peticiones ya entregadas al driver vencen a los 2 s (TimeoutRespSrv).
 - **Evidencia:** Bucle anidado de 2405-2447 con CambiaPrecio6/8 dos veces y Sleep(50). TransmiteComando incluye sleep(10) en 1340 y sleep(GtwTiempoCmnd) en 1334 y 1356. El único envío en marcha está en 2913-2914.
@@ -260,7 +260,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-07 · 🟠 Alta · correccion · bug — ResultadoComando solo busca en TabCmnd[1..40]: RESPCMND devuelve '*' para comandos en los slots 41..200
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 952-960, 772-809, 1545-1549
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** EjecutaComando ocupa el primer slot libre de 1..200 y los slots no se liberan al responder: siguen SwActivo hasta que tienen más de 1 minuto y la búsqueda pasa por ellos. Con más de 40 comandos por minuto (AUTHORIZE, PAYMENT y TOTALS por cada venta en sitios de 12-16 posiciones), los folios caen en slots mayores que 40 y ResultadoComando devuelve '*'. RespuestaComando responde entonces 'False|*|'.
 - **Evidencia:** Línea 957: 'for i := 1 to 40 do'. En UIGASWAYNE2W.pas 1067 ya está corregido a 'for i:=1 to 200 do ... Break'.
@@ -273,7 +273,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 850-921, 2617-2622, 2662-2685, 1725, 2394
 - **Módulos afectados:** UIGASGILBARCO.pas, OpenGas
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables), [E5.3](../PLAN_OPTIMIZACION.md#e53--totals-y-respcmnd-desde-el-snapshot)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables), [E5.3](../PLAN_OPTIMIZACION.md#e53--totals-y-respcmnd-desde-el-snapshot)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Al arrancar o al recuperar comunicación (estatus 0→1), las líneas 2617-2622 arman SwLeeVenta, y el paso 2 relee la ÚLTIMA venta del equipo, que ya está incluida en sus totalizadores. CapturarVentaPendiente la suma como delta pendiente. Si después Lee Totales falla MaxFallosTotales veces (2 si hay un TOTAL esperando), AplicarFallbackTotales hace TotalLitros[k] += pendiente. Justo después de INITIALIZE, TotalLitros vale 0 (1725), así que el total publicado es el volumen de la última venta (unas decenas de litros en lugar de millones). Después de una reconexión, la última venta queda contada dos veces. La bandera TotalesEstimados solo va en el snapshot, que el Bridge no lee, y la respuesta TOTAL por RESPCMND (2394) usa TotalLitros sin ninguna indicación.
 - **Evidencia:** Línea 899: TotalLitros[k] := TotalLitros[k] + PendingVentaLts[k], sin verificar que hubo una lectura real previa. En UIGASBRIDGE.pas no aparecen 'TotalesEstimados' ni 'Total'.
@@ -285,7 +285,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-09 · 🟠 Alta · correccion · bug — Los totalizadores de 8 dígitos (12 dígitos BCD) desbordan Integer en BcdToInt y DataControlWordValue
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 242-254, 1400-1411, 1512-1523
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** BcdToInt acumula en Integer, con xMult también Integer, a partir del dígito menos significativo. DameTotales8 lee 12 dígitos: xMult desborda desde 10^10 y el resultado se envuelve en silencio en cuanto pasa de 2,147,483,647, porque el proyecto compila con -$Q- y -$R- (PDISPENSARIOS.cfg). GtwDivTotLts se queda en 100 por defecto (no se ajusta con DigitosGilbarco), así que un totalizador mayor que 21,474,836.47 L da basura, y con divisor 1000 basta con superar 2,147,483.647 L, algo normal en 1-2 años de uso.
 - **Evidencia:** Líneas 244-251: 'xValor, xMult, i: integer; ... xValor := xValor + (ord(xBCD[i]) and $0F) * xMult; xMult := xMult * 10;'. Línea 1512: DataControlWordValue(#$F9, 12). DataControlWordValue devuelve longint.
@@ -321,7 +321,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-12 · 🟠 Alta · correccion · bug — La transición 2→1 sin haber visto el EOT no dispara la lectura de la venta
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2617-2632, 2862-2869, 2633-2640
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** SwLeeVenta solo se arma cuando el estatus es 3 en L01 (2862-2869) o en la transición 0→1 (2617-2621). Si el estatus pasa de 2 (despachando) a 1 (reposo) sin que se haya observado el EOT, se limpia swcargando y solo se arma SwTotales (2625-2631): la venta no se lee y nunca se publica como 3. Esto puede pasar si el sondeo estuvo detenido (desconexión del Bridge), con ticks de varios segundos, con posiciones bloqueadas que no se sondean, o con equipos que reportan reposo enseguida. Wayne 2W trata esa transición como fin de venta ('Detecto Fin Venta', SwLecturaFinalPendiente). Certeza: el flujo del código es seguro; qué tan seguido el Gilbarco pasa a reposo sin un EOT visible depende del equipo y del firmware.
 - **Evidencia:** Líneas 2625-2632: 'if (EstatusAnt in [2, 3, 4]) and (Estatus = 1) then begin swcargando := false; if EsperaFinVenta = 1 then Estatus := 3 else SwTotales := true; end;'. Ahí no se toca SwLeeVenta.
@@ -333,7 +333,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-13 · 🟠 Alta · correccion · bug — CPREC no verifica el estado de la posición ni reintenta; el mecanismo de reintento del paso 7 es código muerto
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2402-2448, 2801-2850, 1726-1728, 2420
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--precios-aplicar-solo-lo-confirmado)
+- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** CPREC envía el precio a todas las posiciones sin revisar el estatus (despachando, autorizada, sin comunicación o bloqueada). Si el $20 falla, solo deja rsp='Error en cambio de precios' en TabCmnd, que nadie consulta (PRICES ya fue confirmado por el Bridge). LPrecios[TComb[i]] se actualiza aunque el equipo no haya aceptado el precio. TCambioPrecN1, TCambioPrecN2 y TNuevoPrec solo se inicializan en False o 0 y nunca se activan, así que el paso 7 nunca hace nada. Además, su rama N2 manda nivel 1 en lugar de 2 (2833 y 2841).
 - **Evidencia:** grep: TCambioPrecN1 no se asigna en True en ninguna parte (solo en 1726 y 2816). En 2405-2446 no hay ninguna condición sobre estatus.
@@ -369,7 +369,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-14 · 🟡 Media · correccion · bug — Índices de grado, manguera y combustible inconsistentes (TMang, TPosx, índice i, TPosTotales y orden del JSON)
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 1800-1818, 2425-2443, 2690-2692, 2986-2991, 2711-2722, 3338-3348
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** (a) CPREC usa TMang[i] (HoseId) para el nivel 1 y el índice i para el nivel 2. Si HoseId=0, TMang queda en 0 y se transmite chr($E0+0-1)=$DF, un grado inválido. Si las mangueras no vienen ordenadas, el nivel 2 recibe el precio de otro grado. (b) MangActual := TMang[PosActual] indexa con el número de grado del protocolo (1..16) un arreglo indexado por combustible (1..4): la manguera sale mal si las mangueras no están ordenadas por HoseId, y con un grado mayor que 4 se lee fuera de rango (con -$R-). (c) En el paso 3 se usa xtotallitros[xp] con xp=TPosx, que puede ser un HoseId mayor que 4. (d) ApplyTotalLitrosToJSON escribe el slot TotalLitros[k] en Hoses[k-1] (orden de inserción), y TOTAL multiplica TotalLitros[k] (slot) por LPrecios[TComb[k]] (índice de combustible).
 - **Evidencia:** Línea 2425: CambiaPrecio6(xpos, TMang[i], 1, ...). Línea 2428: CambiaPrecio6(xpos, i, 2, ...). Líneas 2692 y 2990: MangActual := TMang[PosActual]. Línea 1807: TPosx[NoComb] := TMang[NoComb].
@@ -381,7 +381,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-15 · 🟡 Media · correccion · bug — ApplyTotalLitrosToJSON busca la posición por índice del arreglo (xpos-1) en lugar de por DispenserId
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 3315-3349
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si los DispenserId no son contiguos o no vienen en orden (por ejemplo 1, 2, 5), los totales de la posición 5 nunca se publican, porque el índice 4 es mayor o igual que Count, y con orden distinto se escriben en otra posición. ActualizaCampoJSON sí busca por DispenserId. Wayne 2W ya corrigió esta función. Hoy el Bridge no consume Hoses[].Total, así que el impacto es latente.
 - **Evidencia:** Líneas 3329-3333: 'posIndex0 := xpos - 1; ... posObj := TlkJSONobject(posCargaList.Child[posIndex0]);'. En cambio, UIGASWAYNE2W.pas 3314-3321 recorre el arreglo comparando Field['DispenserId'].Value = xpos.
@@ -393,7 +393,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-16 · 🟡 Media · correccion · bug — TOTAL calcula los pesos con el precio actual, lee LPrecios[0] fuera de rango y descarta el totalizador de pesos del equipo
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2394, 2711, 2736, 229
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** La respuesta TOTAL arma los pesos como TotalLitros[k] × LPrecios[TComb[k]], es decir, litros acumulados por el precio vigente, y no con el totalizador de importe que el equipo sí entrega ($FA): DameTotales devuelve n1..n3 y se descartan. En posiciones con menos de 3 productos, TComb[k]=0 y se lee LPrecios[0] (arreglo 1..4, con -$R-), que es memoria del final de TabCmnd[200]: el importe sale con basura.
 - **Evidencia:** Línea 2394: FormatoMoneda(ToTalLitros[3] * LPrecios[TComb[3]]). Línea 2711: DameTotales6(PosCiclo, xtotallitros[1], n1, ...). n1, n2 y n3 no se usan después. Línea 229: LPrecios: array[1..4] of Double.
@@ -405,7 +405,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-17 · 🟡 Media · correccion · bug — Lectura de totales: solo 3 grados, xtotallitros[4] sin inicializar, escrituras fuera de rango con MapeoTotales y truco 0→0.01
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 1456-1484, 1509-1525, 2531, 2716-2721, 1816, 1459-1461
-- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--totales-confiables)
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** DameTotales6/8 solo interpretan los grados 1..3 (case 1..3), aunque MCxP=4. El arreglo local xtotallitros[1..4] no se inicializa, así que para un cuarto producto se publica basura de la pila. Si MapeoTotales trae 0 o un valor mayor que 4, xt sale fuera de 1..4 y TotalLitros[xt] escribe fuera del arreglo (con -$R-), corrompiendo el registro. DameTotales6 convierte un totalizador 0 en 0.01; DameTotales8 no lo hace.
 - **Evidencia:** Línea 2531: 'xtotallitros: array[1..4] of real;' sin inicializar. Línea 1816: TPosTotales[NoComb] := StrToIntDef(..., TPosx[NoComb]) sin validar el rango. Líneas 1460-1461: 'if rTotalizadorLitros1 = 0 then rTotalizadorLitros1 := 0.01'.
@@ -417,7 +417,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-18 · 🟡 Media · robustez · bug — AgregaPosCarga e Inicializar no validan rangos; además se sondean las posiciones hueco
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 1755-1760, 1800-1803, 2004-2014, 2420, 2561, 3013-3023
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** No se valida: DispenserId fuera de 1..32 (TPosCarga[xpos] escribe fuera del arreglo y pisa TabCmnd), más de MCxP=4 mangueras por posición (TComb[5] pisa TPosx), ni ProductId fuera de 1..4 (LPrecios[productID] en 2013 y LPrecios[TComb[i]] en 2420 escriben fuera de rango sobre TAdicf o las cadenas globales). Todo esto con -$R-, en silencio. Además, Timer1 y AvanzaPosCiclo recorren 1..MaxPosCarga, así que las posiciones no configuradas (huecos) también se sondean: tienen timeout de 1 s, pasan a SinComunicacion y generan el log 'DispenserId no encontrado' en cada actualización. Wayne 2W usa SwRecibida y PuedeSondear para evitarlo.
 - **Evidencia:** Línea 1760: 'with TPosCarga[xpos] do' sin validar. Línea 1802: inc(NoComb) sin tope. Línea 2013: LPrecios[productID] := ... Línea 2561: 'if PosCiclo in [1..MaxPosCarga]'.
@@ -429,7 +429,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-19 · 🟡 Media · correccion · bug — La bandera 'existe' no se reinicia por manguera: después del primer producto repetido se descartan todas las mangueras siguientes
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 1763, 1793-1800
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--índices-fuera-de-rango-y-carga-de-posiciones-r-)
+- **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** existe := false se asigna una sola vez por posición, antes del ciclo de mangueras. En cuanto una manguera repite un producto, existe queda en True para el resto del ciclo y todas las mangueras siguientes, aunque sean de otros productos, se omiten: no se registran en TComb/TPosx ni en Hoses del JSON.
 - **Evidencia:** Línea 1763: 'existe := false;' fuera del 'for j := 0 to mangueras.Count - 1'. Línea 1798: 'existe := true;'. No hay ningún reinicio.
@@ -441,7 +441,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-20 · 🟡 Media · correccion · bug — Un preset con un combustible que no existe en la posición se envía sin selección de grado (habilita cualquier manguera)
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2165-2167, 2268-2270, 1624-1627, 1652-1655, 721-724
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** PosicionDeCombustible devuelve 0 si el combustible pedido no está en la posición. EnviaPresetBomba6/8 interpretan xNMang=0 como 'sin grado' (sGrade=''), así que se autoriza la bomba para cualquier producto. Lo mismo pasa con comb '00' por defecto, que es una venta libre de producto que sí es intencional. No se distingue 'no especificado' de 'inválido'.
 - **Evidencia:** Líneas 2166-2167: 'xcomb := StrToIntDef(ss, 0); xp := PosicionDeCombustible(xpos, xcomb);'. Líneas 1624-1625: 'if (xNMang = 0) then sGrade := '''.
@@ -453,7 +453,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-21 · 🟡 Media · correccion · bug — El ajuste de decimales del preset solo trunca con exactamente 5 decimales; con 3, 4 o más de 5 rechaza en silencio
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2138-2156, 2244-2257, 2466-2494
-- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--presets-montos-decimales-y-validaciones)
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** El commit a55a853 trunca a 2 decimales solo si la cadena tiene exactamente 5 decimales. Con 3 o 4 decimales (por ejemplo '150.125') o con más de 5 que no sean ceros, ValidaCifra responde 'Numero de decimales excede maximo permitido' y no se autoriza. Además, cuando sí aplica, trunca en lugar de redondear. Como el Bridge contesta AUTHORIZE como True de inmediato (fire-and-forget), OpenGas no se entera del rechazo salvo que consulte RESPCMND.
 - **Evidencia:** Líneas 2141-2145: 'if (i > 0) and (Length(cantidadPreset) - i = 5) then begin cantidadPreset := Copy(cantidadPreset, 1, i + 2); ...'. Línea 2150: rsp := ValidaCifra(ximporte, 4, 2).
@@ -489,7 +489,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-24 · 🟡 Media · correccion · riesgo — El volumen reportado por el equipo se reemplaza por importe/precio con tolerancia de 0.01 L
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2665-2667, 2679-2681
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--importes-y-volúmenes-de-venta-mal-calculados)
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Después de leer la venta, si |volumen − round3(importe/precio)| > 0.01, se publica el volumen calculado en lugar del medido. Si el precio leído es 0 o está mal escalado (GtwDivPrecio), dividefloat da 0 o un valor erróneo y la venta se reporta con ese volumen. Wayne 2W usa una tolerancia de 0.5.
 - **Evidencia:** Líneas 2665-2667: 'xvolumen := ajustafloat(dividefloat(importe, precio), 3); if abs(volumen - xvolumen) > 0.01 then volumen := xvolumen;'.
@@ -562,7 +562,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-32 · 🟡 Media · observabilidad · bug — ProcesaComandos se traga todas las excepciones y deja el comando sin respuesta, reintentándose indefinidamente
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2116, 2462-2463
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Todo ProcesaComandos está envuelto en 'try ... except end;' sin registro. Si se produce un AV (por ejemplo, TOTAL con una posición fuera de rango: 'with TPosCarga[xpos]' en 2379 sin validar) o cualquier otra excepción, el ciclo se aborta, el comando actual no se marca como respondido y en la siguiente llamada vuelve a fallar. Igual que con el Exit de CPREC, bloquea los comandos posteriores sin dejar ningún rastro.
 - **Evidencia:** Líneas 2462-2463: 'except end;'. Línea 2379: 'with TPosCarga[xpos] do' sin comprobar xpos in [1..MaxPosCarga] (TotalesBomba solo verifica xpos>=1).
@@ -574,7 +574,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-33 · 🟡 Media · correccion · riesgo — Los comandos no tienen vigencia: un AUTHORIZE recibido con el proceso detenido se ejecuta al hacer RUN
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 691-738, 772-809, 2121-2125, 3141-3217
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** ClientSocket1Read acepta AUTHORIZE, STOP, START, PAYMENT y PRICES aunque estado<=0 (Timer1 apagado), y los deja en TabCmnd. ProcesaComandos ejecuta cualquier comando activo sin respuesta sin importar su antigüedad, y EjecutaComando solo expira de forma perezosa los slots de más de 1 minuto que recorre al buscar lugar. Después de un HALT, un AUTHORIZE pendiente se ejecuta minutos más tarde al hacer RUN si la posición conserva el estatus 1 o 5 de antes del HALT. Además, los slots respondidos no se liberan: siguen SwActivo y consumen capacidad.
 - **Evidencia:** AutorizarVenta (691-738) no revisa estado. Línea 2123: 'if (TabCmnd[xcmnd].SwActivo) and (not TabCmnd[xcmnd].SwResp)', sin revisar la hora. Línea 780: la expiración solo ocurre durante la búsqueda.
@@ -610,7 +610,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-36 · 🟡 Media · correccion · bug — SwNivelPrecio se evalúa sobre la posición anterior porque 'with' ya tomó la dirección del registro antes de AvanzaPosCiclo
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2857, 2891-2897, 2565-2580
-- **Se atiende en:** [E1.9](../PLAN_OPTIMIZACION.md#e19--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En L01, 'with TPosCarga[PosCiclo] do' calcula la dirección del registro al entrar. Dentro de ese bloque se llama a AvanzaPosCiclo, que cambia PosCiclo, y luego a 'if SwNivelPrecio then NumPaso := 0'. SwNivelPrecio se resuelve sobre el registro de la posición ANTERIOR. El paso 0 (PonNivelPrecio) de la nueva posición se ejecuta o no según la bandera de su vecina, así que después de una venta o una reconexión el nivel de precio 1 puede no restablecerse nunca.
 - **Evidencia:** Línea 2857: 'with TPosCarga[PosCiclo] do'. Líneas 2893-2896: 'AvanzaPosCiclo; NumPaso := 1; if SwNivelPrecio then NumPaso := 0;'.
@@ -622,7 +622,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-37 · 🟡 Media · robustez · bug — Al arrancar, una sola falla del primer sondeo marca la posición sin comunicación y no se vuelve a sondear durante 55-65 s
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 2585, 2590-2599, 2636-2640
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** La tolerancia de MaxFallasEstatus solo aplica si Estatusant<>0. Después de RUN todas las posiciones tienen estatus 0, así que la primera falla (ruido al abrir el puerto, un byte perdido) cumple 'estatusant=0 and estatus=0 and not swcargando' y pone SinComunicacion := True, HoraDesconexion := Now. La posición se publica como 0 y no se sondea durante ~1 minuto.
 - **Evidencia:** Línea 2593: 'if (Estatusant <> 0) and (FallosEstat < MaxFallasEstatus)'. Líneas 2636-2640: SinComunicacion := True.
@@ -634,7 +634,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-38 · 🟡 Media · rendimiento · optimizacion — Lee Totales y Lee Venta se reintentan sin backoff; un TOTAL puede quedar sin respuesta para siempre
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 874-921, 892, 2703-2759, 2392-2398, 2873-2884
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados), [E4.3](../PLAN_OPTIMIZACION.md#e43--ciclo-serial-eficiente)
+- **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados), [E4.3](../PLAN_OPTIMIZACION.md#e43--ciclo-serial-eficiente)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** Si $50 falla y no hay venta pendiente (PendingVentaActiva=False), AplicarFallbackTotales solo incrementa ContFallosTotales y SwTotales sigue en True. El paso 3 se repite en cada vuelta de esa posición (≈3.2 s por intento con 3 reintentos de 1 s) y frena a todas las demás. El TOTAL pendiente nunca cumple '(not swtotales) or SecondsBetween <= 10' y RESPCMND devuelve '*' hasta que el slot expira. Lo mismo con Lee Venta: 4 visitas por vuelta.
 - **Evidencia:** Línea 892: 'if (ContFallosTotales >= xLimite) and PendingVentaActiva then'. Sin rama else para el caso sin pendiente. Línea 2392: condición de respuesta del TOTAL.
@@ -707,7 +707,7 @@ SIN COMUNICACIÓN: tras 3 fallas consecutivas (o 1 si la posición nunca respond
 #### GIL-43 · ⚪ Baja · correccion · bug — EjecutaComando lee TabCmnd[201] y hay resultados de función que nunca se inicializan
 
 - **Ubicación:** `UIGASGILBARCO.pas` líneas 778-792, 1556-1580, 1676-1835, 1837-1923
-- **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
 - **Verificación:** sin verificación independiente
 - **Qué pasa:** En EjecutaComando, cuando ind llega a 201 se evalúa TabCmnd[201].SwActivo antes de 'ind > 200', y dentro del ciclo hasta se escribe si el dato basura parece un comando activo y viejo. Pasa con 200 comandos activos en menos de un minuto. DameLecturas6 atrapa la excepción sin asignar Result, así que devuelve un booleano indeterminado. AgregaPosCarga e IniciaPSerial no asignan Result en el camino exitoso y funcionan solo porque la variable receptora vale ''.
 - **Evidencia:** Líneas 778-786: 'repeat inc(ind); if (TabCmnd[ind].SwActivo) ... until (not TabCmnd[ind].SwActivo) or (ind > 200);'. Líneas 1576-1579: except sin Result.
