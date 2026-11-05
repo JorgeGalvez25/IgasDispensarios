@@ -34,7 +34,7 @@
 | Método | Auditoría multiagente: un lector por módulo leyó el archivo completo y reportó hallazgos con archivo, líneas, evidencia, impacto y recomendación; un lector transversal analizó la interacción de punta a punta; verificadores escépticos revisaron contra el código los hallazgos marcados como críticos y altos. El plan y las etapas los consolidó el autor de este documento |
 | Hallazgos vigentes | **436** (sin Kairos), en 13 módulos de análisis. Ver la [sección 10](#10-índice-de-hallazgos) |
 
-**Sobre la verificación.** Por el límite de uso de la sesión no todos los hallazgos tienen una segunda opinión. De los 14 hallazgos que el lector marcó como críticos, 14 fueron confirmados (total o parcialmente) por un verificador independiente; de los 107 marcados como altos, 104. 1 hallazgos fueron **descartados** por el verificador (aparecen al final de cada anexo) y 75 cambiaron de severidad. Los demás (la mayoría de los medios y bajos) se reportan como los encontró el lector, que siempre cita líneas y evidencia, pero **sin segunda opinión**. La columna «Verif.» del índice y cada anexo indican el estado de cada uno.
+**Sobre la verificación.** Por el límite de uso de la sesión no todos los hallazgos tienen una segunda opinión. De los 14 hallazgos que el lector marcó como críticos, 14 fueron confirmados (total o parcialmente) por un verificador independiente; de los 107 marcados como altos, 107. 1 hallazgos fueron **descartados** por el verificador (aparecen al final de cada anexo) y 76 cambiaron de severidad. Los demás (la mayoría de los medios y bajos) se reportan como los encontró el lector, que siempre cita líneas y evidencia, pero **sin segunda opinión**. La columna «Verif.» del índice y cada anexo indican el estado de cada uno.
 
 Por eso, **la primera tarea de la IA en cada item es confirmar el hallazgo en el código** antes de cambiar nada. Así lo pide la [plantilla de la sección 7](#7-cómo-trabajar-este-plan-con-una-ia). Si el hallazgo no se sostiene, se marca como descartado en el anexo y se sigue con el siguiente.
 
@@ -182,7 +182,7 @@ Por eso el plan propone extraer una **unidad común de enlace y comandos** (etap
 
 **En números:**
 
-- 436 hallazgos: 🔴 3 críticos, 🟠 54 altos, 🟡 293 medios y ⚪ 86 bajos.
+- 436 hallazgos: 🔴 3 críticos, 🟠 53 altos, 🟡 294 medios y ⚪ 86 bajos.
 - 233 son bugs, 118 riesgos, 46 deuda técnica y 39 optimizaciones.
 - 52 tocan el contrato entre módulos.
 
@@ -199,7 +199,7 @@ Por eso el plan propone extraer una **unidad común de enlace y comandos** (etap
 | PAM · Driver PAM 1000 (Marca 4) · UIGASPAM.pas | 50 | 1 | 5 | 31 | 13 |
 | HYA · Driver Hong Yang (Marca 5) · UIGASHONGYANG.pas | 37 | 0 | 4 | 27 | 6 |
 | GIL · Driver Gilbarco 2W (Marca 6) · UIGASGILBARCO.pas | 47 | 1 | 6 | 33 | 7 |
-| HIL · Modelo de hilos | 9 | 0 | 2 | 5 | 2 |
+| HIL · Modelo de hilos | 9 | 0 | 1 | 6 | 2 |
 | PERF · Rendimiento (transversal) | 8 | 0 | 0 | 8 | 0 |
 | SEG · Seguridad y licenciamiento | 17 | 0 | 0 | 10 | 7 |
 | COM · Componentes compartidos y build | 18 | 0 | 1 | 13 | 4 |
@@ -274,7 +274,7 @@ El análisis transversal de hilos agregó cuatro matices importantes:
 - **PAM con `modoAuto`** ejecuta `Inicializar` e `Iniciar` en el hilo del servicio y apaga `Timer2` antes de conectar: el driver puede no conectarse nunca (HIL-01).
 - **`OnStop` y `OnShutdown` corren en el hilo del servicio:** el paro no puede apagar timers ni cerrar puertos directamente; tiene que pedírselo al hilo principal (HIL-03).
 - **SHUTDOWN nunca detiene el servicio** en Team, Gilbarco y PAM, porque llama `ServiceThread.Terminate` desde el hilo principal (HIL-05).
-- **En Wayne 2W, `Timer1Timer` se reentra a sí mismo** durante la espera serial y un AUTHORIZE puede ejecutarse dos veces (HIL-02).
+- **En Wayne 2W, `Timer1Timer` puede reentrarse a sí mismo** durante las esperas: el mismo preset (OCC/OCL) se reenvía a la bomba y el ciclo puede desordenarse. La certeza es media, porque depende de que `EsperaMiliSeg` (en `ULIBGRAL`, fuera del repo) bombee mensajes (HIL-02).
 
 → E0.2 lo confirma con instrumentación y escribe el contrato de afinidad de hilos (HIL-09); E2.3, E2.5 y E2.6 lo corrigen.
 
@@ -693,7 +693,7 @@ flowchart LR
   2. Prohibir E/S serial directa (`ComandoConsola`) desde el manejador del socket; todo pasa por `TabCmnd`/`ListaCmnd`.
   3. Reemplazar la espera activa con `ProcessRequests(False)` por `MsgWaitForMultipleObjects(…, 5 ms, QS_ALLINPUT)` más un bombeo controlado, o al menos agregar `Sleep(1)`. El objetivo es que la CPU no esté al 100 %.
   4. Team: `LinCmnd`/`CharCmnd` globales protegidos ante reentrancia (TEA-06).
-  5. **Wayne 2W (HIL-02):** `TransmiteComando` vuelve a armar `Timer1` dentro de la espera, así que `Timer1Timer` se reentra; un `ProcesaComandos` anidado puede ejecutar **dos veces** un AUTHORIZE. Agregar guardas de reentrancia (`if EnTimer1 then Exit`) en `Timer1Timer` y `ProcesaComandos`, y marcar cada comando «en proceso» antes de ejecutarlo.
+  5. **Wayne 2W (HIL-02):** `TransmiteComando` vuelve a armar `Timer1` y luego hay esperas con el timer activo, así que `Timer1Timer` puede reentrarse; un `ProcesaComandos` anidado reenvía el mismo preset (OCC/OCL) a la bomba y desordena `NumPaso`/`PosCiclo`. Agregar guardas de reentrancia (`if EnTimer1 then Exit`) en `Timer1Timer` y `ProcesaComandos`, y marcar cada comando «en proceso» antes de ejecutarlo.
 - **Verificación:**
   - con el simulador, mandar INITIALIZE y HALT en ráfaga durante una venta: sin AV, sin preset a otra posición y sin estados incoherentes;
   - la CPU del proceso queda por debajo del 10 % en reposo.
@@ -1624,8 +1624,8 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 
 | ID | Sev. | Categoría | Título | Item | Verif. |
 |---|---|---|---|---|---|
-| [HIL-01](hallazgos/HIL.md#HIL-01) | 🟠 | concurrencia | PAM modoAuto: Iniciar corre en el hilo del servicio y apaga Timer2 antes de conectar; el driver puede no conectarse nunca al Bridge | E2.6 | — |
-| [HIL-02](hallazgos/HIL.md#HIL-02) | 🟠 | concurrencia | Amplía W2W-12: Timer1Timer se reentra dentro de EsperaMiliseg porque TransmiteComando vuelve a armar Timer1 (50 ms); un ProcesaComandos anidado puede ejecutar dos veces un AUTHORIZE | E2.5 | — |
+| [HIL-01](hallazgos/HIL.md#HIL-01) | 🟠 | concurrencia | PAM modoAuto: Iniciar corre en el hilo del servicio y apaga Timer2 antes de conectar; el driver puede no conectarse nunca al Bridge | E2.6 | ✅ |
+| [HIL-02](hallazgos/HIL.md#HIL-02) | 🟡 | concurrencia | Amplía W2W-12: Timer1Timer se reentra dentro de EsperaMiliseg porque TransmiteComando vuelve a armar Timer1 (50 ms); un ProcesaComandos anidado puede ejecutar dos veces un AUTHORIZE | E2.5 | ☑️ |
 | [HIL-03](hallazgos/HIL.md#HIL-03) | 🟡 | robustez | Paro sin orden: OnDisconnect corre en el hilo del servicio y vuelve a armar Timer2, el sondeo sigue tras STOPPED, Gilbarco reabre el COM por un AV con ServiceThread=nil y 5 drivers pierden la bitácora | E2.3 | — |
 | [HIL-04](hallazgos/HIL.md#HIL-04) | 🟡 | robustez | El hilo del servicio no supervisa al hilo principal: si el sondeo se cuelga, el servicio sigue 'En ejecución', y un STOP deja un proceso zombi con el COM abierto | E2.3 | — |
 | [HIL-05](hallazgos/HIL.md#HIL-05) | 🟡 | robustez | Amplía GIL-42/PAM-39 y corrige TEA-29: SHUTDOWN y el watchdog de Team llaman ServiceThread.Terminate desde el hilo principal y el servicio nunca se detiene | E2.3 | — |
@@ -1679,7 +1679,7 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 
 | ID | Sev. | Categoría | Título | Item | Verif. |
 |---|---|---|---|---|---|
-| [COM-01](hallazgos/COM.md#COM-01) | 🟠 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [COM-01](hallazgos/COM.md#COM-01) | 🟠 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | ☑️ |
 | [COM-02](hallazgos/COM.md#COM-02) | 🟡 | build_despliegue | OG_Hasp en el .dpr exige hasp_windows_delphi.obj, que nunca se versionó y que *.obj ignora; ningún driver lo usa | E0.1 | — |
 | [COM-03](hallazgos/COM.md#COM-03) | 🟡 | build_despliegue | Los dos proyectos se acoplan por una carpeta de DCU compartida: el CRC del protocolo OpenGas sale de un CRCs.dcu sin fuente versionada | E0.1 | — |
 | [COM-04](hallazgos/COM.md#COM-04) | 🟡 | mantenibilidad | CRCs, Indy, LockBox, RxLib/DB y OG_Hasp solo sostienen código muerto o decorativo: conviene quitarlos en lugar de vendorizarlos | E0.1 | — |

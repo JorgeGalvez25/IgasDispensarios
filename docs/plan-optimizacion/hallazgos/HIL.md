@@ -74,7 +74,30 @@ Las fuentes de la VCL de Delphi 7 y de Async Pro no están en el entorno. El an�
 - **Ubicación:** `UIGASPAM.pas` líneas 299-302, 2386-2444 (2427, 2432-2433), 319-353 (327, 351), 2256-2266, 485-502 (493), 361-367; UIGASPAM.dfm 23-28
 - **Módulos afectados:** UIGASPAM
 - **Se atiende en:** [E2.6](../PLAN_OPTIMIZACION.md#e26--bennett-y-pam-todo-en-un-solo-hilo)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ✅ confirmado por un verificador independiente — Revisé UIGASPAM.pas 268-306 (ServiceExecute), 318-367 (Timer2Timer, Connect y Disconnect), 370-410 (comando '1' en ClientSocket1Read), 485-502 (Responder), 563-595 (AddPeticionJSON), 644-710 (IniciaPSerial, que solo configura y no abre), 2194-2266 (Timer1Timer), 2386-2444 (Iniciar), 2643-2758 (Inicializar y LiberaInicializacion), UIGASPAM.dfm 23-28 y PDISPENSARIOS.dpr. Grep de 'Timer2.Enabled:=True': 366, 407, 2263, 2369 y 2757, igual que el hallazgo; 'ClientSocket1.Active:=True' solo aparece en 327.
+
+El mecanismo se sostiene:
+- ServiceExecute corre en TServiceThread (SvcMgr: TService.DoStart -> TServiceThread.Execute -> OnExecute).
+- Timer2 queda armado desde la carga del DFM en el hilo principal: SetOnTimer -> UpdateTimer -> SetTimer, 200 ms.
+- Iniciar(0) hace pSerial.Open:=True (2427, porque detenido=True y estado=0 tras Inicializar) y luego 'Timer1.Enabled:=True; Timer2.Enabled:=False' (2432-2433) sin revisar conectado.
+- Si Timer2 nunca disparó, nadie activa el socket.
+- ClientSocket1Disconnect no ocurre porque nunca hubo conexión. Un connect fallido solo produce FD_CONNECT con error (ESocketError atrapado en el WndProc del socket), no FD_CLOSE.
+- Responder en el finally de Timer1Timer llama SendText, que con FConnected=False sale con 0 sin excepción. El except de 2260-2264 no corre y además se registra 'E ...' falso (494).
+
+Soporte del supuesto del hilo cruzado: Kairos (legado en producción) ya hace Timer1.Enabled:=True desde el hilo del socket/servicio, y SetTimer/KillTimer solo validan el proceso, no el hilo. Hay un matiz: si SetTimer cruzado fallara, Iniciar lanzaría EOutOfResources ANTES de apagar Timer2 y el sistema se autocorregiría (Timer2Timer vería estado>0). La existencia del bug depende de ese supuesto, que la evidencia de Kairos respalda.
+
+Sobre la probabilidad: entre CreateForm y Iniciar solo hay el handshake con el SCM, unas 15 lecturas de ini, el parseo del JSON y la apertura del COM, normalmente menos de 200 ms. Por eso el caso (a) puede ser lo habitual y no una carrera rara; el hallazgo incluso subestima la frecuencia.
+- El caso (b) solo aplica con el Bridge caído. Con el Bridge arriba, el FD_CONNECT se procesa en cuanto Timer2Timer regresa, así que el hueco es casi nulo.
+- El ciclo de Sleep es de unos 1.0 a 1.6 s por la granularidad de 15.6 ms, no de 1.2 s.
+- Si jsonInitialize viene truncado o con CR/LF (PAM-30) y Inicializar falla, estado queda en -1, Iniciar sale en 2420-2422 sin apagar Timer2 y el bug no se manifiesta.
+
+Afirmación secundaria exagerada: la carrera de AddPeticionJSON contra GenerateText al arrancar es prácticamente nula.
+- respJson está en False, así que Timer2Timer manda 'PING' y no GenerateText.
+- Inicializar(0) no llama AddPeticionJSON si tiene éxito.
+- El primer tick de Timer1 llega 250 ms después.
+- Solo queda una ventana teórica en la ruta de error.
+
+Mantengo alta: con modoAuto=SI, el driver PAM queda aislado del Bridge hasta reiniciar el servicio.
 - **Qué pasa:**
   Amplía PAM-38, que solo menciona una 'posible carrera en modoAuto'.
   
@@ -113,12 +136,37 @@ Las fuentes de la VCL de Delphi 7 y de Async Pro no están en el entorno. El an�
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="HIL-02"></a>
-#### HIL-02 · 🟠 Alta · concurrencia · bug — Amplía W2W-12: Timer1Timer se reentra dentro de EsperaMiliseg porque TransmiteComando vuelve a armar Timer1 (50 ms); un ProcesaComandos anidado puede ejecutar dos veces un AUTHORIZE
+#### HIL-02 · 🟡 Media (originalmente alta) · concurrencia · bug — Amplía W2W-12: Timer1Timer se reentra dentro de EsperaMiliseg porque TransmiteComando vuelve a armar Timer1 (50 ms); un ProcesaComandos anidado puede ejecutar dos veces un AUTHORIZE
 
 - **Ubicación:** `UIGASWAYNE2W.pas` líneas 1185, 1233-1236, 3030, 3078-3081, 2117, 2219, 2589-2607, 2767-2770, 1144, 1161, 1324, 2658-2659, 2664-2673, 2883, 2012, 2407, 1012, 2025, 2050; UIGASWAYNE2W.dfm 25-31; UIGASTEAM.pas 1516, 1526
 - **Módulos afectados:** UIGASWAYNE2W
 - **Se atiende en:** [E2.5](../PLAN_OPTIMIZACION.md#e25--reentrancia-comandos-del-bridge-durante-una-transacción-serial)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Revisé UIGASWAYNE2W.pas 1125-1236 (LeePrecios y TransmiteComando1), 1300-1330 (DameEstatus), 1952-1999 (EnviaPresetPesosBomba), 981-1013 (EjecutaComando: CmndNuevo:=True en 1012), 2004-2410 (ProcesaComandos: CmndNuevo:=False en 2012, filtro SwActivo y not SwResp en 2015, estatus en 2025/2050, EsperaMiliseg en 2117/2219, SwResp:=true en 2407), 2246-2300 (FINV), 2570-2610 (CambiaPrecios), 2624-2960 (Timer1Timer), 3022-3081 (TransmiteComando2), 3892-4000 (Timer2Timer y ClientSocket1Read), el .dfm (Timer1 Interval=50) y UIGASTEAM 1500-1530 y 2193, además de git show 37cab32. Las citas de líneas son correctas.
+
+Lo que es cierto en el código:
+- TransmiteComando1/2 apagan Timer1 al entrar y lo rearman en el finally (1235/3080).
+- Timer1Timer no se apaga a sí mismo.
+- Hay EsperaMiliseg con Timer1 activo en los puntos citados.
+- 'if CmndNuevo then ProcesaComandos' (2658-2659) está antes de la guarda SwEspera.
+- Al inicio de cada tick SwEspera está en False porque el finally de 2895 lo limpia.
+- ProcesaComandos solo marca SwResp al final.
+- Así, un Timer1Timer anidado durante el EsperaMiliseg(50) de 2117/2219, con NumPaso=6 (solo cuando PosCiclo=MaxPosCarga) o con CmndNuevo vuelto a True por un ClientSocket1Read bombeado, procesaría el mismo OCC/OCL y el externo lo repetiría.
+
+Matices:
+1) La existencia depende de que EsperaMiliSeg (ULIBGRAL, no incluida) bombee mensajes.
+- El comentario agregado en 37cab32 (Team 1516/1526) lo sugiere, pero es una creencia del autor, no una prueba.
+- Team 2193 ('Ya no bloqueamos el hilo con EsperaMiliSeg') apunta en sentido ambiguo.
+- La certeza es media, no más.
+2) Durante el bombeo de TransmiteComando (ServiceThread.ProcessRequests) Timer1 está apagado, así que ahí no hay Timer1Timer anidado.
+- Después de un TransmiteComando el timer se rearma con un periodo nuevo de 50 ms, y los EsperaMiliseg(50) que le siguen (1144, 1161, 1324, 2589-2607) son una carrera de granularidad, no un anidamiento 'casi seguro'.
+- En 2117 es más probable, porque el timer va en su fase periódica.
+- Las esperas de 300 ms (2767-2770) sí anidan con seguridad, pero ahí SwEspera=True y el anidado solo corre ProcesaComandos si CmndNuevo. Eso es intercalado, no duplicación.
+3) La duplicación solo puede ocurrir en OCC/OCL, los únicos comandos con espera bombeada antes de marcar SwResp. El efecto real es reenviar a la misma bomba el mismo frame de preset (EnviaPresetPesosBomba) antes de autorizar.
+- La autorización (Autoriza/AutorizaPm) ocurre en NumPaso=4, una vez por ciclo, y el anidado no la ejecuta en ese intervalo.
+- Decir 'ejecutar dos veces un AUTHORIZE' exagera: AutorizarVenta responde de inmediato y el doble preset con el mismo valor es casi idempotente. Como mucho, el externo sobrescribe Respuesta y los flags SwPreset con los mismos valores.
+4) El caso (c) (paso de más de 3 s) es posible, por ejemplo en CambiaPrecios con reintentos. Produce un paso completo intercalado, incluso CambiaPrecios repetido para la misma posición, y desorden de NumPaso/PosCiclo, pero cada transacción serial es atómica.
+
+El riesgo de reentrancia es real y la guarda recomendada es válida. El impacto demostrable es menor que el descrito y condicional. Lo bajo a media, en línea con W2W-12 (rebajado a Media).
 - **Qué pasa:**
   Amplía W2W-12 y E2E-19, que dejaron como 'no verificable' que EsperaMiliseg anidara Timer1 y ProcesaComandos.
   
