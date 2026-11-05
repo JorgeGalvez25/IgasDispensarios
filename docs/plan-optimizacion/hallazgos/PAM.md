@@ -239,12 +239,48 @@ Tramas parciales (784-823):
   Prueba: configurar en OpenGas una posicion con 3 mangueras cuando la PAM tiene 2 mapeadas; el ciclo B00 debe seguir corriendo.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
+<a id="PAM-08"></a>
+#### PAM-08 · 🟠 Alta · robustez · bug — La perdida de comunicacion con la PAM no se refleja en el JSON: Estatus queda congelado
+
+- **Ubicación:** `UIGASPAM.pas` líneas 720-724, 2240-2246, 877, 2309-2333
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ✅ confirmado por un verificador independiente — Verificado. Estatus solo se escribe en el JSON al procesar 'B' (877). En AgregaPosCarga solo se pone el valor inicial 0 (1972). Si la consola no responde, Timer1 se queda en NumPaso=1 y reenvia B00 cada 11 ticks de 250 ms, unos 2.75 s (2240-2252), sin tocar el JSON. ContadorAlarma se incrementa por comando enviado (722) y se pone en 0 con cualquier byte recibido (788). Al superar 10, unos 30 s, solo pone en ceros LinEstadoGen (723-724). LinEstadoGen solo lo lee EstadoPosiciones (2309-2333), y grep confirma que EstadoPosiciones y TransaccionPosCarga no se llaman en ningun lugar, asi que es codigo muerto. El finally de Timer1Timer sigue enviando el JSON cada tick (2256-2258), por lo que el Bridge no lo marca como obsoleto: DatosObsoletos solo mide la llegada de datos. Como sin respuestas serial ProcesaLinea nunca llega al paso 4, los AUTHORIZE que el Bridge ya confirmo con True nunca se ejecutan, mientras OpenGas ve estatus 1/2 congelados. La comparacion con Gilbarco (SinComunicacion, MaxFallasEstatus=3, 217 y 2585-2640) es correcta.
+- **Qué pasa:** Si la consola deja de responder (cable, falla de energia, puerto), Timer1 reenvia B00 cada 2.75 s pero nada pone Estatus=0. El unico indicador, ContadorAlarma>10, solo pone en ceros LinEstadoGen, que solo lee EstadoPosiciones, y esa funcion es codigo muerto (el Bridge responde STATUS con el snapshot). Timer1 sigue mandando el JSON con los ultimos estatus cada 250 ms, asi que el Bridge lo considera fresco.
+- **Evidencia:** 722-724: 'inc(ContadorAlarma); if ContadorAlarma>10 then LinEstadoGen:=CadenaStr(length(LinEstadoGen),''0'');'. Estatus solo se escribe al procesar 'B' (877). Gilbarco implementa SinComunicacion con MaxFallasEstatus=3 (UIGASGILBARCO.pas 217, 2585-2640).
+- **Impacto:** OpenGas ve las bombas en linea e inactivas, autoriza ventas (AUTHORIZE se confirma de inmediato) que nunca se aplican, y no avisa al operador.
+- **Recomendación:** Contar los timeouts consecutivos de B00. A partir de 3 (unos 8 s), poner Estatus=0 en todas las posiciones del JSON y opcionalmente un campo o log 'SinComunicacion'; restaurar con la primera respuesta valida. Rechazar con error los OCC/OCL mientras no haya comunicacion. Prueba: desconectar el cable; STATUS debe pasar a '0000' en menos de 10 s.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="PAM-10"></a>
+#### PAM-10 · 🟠 Alta · correccion · bug — Con ValidarManguera=Si, la primera lectura final pone la venta en ceros y se publica en el JSON
+
+- **Ubicación:** `UIGASPAM.pas` líneas 1152-1164, 1194-1199
+- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
+- **Verificación:** ✅ confirmado por un verificador independiente — Verificado. Durante el despacho, la rama lin[4]='0' pone CombActual, PosActual, MangActual y MangAnterior en 0 (1093-1096). En la primera lectura final con ValidaMang, MangAnterior=0, asi que entra al else (1158-1163): fija MangAnterior y pone importe, precio y volumen en 0 sin asignar MangActual ni CombActual. Despues, 1194-1199 publican sin condicion Volumen/Precio/Importe=0, Manguera=0, Combustible=0 y HoraOcc=Now. Tracé la secuencia. En la transicion 2->1, la primera lectura ocurre en el mismo ciclo en que B ve el 1 (estatus<>estatusant). La segunda lectura, la valida, ocurre hasta el ciclo siguiente, por el SwA desfasado (comparacion antes de actualizar, 870-872). En 2->3 se relee en cada ciclo. Como el JSON solo se envia al final del ciclo (2258), el primer snapshot en que el Bridge ve Estatus 1 o 3 tras el despacho siempre trae la venta en ceros. Si OpenGas pide TRANSACTION al detectar el cambio de estatus, captura una venta en 0. Si la posicion pasa enseguida a 5 o 9, que no se leen, la venta valida puede no publicarse nunca. Es una opcion de configuracion (VALIDARMANGUERA=SI, que por defecto es False, 2691 y 2705-2706), pero con ella activa el problema es sistematico.
+- **Qué pasa:** Durante el despacho, MangAnterior:=0 (1096). En la primera lectura final se entra al else: MangAnterior:=manguera; importe:=0; precio:=0; volumen:=0. MangActual y CombActual quedan en 0. Aun asi las lineas 1194-1199 publican Volumen/Precio/Importe en 0, Manguera/Combustible en 0 y HoraOcc=Now. La venta correcta solo aparece en la siguiente lectura, si la posicion se vuelve a leer (depende de SwA o estatus>1).
+- **Evidencia:** 1158-1163: 'else begin MangAnterior:=MangueraEnPosicion(xpos,PosActual); importe:=0; precio:=0; volumen:=0; end;' y despues, sin condicion, 1194: 'ActualizaCampoJSON(xpos, ''Volumen'', volumen);'.
+- **Impacto:** Si OpenGas consulta TRANSACTION o STATE al ver la transicion a 1/3, toma una venta de 0 litros y 0 pesos con hora fresca; hay riesgo de registrar la venta en ceros.
+- **Recomendación:** Cuando la lectura no se confirma, no tocar el JSON (salir antes de 1194) y forzar la relectura en el siguiente ciclo (SwA:=true). Mantener la venta anterior en el snapshot hasta confirmar. Probar con VALIDARMANGUERA=SI y una venta corta.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="PAM-11"></a>
+#### PAM-11 · 🟠 Alta · protocolo · bug — El BCC de las tramas recibidas nunca se valida
+
+- **Ubicación:** `UIGASPAM.pas` líneas 795-807, 849-853
+- **Se atiende en:** [E2.8](../PLAN_OPTIMIZACION.md#e28--recepción-serial-robusta-tramas-bcc-acknak)
+- **Verificación:** ✅ confirmado por un verificador independiente — Verificado. pSerialTriggerAvail (795-807) cierra la trama en el byte siguiente a ETX (SwBcc) sin compararlo. ProcesaLinea quita STX, ETX y BCC por posicion (849-853) y parsea volumen, importe, precio (1123-1142) y totales (1214-1245) sin verificar nada. CalculaBCC solo se usa al enviar (728); grep no encuentra otro uso. UIGASWAYNE.pas si valida el BCC de las tramas recibidas (1427-1430), lo que confirma que la omision en PAM es una carencia. Las mitigaciones son parciales: la verificacion 2*vol*precio de 1144-1147 solo detecta errores de factor 10, AjustePAM es opcional y depende de vol y precio, que tambien pueden venir alterados, y la paridad depende de la configuracion del puerto. Un digito alterado en la lectura A, en el estatus B o en los totales '@'/'C' se toma como valido y se publica en el JSON.
+- **Qué pasa:** pSerialTriggerAvail considera la trama completa en el byte siguiente a ETX, pero no compara ese byte con CalculaBCC del contenido. ProcesaLinea quita STX, ETX y BCC por posicion y parsea los digitos de volumen, importe, precio y totales sin verificar nada. Un digito alterado por ruido (EMI de motores en una estacion) se toma como valido; solo StrToFloat atrapa los caracteres no numericos.
+- **Evidencia:** 799-804: 'if SwBcc then FinLinea:=true; if C=idETX then SwBcc:=true;' sin comparar el BCC. 850: 'lin:=copy(lineaTimer,2,length(lineatimer)-3);'. CalculaBCC (740-750) solo se usa al enviar (728).
+- **Impacto:** Volumen, importe o totales incorrectos publicados como venta concluida (TRANSACTION) o como totalizador. Los ajustes x10 y AjustePAM pueden enmascarar o empeorar el error.
+- **Recomendación:** Al cerrar la trama, calcular CalculaBCC(copy(Linea,2,len-2)) y compararlo con el ultimo byte; si no coincide, registrar 'BCC invalido', descartar y reintentar el mismo comando (o tratarlo como NAK). Agregar un contador de tramas invalidas al log. Prueba: inyectar una trama con un digito alterado desde un emulador serial.
+- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
+
 <a id="PAM-04"></a>
-#### PAM-04 · 🟠 Alta · correccion · bug — EnviaPreset3 reporta error con un SwError de la trama ANTERIOR aunque el preset si se envio
+#### PAM-04 · 🟡 Media (originalmente alta) · correccion · bug — EnviaPreset3 reporta error con un SwError de la trama ANTERIOR aunque el preset si se envio
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1817-1825, 814-816
 - **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo existe. En EnviaPreset3 (1817 ComandoConsolaBuff(ss); 1822-1825 if SwError ... exit) se revisa SwError, que solo se asigna en pSerialTriggerAvail (814-816) con la trama que se acaba de recibir. Como VersionPam1000 vale '3' por defecto (2690), EnviaPreset3 es la ruta normal. Para que ocurra, un NAK tiene que llegar en NumPaso 1, 2 o 3, provocar Inc(NumPaso) y que el paso 4 (1378) se ejecute dentro de la misma llamada a ProcesaLinea con ListaCmnd vacio (1290-1295). Por ejemplo: NAK a '@10' en el paso 3 lleva a NumPaso=4 y luego al ciclo de comandos. Si la PAM rechaza '@10' de forma persistente, se repite en cada ciclo, porque SwTotales sigue en true. El NAK que simula Timer1 (2223) no asigna SwError. El impacto es menor de lo que se describe. OpenGas nunca ve la Respuesta de TabCmnd para AUTHORIZE: el Bridge responde 'DISPENSERS|AUTHORIZE|True|0|' con CliSock=nil (UIGASBRIDGE 372-381) y descarta el folio que devuelve AutorizarVenta, asi que RESPCMND no se puede consultar. SwPreset nunca se lee: solo se asigna en 1758, 1826 y 1920. El efecto real es que se pierde el seguimiento SwOCC/ContOCC, que reenvia el preset hasta 3 veces si la posicion no pasa a 9 (1400-1430 y 1456-1458), y que el log registra un error falso. El preset si se envia y normalmente se aplica.
 - **Qué pasa:**
   EnviaPreset3 primero encola o envia el preset y despues revisa SwError. SwError refleja si la ultima trama recibida fue un NAK, no la respuesta a este preset, que todavia no llega.
   
@@ -255,11 +291,11 @@ Tramas parciales (784-823):
 - **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="PAM-05"></a>
-#### PAM-05 · 🟠 Alta · correccion · bug — PRICES (CPREC) responde OK aunque el precio no se aplique: precio con 3 decimales o >= 100, NAK sin reintento, LPrecios actualizado antes de validar
+#### PAM-05 · 🟡 Media (originalmente alta) · correccion · bug — PRICES (CPREC) responde OK aunque el precio no se aplique: precio con 3 decimales o >= 100, NAK sin reintento, LPrecios actualizado antes de validar
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1666-1691, 1284-1287
 - **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Confirmado en 1666-1691. LPrecios[i] se asigna en 1672 antes de ValidaCifra. ValidaCifra(p,2,2) (1858-1878) rechaza valores >=100 y valores con 3 decimales, y en ese caso no se envia ningun X ni queda log. Al final rsp='' se convierte en 'OK' (1690-1691). Hay una imprecision: un NAK a un X recibido con NumPaso=4 primero hace Inc(NumPaso) a 5 en 815-816, asi que lo que se ejecuta es ContEsperaPaso5:=0 (1286-1287), no ContEsperaPaso4. El efecto es el mismo: no hay reintento y el siguiente tick de Timer1 pone NumPaso a 0 (2201). Matices: 1) rsp no se reinicia en cada comando del ciclo, asi que CPREC hereda el rsp de un comando anterior del mismo pase. 2) La respuesta interna de CPREC no le llega a nadie, porque IniciaPrecios responde 'True|' sin folio (2023-2033) y el Bridge confirma PRICES de inmediato (UIGASBRIDGE 372-381). Por eso la prueba propuesta via RESPCMND no se puede hacer. 3) LPrecios solo se usa para el importe del rsp de TOTAL (1657-1659), asi que asignarlo antes de validar tiene poco efecto. 4) El caso i>4 es el mismo que PAM-06. Lo que si es real: un precio con 3 decimales o un NAK deja el precio sin aplicar en el dispensario, sin log y sin reintento. Bajo a media porque hace falta una entrada invalida o un NAK.
 - **Qué pasa:**
   Por cada precio:
   - Se asigna LPrecios[i] antes de validar.
@@ -281,11 +317,11 @@ Tramas parciales (784-823):
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="PAM-06"></a>
-#### PAM-06 · 🟠 Alta · correccion · bug — Escrituras y lecturas fuera de rango sin validar en arreglos globales, compiladas con {$R-}
+#### PAM-06 · 🟡 Media (originalmente alta) · correccion · bug — Escrituras y lecturas fuera de rango sin validar en arreglos globales, compiladas con {$R-}
 
 - **Ubicación:** `UIGASPAM.pas` líneas 2719, 1672, 1957-1960, 1991-2001, 1628-1638, 2341-2347, 1183, 1649-1651, 1790-1797, 2041-2048, 1657-1659, 234-238
 - **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Todos los accesos citados existen y no tienen validacion. PDISPENSARIOS.cfg tiene -$R- y -$Q- (lineas 17-18) y UIGASPAM.pas no tiene {$R+}. Lineas verificadas: LPrecios[productID] en 2719; LPrecios[i] en 1672; TPosCarga[xpos] en 1957/1960; TComb/TCombx/TMang/TPosx[NoComb] en 1991-1994 sin tope MCxP; TOTAL en 1630-1632, 1650-1651 y 1660, donde TotalesBomba (2342) solo valida xpos<1, por lo que solo xpos>32 sale de rango; SwTotales[PosActual] en 1183; xprodauto[xp] en 1797 sin la validacion [1..6] que si tiene la rama xcomb>0; TabCmnd[ind] en 2043-2048, que se lee antes de probar ind>200; LPrecios[TCombx[3]] en 1657-1659. Matices sobre el alcance: casi todos los casos requieren datos fuera de contrato. Por ejemplo, todos los drivers declaran LPrecios[1..4], lo que sugiere que OpenGas usa ProductId<=4. Otros casos: DispenserId 0 o >32, HoseId>6, mas de 4 productos por posicion, o TOTALS con posicion >32. El caso TabCmnd[201] exige 200 comandos activos en menos de 1 minuto, porque los slots solo se liberan al expirar (2043-2047). Con un comando por mensaje del Bridge eso es practicamente inalcanzable. LPrecios[0] por TCombx[3]=0 es solo una lectura y se multiplica por TotalLitros[3]=0, asi que es casi siempre benigno. El caso mas realista es SwTotales/TotalLitros indexados por PosActual, que es el HoseId (TPosx=conPosicion, 1999-2000), cuando los HoseId no son 1..NoComb. Que LPrecios[5] se superponga a MaxPosCarga es plausible por el orden de declaracion (236-238), pero no esta garantizado. Es un riesgo latente de corrupcion de memoria con probabilidad baja; bajo a media.
 - **Qué pasa:**
   PDISPENSARIOS.cfg compila con -$R- y -$Q-, asi que ningun indice se verifica. Indices que vienen de datos externos:
   - LPrecios[productID] en INITIALIZE (2719) y LPrecios[i] en CPREC (1672), arreglo 1..4.
@@ -311,11 +347,11 @@ Tramas parciales (784-823):
 - **Esfuerzo:** M · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="PAM-07"></a>
-#### PAM-07 · 🟠 Alta · rendimiento · bug — El JSON al Bridge (y con el los comandos de OpenGas) se atrasa un ciclo completo porque cada trama reinicia Timer1
+#### PAM-07 · 🟡 Media (originalmente alta) · rendimiento · bug — El JSON al Bridge (y con el los comandos de OpenGas) se atrasa un ciclo completo porque cada trama reinicia Timer1
 
 - **Ubicación:** `UIGASPAM.pas` líneas 784-823, 714-738, 2256-2266
 - **Se atiende en:** [E4.1](../PLAN_OPTIMIZACION.md#e41--responder-al-bridge-en-cuanto-se-procesa-un-comando-y-homologar-la-cadencia)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo es correcto. Timer1 tiene Interval=250 (UIGASPAM.dfm). En Delphi 7, TTimer.SetEnabled llama a UpdateTimer, que hace KillTimer y SetTimer, y eso reinicia el intervalo. pSerialTriggerAvail hace false/true en 789/821 en cada evento TriggerAvail, incluso con fragmentos de trama, y ComandoConsola en 725/736. El unico envio periodico del JSON con Timer1 activo es el finally de Timer1Timer (2256-2266); Timer2 se desactiva (341-343) y ClientSocket1Read no responde salvo con '0'/'1'. Sin el reinicio, Timer1 enviaria el JSON cada 250 ms incluso a mitad de ciclo, porque el exit de 2236 ejecuta el finally. Con el reinicio, el JSON sale solo en el hueco de 250 ms despues de la ultima trama, es decir, una vez por ciclo de sondeo. Esto si suma hasta ~2 ciclos entre la llegada de un comando al Bridge y su resultado. Lo que no esta demostrado es la cifra de 'ciclo > 1-2 s', que depende del baudrate y de la latencia de la PAM. Las esperas EsperaMiliSeg(500/100) dentro de ProcesaLinea (957-963, 1003, 1415) la alargan. El efecto practico tambien es limitado. AUTHORIZE, PRICES y PAYMENT ya se confirman de inmediato en el Bridge, y el preset se ejecuta en el paso 4 del ciclo de todos modos. El timeout del Bridge (TimeoutRespSrv=2 s, 875-889) solo afecta a los comandos sincronos (TOTALS, RESPCMND, LOG...) cuando el ciclo supera unos 2 s. Es rendimiento y no correccion; bajo a media.
 - **Qué pasa:**
   El unico envio periodico del JSON esta en el finally de Timer1Timer. pSerialTriggerAvail y ComandoConsola hacen Timer1.Enabled:=false y luego true en cada trama recibida y en cada comando enviado. En TTimer eso reinicia el intervalo (KillTimer y SetTimer), asi que con trafico continuo (lecturas A encadenadas, totales, CPREC, mapeos) Timer1 no dispara hasta 250 ms despues de la ultima trama.
   
@@ -329,52 +365,16 @@ Tramas parciales (784-823):
   Medir en el log el intervalo entre 'E {' consecutivos con 8 posiciones despachando; debe quedar en 250-750 ms.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
-<a id="PAM-08"></a>
-#### PAM-08 · 🟠 Alta · robustez · bug — La perdida de comunicacion con la PAM no se refleja en el JSON: Estatus queda congelado
-
-- **Ubicación:** `UIGASPAM.pas` líneas 720-724, 2240-2246, 877, 2309-2333
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** Si la consola deja de responder (cable, falla de energia, puerto), Timer1 reenvia B00 cada 2.75 s pero nada pone Estatus=0. El unico indicador, ContadorAlarma>10, solo pone en ceros LinEstadoGen, que solo lee EstadoPosiciones, y esa funcion es codigo muerto (el Bridge responde STATUS con el snapshot). Timer1 sigue mandando el JSON con los ultimos estatus cada 250 ms, asi que el Bridge lo considera fresco.
-- **Evidencia:** 722-724: 'inc(ContadorAlarma); if ContadorAlarma>10 then LinEstadoGen:=CadenaStr(length(LinEstadoGen),''0'');'. Estatus solo se escribe al procesar 'B' (877). Gilbarco implementa SinComunicacion con MaxFallasEstatus=3 (UIGASGILBARCO.pas 217, 2585-2640).
-- **Impacto:** OpenGas ve las bombas en linea e inactivas, autoriza ventas (AUTHORIZE se confirma de inmediato) que nunca se aplican, y no avisa al operador.
-- **Recomendación:** Contar los timeouts consecutivos de B00. A partir de 3 (unos 8 s), poner Estatus=0 en todas las posiciones del JSON y opcionalmente un campo o log 'SinComunicacion'; restaurar con la primera respuesta valida. Rechazar con error los OCC/OCL mientras no haya comunicacion. Prueba: desconectar el cable; STATUS debe pasar a '0000' en menos de 10 s.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
 <a id="PAM-09"></a>
-#### PAM-09 · 🟠 Alta · correccion · bug — HoraOcc se publica como Now en cada lectura A final: la hora de la venta se mueve y aparecen ventas fantasma al arrancar
+#### PAM-09 · 🟡 Media (originalmente alta) · correccion · bug — HoraOcc se publica como Now en cada lectura A final: la hora de la venta se mueve y aparecen ventas fantasma al arrancar
 
 - **Ubicación:** `UIGASPAM.pas` líneas 1199, 1969, 1304-1309
 - **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Lo central es cierto. La linea 1199 publica HoraOcc=Now (resolucion de minuto) en cada lectura A final. En el paso 2 (1302-1307) se leen en cada ciclo las posiciones con estatus>1 que estan en [1,2,3,8], asi que en estatus 3 (EOT, hasta que llega PAYMENT o FINV con 'R', 1575-1577) la hora de la venta avanza con el reloj. Tambien se relee con SwA o swinicio2. Hay dos errores en el hallazgo. 1) No es cierto que 'el campo HoraOcc del registro nunca se asigna'. Se asigna en 901, 934, 1018, 1612, 1730, 1756, 1784 y 1820, pero para la logica de ReautorizaPam, como hora del preset o now-1000 s, no como hora de la venta. AgregaPosCarga (1969) publica '1899-12-30T00:00' solo en la primera inicializacion; en una reinicializacion publica lo que tenga el registro. 2) Las 'ventas fantasma al arrancar' dependen de como OpenGas, que no esta en el repo, detecta ventas nuevas, y no se pueden verificar. La primera lectura tras el fin de la venta tiene el minuto correcto; el problema aparece si OpenGas lee TRANSACTION mas tarde. Las referencias a otros drivers son inexactas: Wayne (2017-2018) usa la hora del preset, no la del fin de venta. Team usa el mismo patron que PAM en 1760, aunque su ruta nueva en 2668-2669 solo actualiza cuando cambia la lectura. Bajo a media.
 - **Qué pasa:** En el bloque 'venta concluida', cada lectura A sobrescribe HoraOcc con la hora actual (resolucion de minuto). Las posiciones en 3 (EOT, esperando PAYMENT) y en 8 se leen en cada ciclo (estatus>1), asi que su HoraOcc avanza minuto a minuto hasta que se cobran. Al inicializar (swinicio2) o tras cada cambio de estatus (SwA) se relee la ultima venta y se publica con hora nueva. El campo HoraOcc del registro nunca se asigna; AgregaPosCarga lo publica como '1899-12-30T00:00'.
 - **Evidencia:** 1199: 'ActualizaCampoJSON(xpos, ''HoraOcc'', FormatDateTime(''yyyy-mm-dd'',now)+''T''+FormatDateTime(''hh:nn'',now));' dentro del bloque que se ejecuta en cada lectura A con grado. Otros drivers usan una hora fija de fin de venta: UIGASWAYNE.pas 2018, UIGASGILBARCO.pas 2697, UIGASHONGYANG.pas 1578 (HoraFV).
 - **Impacto:** TRANSACTION reporta una hora posterior a la real. Si OpenGas usa HoraOcc o (posicion, HoraOcc) para identificar ventas, puede duplicar o perder transacciones (dos ventas en el mismo minuto, o la venta previa releida al arrancar).
 - **Recomendación:** Asignar TPosCarga[xpos].HoraOcc:=Now solo cuando se detecta el fin de una venta nueva (donde se pone swdesp:=true en 1179-1184, o en la transicion 2->1/3) y publicar ese valor. No publicar lecturas de swinicio2 como venta nueva. Agregar segundos al formato solo si OpenGas lo acepta (eso si toca contrato).
-- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="PAM-10"></a>
-#### PAM-10 · 🟠 Alta · correccion · bug — Con ValidarManguera=Si, la primera lectura final pone la venta en ceros y se publica en el JSON
-
-- **Ubicación:** `UIGASPAM.pas` líneas 1152-1164, 1194-1199
-- **Se atiende en:** [E1.1](../PLAN_OPTIMIZACION.md#e11--importes-y-volúmenes-de-venta-mal-calculados)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** Durante el despacho, MangAnterior:=0 (1096). En la primera lectura final se entra al else: MangAnterior:=manguera; importe:=0; precio:=0; volumen:=0. MangActual y CombActual quedan en 0. Aun asi las lineas 1194-1199 publican Volumen/Precio/Importe en 0, Manguera/Combustible en 0 y HoraOcc=Now. La venta correcta solo aparece en la siguiente lectura, si la posicion se vuelve a leer (depende de SwA o estatus>1).
-- **Evidencia:** 1158-1163: 'else begin MangAnterior:=MangueraEnPosicion(xpos,PosActual); importe:=0; precio:=0; volumen:=0; end;' y despues, sin condicion, 1194: 'ActualizaCampoJSON(xpos, ''Volumen'', volumen);'.
-- **Impacto:** Si OpenGas consulta TRANSACTION o STATE al ver la transicion a 1/3, toma una venta de 0 litros y 0 pesos con hora fresca; hay riesgo de registrar la venta en ceros.
-- **Recomendación:** Cuando la lectura no se confirma, no tocar el JSON (salir antes de 1194) y forzar la relectura en el siguiente ciclo (SwA:=true). Mantener la venta anterior en el snapshot hasta confirmar. Probar con VALIDARMANGUERA=SI y una venta corta.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
-<a id="PAM-11"></a>
-#### PAM-11 · 🟠 Alta · protocolo · bug — El BCC de las tramas recibidas nunca se valida
-
-- **Ubicación:** `UIGASPAM.pas` líneas 795-807, 849-853
-- **Se atiende en:** [E2.8](../PLAN_OPTIMIZACION.md#e28--recepción-serial-robusta-tramas-bcc-acknak)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** pSerialTriggerAvail considera la trama completa en el byte siguiente a ETX, pero no compara ese byte con CalculaBCC del contenido. ProcesaLinea quita STX, ETX y BCC por posicion y parsea los digitos de volumen, importe, precio y totales sin verificar nada. Un digito alterado por ruido (EMI de motores en una estacion) se toma como valido; solo StrToFloat atrapa los caracteres no numericos.
-- **Evidencia:** 799-804: 'if SwBcc then FinLinea:=true; if C=idETX then SwBcc:=true;' sin comparar el BCC. 850: 'lin:=copy(lineaTimer,2,length(lineatimer)-3);'. CalculaBCC (740-750) solo se usa al enviar (728).
-- **Impacto:** Volumen, importe o totales incorrectos publicados como venta concluida (TRANSACTION) o como totalizador. Los ajustes x10 y AjustePAM pueden enmascarar o empeorar el error.
-- **Recomendación:** Al cerrar la trama, calcular CalculaBCC(copy(Linea,2,len-2)) y compararlo con el ultimo byte; si no coincide, registrar 'BCC invalido', descartar y reintentar el mismo comando (o tratarlo como NAK). Agregar un contador de tramas invalidas al log. Prueba: inyectar una trama con un digito alterado desde un emulador serial.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
 
 <a id="PAM-12"></a>
@@ -383,7 +383,21 @@ Tramas parciales (784-823):
 - **Ubicación:** `UIGASPAM.pas` líneas 361-367, 1171-1184
 - **Módulos afectados:** UIGASPAM.pas, UIGASTEAM.pas, UIGASWAYNE.pas, UIGASGILBARCO.pas
 - **Se atiende en:** [E2.1](../PLAN_OPTIMIZACION.md#e21--desacoplar-timer1-sondeo-serial-de-la-conexión-con-el-bridge)
-- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo existe, pero el alcance y la severidad son menores de lo que se describe. (1) Lo que se confirma: ClientSocket1Disconnect (UIGASPAM.pas 361-367) pone conectado:=False y Timer1.Enabled:=False. Timer1 (250 ms en el .dfm) inicia cada ciclo serial con B00 en Timer1Timer (2195-2252) y vigila los timeouts de los pasos 2-5. La deteccion de fin de venta (1171-1184) exige SwCargando, que solo se pone en True al ver estatus 2 (928). Una venta que empieza y termina sin sondeo no dispara el EOT, no marca SwTotales y no se piden totales. Ademas, si la posicion vuelve a estatus 1, al reconectar la condicion de 1303 (estatus<>estatusant o estatus>1) no pide la lectura 'A', y el JSON se queda con el Volumen/Importe de la venta anterior. Gilbarco (3064-3069), Team (346-352) y Wayne (2909-2915) hacen lo mismo, y tambien Wayne2W (3942-3949), HongYang (408-413), Bennett (312-317) y Triton (323-328). Por eso la recomendacion de seguir el modelo 'como Gilbarco o Wayne2W' es incorrecta: ambos apagan Timer1 igual. (2) Lo que cambia: (a) Es falso que 'Timer1 se reactiva solo en Timer2Timer (340-343)'. Tambien lo reactivan el finally de pSerialTriggerAvail (821) y el de ComandoConsola (736). El ciclo PAM avanza por respuestas seriales (ProcesaLinea, 1290-1373, manda el siguiente comando). Si la desconexion cae con un comando en vuelo (SwEsperaRsp=True), la respuesta vuelve a habilitar Timer1 y el sondeo sigue: Responder no falla, porque SendText con el socket desconectado no envia nada y no lanza excepcion. El paro solo ocurre si la desconexion cae en el hueco ocioso entre el fin de la cadena (NumPaso:=0, 1698) y el siguiente tick, asi que es probabilistico, no determinista. (b) El disparador real es solo una caida o reinicio del Bridge: el Bridge nunca cierra el socket del driver (en 411 solo apaga SSocketOG). Mientras el Bridge esta caido, OpenGas no puede consultar nada. La perdida de la primera de dos ventas en la misma posicion ocurre aunque Timer1 siga activo, porque el snapshot solo guarda la ultima venta por posicion. No se le puede atribuir al apagado de Timer1. (c) Una venta que ya iba en curso al desconectarse no se pierde: SwCargando y swAvanzoVenta quedan en True y el EOT ocurre al reconectar. Solo se pierden las ventas que empiezan y terminan completas dentro de la caida, y en un reinicio rapido del Bridge (segundos) eso es poco probable. Si OpenGas registra la venta perdida depende de su logica, que no esta en los repos. (3) Hilos: en PAM, ClientSocket1.Active:=True se ejecuta en Timer2Timer (326-327), asi que el HWND del socket se crea en el mismo hilo que los TTimer. OnDisconnect y los timers no compiten entre si. Que pSerialTriggerAvail reactive Timer1 desde el hilo correcto depende del despacho de Async Pro; certeza media, aunque el uso en produccion sugiere que funciona. Conclusion: es un problema de robustez real pero acotado (caida del Bridge mas caer en el hueco ocioso mas una venta completa durante la caida). La severidad baja a media.
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo existe y las lineas estan bien citadas. ClientSocket1Disconnect (UIGASPAM.pas 361-367) hace Timer1.Enabled:=False. Timer1 arranca deshabilitado en el .dfm y solo se vuelve a encender en Timer2Timer despues de reconectar (340-343), en Iniciar (2432) o con el comando '1' (394-396). Mientras el Bridge esta caido no se manda B00 ni 'A' a la PAM. OnDisconnect se dispara de verdad: llega FD_CLOSE cuando el Bridge muere, o una falla de send llama a Disconnect. El Bridge no tiene logica que cierre a proposito el socket del driver (grep Close/Disconnect en UIGASBRIDGE.pas sin resultados), asi que la pausa dura lo que dure la caida del Bridge mas aproximadamente 1,2 s.
+
+La consecuencia que se afirma, que 'se pierden ventas', esta exagerada y en parte mal atribuida:
+(1) ModoOpera siempre queda en 'Prepago' (1965, 2158-2186; incluso DesactivaModoPrepago pone 'Prepago'). Toda autorizacion viene de OpenGas por el Bridge, asi que con el Bridge caido normalmente no puede empezar ninguna venta nueva. Solo pueden terminar las que ya estaban autorizadas o en curso, salvo que la consola autorice por su cuenta, y eso no se puede verificar.
+(2) El caso de 'dos ventas en la misma posicion, la primera se pierde' no se debe a Timer1. El snapshot PosCarga tiene una sola venta por posicion, el driver no encola ventas terminadas y durante la caida nadie consume el snapshot. Aunque el sondeo siguiera, la segunda venta pisaria a la primera antes de que vuelva el Bridge.
+(3) Para una venta autorizada o en curso al empezar la caida, al reconectar el primer B00 ve la transicion 9->1 o 2->1. El paso 2 (1303-1307) pide una 'A' porque estatus<>estatusant, y la rama de VENTA CONCLUIDA actualiza Volumen/Importe/Manguera/HoraOcc en el JSON (1201-1206) sin depender de la deteccion de EOT. Es decir, el dato de la venta si llega al snapshot.
+
+Lo que si se pierde es la deteccion de EOT y la peticion de totales. Si la posicion nunca se vio en estatus 2, SwCargando sigue en False (928) y no se activa SwTotales. Si solo hubo lecturas con importe 0 antes de la caida, la heuristica de 1172 (importeant=0 e importe>=40/80) deja swAvanzoVenta en False. En ambos casos el paso 3 (1348) no lee totales, y Hoses[].Total queda viejo hasta la siguiente venta detectada o hasta un TOTALS explicito.
+
+Matices adicionales:
+- El patron no es exclusivo de 4 drivers. Tambien esta en HongYang 408-414, Bennett 311-317, Triton 322-328 y Wayne2W 3942-3948. La recomendacion de hacerlo 'como Gilbarco o Wayne2W' es incoherente, porque los dos tambien apagan Timer1 en OnDisconnect (Gilbarco 3067, Wayne2W 3947).
+- Dejar Timer1 activo seria seguro en cuanto a socket: Responder (485-500) atrapa sus excepciones, y en ScktComp SendBuf sale sin enviar si FConnected=False.
+- Al reconectar, Timer2Timer envia primero el snapshot de antes de la caida y el Bridge lo marca como fresco. Timer1 lo corrige en unos 250 ms o mas.
+
+En resumen, es un problema real de robustez: el sondeo serial depende del socket, lo que deja totales viejos y sin EOT. No hay perdida directa de ventas atribuible a este codigo. Severidad: media.
 - **Qué pasa:** ClientSocket1Disconnect hace Timer1.Enabled:=False, y Timer1 es el motor de todo el ciclo serial. Mientras el Bridge esta caido o reiniciando no se lee la PAM. Una venta que empieza y termina en ese tiempo no pasa por estatus 2, asi que SwCargando no se activa, la deteccion EOT (1171-1184) no ocurre y los totales no se piden. Si en ese lapso hay dos ventas en la misma posicion, la primera se pierde porque la PAM solo entrega la ultima. El patron se comparte con Team (346-352), Wayne (2909-2915) y Gilbarco (3064-3069).
 - **Evidencia:** 365: 'Timer1.Enabled:=False;' en OnDisconnect; Timer1 se reactiva solo en Timer2Timer al reconectar (340-343).
 - **Impacto:** Transacciones perdidas o sin totales cada vez que se reinicia o falla el Bridge (despliegues, caidas); posiciones sin control.

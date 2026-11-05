@@ -172,122 +172,18 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 
 ## Hallazgos (37)
 
-<a id="HYA-01"></a>
-#### HYA-01 · 🟠 Alta · correccion · bug — La precedencia de 'not' anula el chequeo de posición ocupada en OCC/OCL
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 2136-2147, 2187-2198, 1356-1372
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** En ProcesaComandosExternos (OCC y OCL), Delphi evalúa `(not TMangueras[i].estatus in [1,3])` como `(not estatus) in [1,3]`. Sobre un Integer, `not` es complemento bit a bit (not 1 = -2, not 5 = -6), que nunca pertenece a [1,3]. Por eso el rechazo 'Posicion de carga no esta disponible' jamás se ejecuta y solo se valida la manguera destino. Aunque se corrija, el rsp asignado antes del Break se sobrescribe después con ValidaCifra si xmang ya se había encontrado. Además, el driver publica una sola manguera por posición: posactual2 solo cambia si SwDisponible (1358-1361), e Importe/Volumen/Precio solo se escriben si poscomb=posactual2 (1368-1372). Una segunda venta simultánea en otra manguera de la misma posición (cada manguera es un CPU distinto según ConfPos) no llega a PosCarga.
-- **Evidencia:** 2141 y 2192: `if (not TMangueras[i].estatus in [1,3]) then begin rsp:='Posicion de carga no esta disponible'; Break; end;` seguido de 2147-2151: `if (xmang in [1..MaxMangueras]) then begin if (TMangueras[xmang].estatus in [1,3]) then begin ... rsp:=ValidaCifra(xImporte,4,2);` y 2168 MeteACola('S'...). El bug es exclusivo de este driver (grep en los demás).
-- **Impacto:** Se puede autorizar un preset en una posición que está despachando por otra manguera. Esa venta no se publica en TRANSACTION, o se mezcla con los datos de la otra manguera, y la transacción se pierde o se cobra mal.
-- **Recomendación:** Cambiar 2141 y 2192 a `if not (TMangueras[i].estatus in [1,3]) then`. Después del ciclo, continuar solo si rsp='OK'. Validar con emulador: manguera 2 en estatus 5 y OCC a la manguera 1 debe responder 'Posicion de carga no esta disponible' sin encolar 'S'.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
-<a id="HYA-02"></a>
-#### HYA-02 · 🟠 Alta · protocolo · bug — AUTHORIZE se reporta exitoso aunque el preset se rechace o nunca llegue al dispensario
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 1222, 2131-2172, 2182-2224, 2268-2271, 1643-1685, 1987-1995
-- **Módulos afectados:** UIGASHONGYANG.pas, UIGASBRIDGE.pas
-- **Se atiende en:** [E5.2](../PLAN_OPTIMIZACION.md#e52--confirmación-real-de-prices-authorize-y-payment)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** OCC/OCL responden 'OK' (TabCmnd.SwResp/Respuesta) en cuanto el 'S'/'L' entra a la cola, sin esperar el ACK del CPU. ProcesoComandoS/L solo encienden SwPreset si no viene el bit de error y no informan el rechazo. El timeout de 1 s descarta el comando sin reintento y MeteACola descarta en silencio con la cola llena. Encima, el Bridge trata AUTHORIZE como fire-and-forget (CliSock=nil y respuesta inmediata 'DISPENSERS|AUTHORIZE|True|0|'): el folio de TabCmnd que devuelve AutorizarVenta nunca llega a OpenGas y RESPCMND no sirve. Los rechazos del driver ('Manguera no existe', 'Posicion Bloqueada', 'Manguera no esta disponible', decimales) solo quedan en el log.
-- **Evidencia:** 1222: AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando(cmd+...))+'|'); 2159-2169: if rsp='OK' then begin ... MeteACola('S'+...); SwSalir:=true; end; UIGASBRIDGE.pas 372-373: if metodoEnum in [PRICES_e, AUTHORIZE_e, PAYMENT_e] then p.CliSock:=nil.
-- **Impacto:** El POS da por autorizada una venta que el dispensario no recibió o rechazó. El cliente espera, el despachador reintenta a mano y, en prepago, puede haber cobro adelantado sin despacho.
-- **Recomendación:** Driver: guardar el folio de TabCmnd junto al elemento de cola y resolver la respuesta en ProcesoComandoS/L (OK o 'Rechazado por dispensario') o en el timeout ('Sin respuesta'). Bridge/OpenGas: esperar la respuesta de AUTHORIZE o exponer el folio del driver para que RESPCMND funcione. Probar con un emulador que conteste con bit de error y otro que no conteste.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
-
-<a id="HYA-03"></a>
-#### HYA-03 · 🟠 Alta · correccion · bug — Presets con más de 2 decimales se rechazan en silencio (no se portó la corrección de Wayne 2W)
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 2149-2158, 2200-2209
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** OCC y OCL validan con ValidaCifra(x,4,2), que responde 'Numero de decimales excede maximo permitido' si el valor no es exacto con 2 decimales. El commit 60e5fde corrigió esto en Wayne 2W porque OpenGas envía cantidades con 5 decimales (p.ej. litros calculados). Aquí el preset se descarta y, por el fire-and-forget del Bridge, OpenGas no se entera. Además, cualquier importe 0<x<1 se convierte en 9999 (venta 'lleno').
-- **Evidencia:** 2150-2154: xImporte:=StrToFLoat(...); rsp:=ValidaCifra(xImporte,4,2); if rsp='OK' then if (xImporte<1) then xImporte:=9999; 2201-2205: igual para litros con mínimo 0.5. UIGASWAYNE2W.pas (60e5fde) trunca a 2 decimales antes de validar.
-- **Impacto:** Ventas en litros (y algunas en importe) que no se pueden autorizar, sin aviso. Un preset de $0.50 autoriza un lleno.
-- **Recomendación:** Normalizar a 2 decimales antes de ValidaCifra, como en Wayne 2W (Trunc(x*100+0.5)/100 o recorte de la cadena). Tratar 0 explícitamente como 'lleno' y rechazar 0<x<1. Probar con 'OCL 1 20.12345 1 0' y 'OCC 1 100.00000 1 0'.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
-<a id="HYA-04"></a>
-#### HYA-04 · 🟠 Alta · correccion · bug — HoraOcc de TRANSACTION queda con la hora de la última lectura de totales, no con la del fin de venta
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 732, 1570-1589, 1924-1940, 2236-2240, 705
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** HoraOcc solo se escribe al crear PosCarga (732) y en ProcesoComandoN cuando hay diferencia en el totalizador (1577-1578). ProcesoComandoN solo corre si SwCargaTotales=True. Eso ocurre al inicializar (705) y únicamente con un TOTAL, y solo para la manguera activa (2238); tras la primera lectura queda en False (1570). Al terminar una venta (5→1) HoraOcc no cambia. Si OpenGas pide TRANSACTION antes que TOTALS recibe la hora de la venta anterior o la de INITIALIZE. Ese mismo bloque es el único que reencola 'C' (prepago) tras la venta (1579-1580).
-- **Evidencia:** Las únicas referencias a 'HoraOcc' son 732 y 1578. SwCargaTotales: 705 (True), 1570 (False), 2238 (True por TOTAL). Team, PAM, Gilbarco y Wayne 2W actualizan HoraOcc al procesar la venta (UIGASTEAM.pas 1760/2669, UIGASPAM.pas 1199, UIGASWAYNE2W.pas 2804).
-- **Impacto:** Fecha y hora incorrectas en tickets, facturación y conciliaciones.
-- **Recomendación:** En ProcesoComandoA, al pasar de 5 a 1 con swcargando, fijar HoraFV:=Now, actualizar HoraOcc y poner SwCargaTotales:=True para leer totales automáticamente. Probar en emulador: venta, espera y TRANSACTION; HoraOcc debe ser la hora del fin.
-- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="HYA-05"></a>
-#### HYA-05 · 🟠 Alta · correccion · bug — TOTALS devuelve importes calculados (litros × precio actual) y solo refresca la manguera activa
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 2232-2255, 1558-1570
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** TOTAL marca SwCargaTotales y encola 'N' solo para PosManguera[PosActual2]. Las demás mangueras de la posición conservan el TotalLitros de su última lectura (2244-2247), que puede tener horas si se despachó por otra manguera. El importe total que se responde es FormatoMoneda(TotalLitros*LPrecios[...]), no el totalizador de importe que el dispensario manda en los bytes 15-20 de la respuesta N; ProcesoComandoN solo lee los bytes 9-14 (1562). En posiciones con menos de 3 mangueras Combustible[3]=0 y se lee LPrecios[0], fuera de rango. FormatFloat('0.000') depende del DecimalSeparator.
-- **Evidencia:** 2238-2239: TMangueras[PosManguera[PosActual2]].SwCargaTotales:=True; MeteACola('N'+inttoclavenum(PosManguera[PosActual2],2)); 2248: rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[Combustible[1]])+...; 1562: totallitros:=ExtraeBCD(ss,9,14).
-- **Impacto:** Totales de turno y controles volumétricos con importes inexactos después de cambios de precio, y litros desactualizados en las mangueras no activas.
-- **Recomendación:** En TOTAL encolar 'N' para todas las mangueras de la posición y responder cuando todas tengan SwCargaTotales=False. Guardar por manguera el totalizador de importe con ExtraeBCD(ss,15,20) y devolver ese valor. Indexar LPrecios solo si Combustible está en 1..4. Formatear con TFormatSettings fijo.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="HYA-06"></a>
-#### HYA-06 · 🟠 Alta · correccion · bug — La respuesta de TOTAL se trunca por RegCmnd.Respuesta string[80]
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 194-202, 2248-2250, 2270, 2462-2469
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** Con 3 mangueras la respuesta de TOTAL es 'OK' más tres bloques (litros '0.000' + '|' + importe FormatoMoneda + '|'). Con totalizadores de millones de litros (p.ej. 5000000.000 L y 120,000,000.00 = ~27 caracteres por manguera) pasa de 80 caracteres. Al asignarla a un ShortString de 80 se corta en silencio y RESPCMND devuelve el último bloque recortado. Comando también es string[80].
-- **Evidencia:** 201: Respuesta :string[80]; 2270: TabCmnd[xcmnd].Respuesta:=rsp; RespuestaComando 2466: resp:=copy(resp,3,Length(resp)-2)+'|'.
-- **Impacto:** Totales con dígitos perdidos en la tercera manguera en estaciones con totalizadores altos.
-- **Recomendación:** Cambiar Comando y Respuesta a string (AnsiString) o a string[255]. Agregar una prueba con totales de 9,999,999.999 L en 3 mangueras.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
-
-<a id="HYA-07"></a>
-#### HYA-07 · 🟠 Alta · robustez · bug — Una trama de longitud inesperada reinicia el puerto (forzado) aunque haya ventas en curso
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 1713-1746, 2729-2755, 2326-2332, 2382-2399
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E2.8](../PLAN_OPTIMIZACION.md#e28--recepción-serial-robusta-tramas-bcc-acknak)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** ProcesaLineaRec llama ReiniciarPuerto con forzado=True (valor por omisión) ante cualquier longitud distinta de la esperada (A=12, C/D/U/S/L=3, V=7, N=21). Basta un byte de ruido, una respuesta tardía o una trama corta de error. ReiniciarPuerto(True) ignora PosicionesLibres y ejecuta Detener(0), Sleep(200) e Iniciar(0). Luego escribe tres archivos (LogDisp, LogDispPetRes y LogDispComandos) bloqueando el hilo principal. Detener(0) e Iniciar(0) agregan dos Peticiones con folio 0 que expulsan resultados pendientes. Además se cierra y reabre el TApdComPort desde su propio OnTriggerAvail (pSerialTriggerAvail→ProcesaLineaRec→ReiniciarPuerto), patrón que Async Pro desaconseja; según la versión podría diferir el cierre o provocar un AV (certeza baja).
-- **Evidencia:** 1714-1717: 'A':if length(LineaRsp)=12 then ProcesoComandoA(LineaRsp) else ReiniciarPuerto; 2735-2748: Detener(0); Sleep(200); ... Iniciar(0); ... if forzado then begin GuardarLog(0); GuardarLogPetRes(0); GuardaLogComandos; end; 2332/2399: AddPeticionJSON(folio,'True|') con folio 0.
-- **Impacto:** Un CPU que conteste tramas cortas provoca reinicios en cadena: sin sondeo durante ventas, escritura masiva de logs (riesgo de llenar el disco) y timeouts del Bridge por respuestas expulsadas.
-- **Recomendación:** Ante longitud inesperada: registrar, descartar, limpiar LineaBuff/LineaProc y hacer pSerial.FlushInBuffer, y contar el error por manguera. Reiniciar solo tras N errores consecutivos, con PosicionesLibres y fuera del evento serial (bandera atendida en Timer1). En Detener/Iniciar no llamar AddPeticionJSON si folio=0. Probar inyectando respuestas de 3 bytes a un comando 'A'.
-- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
-
 <a id="HYA-08"></a>
 #### HYA-08 · 🟠 Alta · robustez · bug — Los reintentos por BCC son ilimitados y, con la prioridad de la cola, un CPU con respuestas corruptas paraliza el sondeo
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1700-1712, 1879-1893
 - **Módulos afectados:** UIGASHONGYANG.pas
 - **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ✅ confirmado por un verificador independiente — Verificado. Con un BCC invalido (1703-1711) se reencola LinCmnd al final de la cola, solo si SwReintentoCmnd=False. Esa bandera unicamente se pone en False en 1880, al inicio de cada tick sin espera, y en True en 1708, y no hay otra referencia (grep). Despues del error, el finally de ProcesaLineaRec pone SwEsperaCmnd:=false (1750). En el siguiente tick se rearma SwReintentoCmnd y, como CmndProc='A' y ApCola>0 (1887-1892, agregado en fd48cc2), se manda el comando de la cola y se sale sin avanzar MangCiclo. Si una direccion responde siempre con BCC erroneo (colision por direccion duplicada, CPU danado o ruido persistente en su cableado), el ciclo se repite sin limite y deja de sondear las demas mangueras. Antes de fd48cc2 el estado 'W' (1968-1977) tenia el mismo bucle. Ni ReiniciarPuerto ni Detener/Iniciar vacian ApCola. Lo agravante: como no hay timeout, las mangueras no pasan a estatus 0. El JSON se sigue enviando en el finally de Timer1, asi que el Bridge no lo marca como obsoleto y OpenGas ve estatus congelados. Es poco frecuente, porque requiere una falla persistente de un dispositivo, pero paraliza todo el dispensario y lo oculta; se sostiene alta.
 - **Qué pasa:** Ante un BCC inválido se reencola LinCmnd una sola vez, controlado por SwReintentoCmnd. Pero esa bandera se pone en False al inicio de cada tick sin espera (1880), así que el reintento se repite sin límite. La cola tiene prioridad absoluta: con CmndProc='A' y ApCola>0, cada tick manda un comando de la cola y hace Exit sin avanzar MangCiclo. Si una manguera responde siempre con BCC incorrecto (ruido, CPU dañado o dirección duplicada en ConfPos), el driver queda reintentando ese comando y deja de sondear todas las demás. El reintento además va al final de la cola.
 - **Evidencia:** 1880: SwReintentoCmnd:=false; 1706-1710: if not SwReintentoCmnd then begin SwReintentoCmnd:=true; MeteACola(LinCmnd); end; 1888-1891: if ApCola>0 then begin SacaDeCola(xcmnd); ComandoConsola(xcmnd); Exit; end;
 - **Impacto:** La estación entera queda sin actualizar estatus (OpenGas ve datos congelados u obsoletos) mientras dure la falla de un solo equipo.
 - **Recomendación:** Llevar un contador de reintentos por comando (en el elemento de cola) y descartarlo tras 1-2 intentos, marcando la falla de la manguera. No rearmar SwReintentoCmnd en cada tick. Intercalar como máximo un comando de cola por cada sondeo 'A'. Probar con un emulador que devuelva BCC erróneo de forma permanente para una dirección.
 - **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="HYA-09"></a>
-#### HYA-09 · 🟠 Alta · robustez · bug — La cola de 50 comandos descarta en silencio y AMP/DMP 0 encola MaxPosiciones × MaxMangueras comandos
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 1456-1469, 2077-2097, 2105-2125, 1886-1892
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E8.3](../PLAN_OPTIMIZACION.md#e83--código-muerto-variables-globales-y-duplicación-interna)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** MeteACola descarta sin log cuando ApCola>=50. En AMP/DMP con posición 0, el filtro por posición está comentado dentro de un ciclo por posición, así que cada manguera recibe MaxPosiciones comandos 'C'/'D' (p.ej. 8 posiciones × 16 mangueras = 128). La cola se llena y los 'S'/'L' (presets) o 'U' (precios) que llegan después se pierden, mientras TabCmnd ya respondió 'OK'. Mientras haya cola tampoco se sondean estatus (~50 ms por comando).
-- **Evidencia:** 1459-1462: if ApCola<50 then begin inc(ApCola); TColaCmnd[ApCola]:=xstr; end; 2079-2086: for xpos:=1 to MaxPosiciones do begin for i:=1 to MaxMangueras do begin //if (TMangueras[i].PosCarga=xpos) then begin MeteACola('C'+inttoclavenum(i,2)); (igual en DMP 2107-2114).
-- **Impacto:** Presets y cambios de precio perdidos sin aviso, y varios segundos sin sondeo después de un SELFSERVICE/FULLSERVICE global.
-- **Recomendación:** Con xpos=0, recorrer solo las mangueras (un 'C'/'D' por manguera). Hacer que MeteACola registre y devuelva False cuando la cola está llena, y propagar ese error a la respuesta del comando. Evitar duplicados (mismo comando y manguera) y considerar una cola dinámica.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="HYA-10"></a>
 #### HYA-10 · 🟠 Alta · robustez · bug — Un solo timeout marca la posición sin comunicación y la deja 5 s sin sondeo, aun en plena venta
@@ -295,7 +191,7 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 1987-1996, 1900
 - **Módulos afectados:** UIGASHONGYANG.pas
 - **Se atiende en:** [E1.3](../PLAN_OPTIMIZACION.md#e13--sondeo-que-se-congela-livelocks-y-bloqueos-de-la-máquina-de-estados)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ✅ confirmado por un verificador independiente — Confirmado tal como se describe. Lineas revisadas: 1982-1997, 1897-1909, 1022-1033, 1687-1712, 1812-1844, 2136-2148; tambien fd48cc2^ y los commits 7160ea2 y 34a7278. Si no hay respuesta en 1 s, Timer1 hace estatus:=0, ProxSondeo:=Now+5 s y ActualizaCampoJSON(PosCarga,'Estatus',0) (1987-1995), sin contador de fallas. La condicion de sondeo (1900) exige Now>=ProxSondeo, Estatus>1 o (SwPreset y Estatus>0); con estatus=0 ninguna se cumple, asi que una manguera que despacha queda 5 s sin leerse y TRANSACTION se congela. Solo el error de BCC tiene un reintento (1706-1710). Ante un timeout, LinCmnd no se reencola: un 'S' o 'L' ya contestado 'OK' en TabCmnd, o un 'U', se pierde (salvo que el dispensario lo haya recibido y solo se haya perdido la respuesta). Si la manguera que falla no es posactual2, el siguiente PublicaEstatusDispensarios en la fase 'Z' (1820-1827) reescribe el estatus con la otra manguera, y con una manguera muerta se repite cada 5 s (el parpadeo 0/1). Los commits 7160ea2 (Wayne 2W) y 34a7278 (Gilbarco, 3 fallas) existen y corrigen exactamente esto en otros drivers. El retroceso no es nuevo: antes de fd48cc2 existia como ContParo:=5 ciclos. La venta no se pierde, porque swcargando persiste y al volver a sondear se detecta el fin y se leen totales, pero la posicion reporta 'sin comunicacion' en plena venta y los comandos se pierden en silencio.
 - **Qué pasa:** Si la respuesta no llega en 1 s, Timer1 pone estatus:=0 a la manguera, escribe Estatus=0 en el JSON de la posición y fija ProxSondeo:=Now+5 s. La condición de sondeo pide Now>=ProxSondeo o Estatus>1, y el estatus ya es 0, así que una manguera que estaba despachando deja de leerse 5 s. No hay tolerancia (Wayne 2W y Gilbarco esperan 3 fallas, commits 7160ea2 y 34a7278) ni reintento del comando: si era 'S', 'L' o 'U' se pierde. Si la manguera que falló no es posactual2, el siguiente PublicaEstatusDispensarios reescribe el estatus de la otra manguera y la posición parpadea entre 0 y 1.
 - **Evidencia:** 1987-1995: else if ((Now-TimeCmnd)>TmSegundo) then begin SwEsperaCmnd:=false; with TMangueras[MangCmnd] do begin estatus:=0; descestat:='Sin Comunicacion'; ProxSondeo:=Now+5*TmSegundo; ActualizaCampoJSON(PosCarga, 'Estatus', 0); end; end;
 - **Impacto:** OpenGas ve 'sin comunicación' a mitad de una venta por un solo paquete perdido (ruido RS-485), con datos congelados 5 s; el POS podría cancelar o cerrar mal la transacción.
@@ -308,20 +204,124 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 918-940, 1290, 1599-1641, 1942-1958, 603, 687, 2573-2592
 - **Módulos afectados:** UIGASHONGYANG.pas
 - **Se atiende en:** [E1.5](../PLAN_OPTIMIZACION.md#e15--precios-aplicar-solo-lo-confirmado)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ✅ confirmado por un verificador independiente — Confirmado. Lineas revisadas: 918-940, 1055-1060, 980-989, 1271-1292, 1599-1641, 1942-1958, 597-605, 686-687, 769, 2573-2592; grep de ActualizarPrecio, LeerPrecio, IniciarPrecios y LPrecios; Bridge UIGASBRIDGE.pas 362-385 y 729-730. Lo que se comprobo: (1) IniciaPrecios asigna LPrecios[Combustible] y precio y encola 'U' sin mirar el estatus (929-932). (2) ActualizarPrecio solo se asigna (686, 769, 1609) y nunca se lee para reenviar. LeerPrecio arranca en False (687) y solo pasa a True tras un 'U' sin error (1608-1611), asi que si el 'U' falla (bit de error, timeout sin reintento o MeteACola llena) nunca se lee el precio fisico ('V'). (3) ProcesoComandoA publica precio:=LPrecios[Combustible] en cada sondeo (1290, 1371), y el Bridge arma TRANSACTION con ese 'Precio' del JSON junto a Importe y Volumen del dispensario (UIGASBRIDGE 729-730): la venta puede salir con un precio incongruente con su importe. El Bridge confirma PRICES a OpenGas de inmediato (fire-and-forget, 371-383), asi que nadie se entera del fallo. (4) IniciarPrecios (2573) no se llama en ningun lado: los precios de INITIALIZE (603) se publican sin enviarse ni verificarse. (5) Un precio en curso cambia en el JSON en cuanto llega PRICES. (6) copy(LinCmnd,4,4) (1057) y ConvierteBCD(xval,4) limitan a 99.99; un precio >=100 se recorta, sea cual sea el comportamiento de IntToClaveNum (ULIBGRAL no esta disponible). Este ultimo punto es irrelevante con los precios actuales.
 - **Qué pasa:** IniciaPrecios escribe LPrecios[Combustible] y el precio de la manguera en cuanto llega PRICES, y encola 'U' sin mirar el estatus, es decir también a mangueras que despachan. Si el 'U' falla (bit de error, timeout o cola llena) no hay reintento: ActualizarPrecio se asigna pero nunca se usa para reenviar. LPrecios queda con el precio nuevo, que ProcesoComandoA publica en cada sondeo, mientras el dispensario sigue cobrando el anterior. El precio físico (V) solo se lee después de un 'U' exitoso. Los precios de INITIALIZE se guardan pero nunca se envían ni se verifican, porque IniciarPrecios no se llama. El precio de una venta en curso cambia en el JSON al llegar PRICES. Un precio >=100.00 no cabe en IntToClaveNum(ii,4) / copy(LinCmnd,4,4) y se envía recortado, sin validación.
 - **Evidencia:** 929-932: LPrecios[Combustible]:=precioComb; ... precio:=precioComb; MeteACola('U'+IntToClaveNum(i,2)+inttoclavenum(ii,4)); 1290: precio:=LPrecios[Combustible]; 1608-1611: if not SwErr then begin ActualizarPrecio:=false; LeerPrecio:=true; end; 687: LeerPrecio:=false al inicializar.
 - **Impacto:** TRANSACTION con un Precio distinto al que usó el dispensario (Importe y Volumen no cuadran), inconsistencias fiscales y precios no aplicados sin aviso (PRICES es fire-and-forget en el Bridge).
 - **Recomendación:** Guardar el precio pendiente por manguera y actualizar LPrecios solo cuando V lo confirme. Enviar 'U' solo a mangueras en estatus 1 y reintentar usando ActualizarPrecio como bandera de una fase del ciclo. En Iniciar poner LeerPrecio:=True en todas las mangueras para leer el precio físico. Congelar el precio de la venta al pasar a 5. Validar 0<precio<=99.99.
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
 
+<a id="HYA-14"></a>
+#### HYA-14 · 🟠 Alta · robustez · bug — Recursión infinita entre GuardarLog y GuardarLogPetRes si solo falla el guardado de peticiones
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 816-832, 2436-2450
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E2.4](../PLAN_OPTIMIZACION.md#e24--bitácoras-que-no-bloquean-append-incremental-rotación-y-sin-json-repetido)
+- **Verificación:** ✅ confirmado por un verificador independiente — Confirmado. Lineas revisadas: 816-832, 2436-2450, 416-434, 469-487, 450-467, 390-398, 2729-2755; PDISPENSARIOS.ini sin MinutosLog. GuardarLog guarda ListaLog (2442) y llama GuardarLogPetRes(0) (2443) dentro de su try. Si ListaLogPetRes.SaveToFile (821) falla, el except llama GuardarLog(0) (827), que vuelve a guardar ListaLog y a llamar GuardarLogPetRes: es recursion mutua sin bandera de reentrada. Solo se rompe cuando falla el guardado de ListaLog, porque el except de GuardarLog con folio=0 la corta. El disparador plausible es el disco casi lleno: cada GuardarLog/TRACE escribe un LogDispPetRes nuevo con hasta 10000 lineas de JSON completo (decenas de MB), mientras LogDisp (lineas cortas, tope de 10000) es mucho mas chico, asi que hay una ventana en la que cabe uno y no el otro. Sin rotacion de logs, llegar a esa ventana es realista. Matiz: el resultado no es necesariamente EStackOverflow. Si el nombre del archivo cambia con el tiempo (FechaHoraToStr; su resolucion es desconocida porque ULIBGRAL no esta disponible), cada nuevo LogDisp consume espacio y la recursion puede terminar al llenarse el disco. Si no, se llega a EStackOverflow, y en Delphi 7 (sin restaurar la pagina guarda) es probable que se acabe en terminacion del proceso, porque el handler vuelve a recursar. En ambos casos el hilo queda bloqueado con escrituras repetidas de ~1 MB por nivel. Un archivo bloqueado o un EOutOfMemory al armar el texto de ListaLogPetRes tambien lo dispararian.
+- **Qué pasa:** GuardarLog guarda ListaLog y luego llama GuardarLogPetRes(0) (2443). Si ListaLogPetRes.SaveToFile falla, su except llama GuardarLog(0) (827). GuardarLog vuelve a guardar ListaLog con éxito, vuelve a llamar GuardarLogPetRes, y así hasta EStackOverflow. Es plausible con el disco casi lleno: LogDispPetRes guarda el JSON completo de cada intercambio y es el archivo más grande. También con un archivo bloqueado.
+- **Evidencia:** 825-830: on e:Exception do begin AgregaLog('False|Excepcion: '+e.Message+'|'); GuardarLog(0); ...; 2442-2443: ListaLog.SaveToFile(...); GuardarLogPetRes(0);
+- **Impacto:** Caída del servicio por desbordamiento de pila, con cientos de reescrituras del log en segundos.
+- **Recomendación:** En el except de GuardarLogPetRes solo registrar en ListaLog, sin llamar GuardarLog. Proteger ambos procedimientos con una bandera de reentrada. Revisar el espacio libre antes de guardar.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="HYA-01"></a>
+#### HYA-01 · 🟡 Media (originalmente alta) · correccion · bug — La precedencia de 'not' anula el chequeo de posición ocupada en OCC/OCL
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 2136-2147, 2187-2198, 1356-1372
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El bug de precedencia existe tal como se describe. En las lineas 2141 y 2192, `not TMangueras[i].estatus in [1,3]` se evalua como `(not estatus) in [1,3]`. En Delphi `not` es unario y tiene mas precedencia que `in`. estatus es Integer (linea 153), asi que not 0..9 da -1..-10, que nunca pertenece a [1,3], y el rechazo es codigo muerto. El grep confirma que el patron solo aparece en UIGASHONGYANG.pas. Tambien es cierto que, aunque se corrigiera, rsp se sobrescribe despues del ciclo: con 'Manguera no existe' si el Break ocurre antes de encontrar xmang (2172/2223) o con ValidaCifra si xmang ya estaba asignado (2151/2202). La tercera parte (una sola manguera publicada por posicion, 1358-1374) es real, pero es una decision intencional del commit 631b60c ('para evitar ventas con los datos de la otra manguera') y no un defecto en si. Bajo la severidad: el efecto real exige que OpenGas mande AUTHORIZE a una posicion cuyo estatus publicado ya es 2 o 9 (activo, segun PublicaEstatusDispensarios 1820-1833), cosa que un POS normalmente no hace. El caso mas creible es un re-preset con otro combustible mientras la primera manguera sigue autorizada, que dejaria dos mangueras autorizadas en la misma posicion. Es una defensa secundaria rota, no una falla del flujo principal.
+- **Qué pasa:** En ProcesaComandosExternos (OCC y OCL), Delphi evalúa `(not TMangueras[i].estatus in [1,3])` como `(not estatus) in [1,3]`. Sobre un Integer, `not` es complemento bit a bit (not 1 = -2, not 5 = -6), que nunca pertenece a [1,3]. Por eso el rechazo 'Posicion de carga no esta disponible' jamás se ejecuta y solo se valida la manguera destino. Aunque se corrija, el rsp asignado antes del Break se sobrescribe después con ValidaCifra si xmang ya se había encontrado. Además, el driver publica una sola manguera por posición: posactual2 solo cambia si SwDisponible (1358-1361), e Importe/Volumen/Precio solo se escriben si poscomb=posactual2 (1368-1372). Una segunda venta simultánea en otra manguera de la misma posición (cada manguera es un CPU distinto según ConfPos) no llega a PosCarga.
+- **Evidencia:** 2141 y 2192: `if (not TMangueras[i].estatus in [1,3]) then begin rsp:='Posicion de carga no esta disponible'; Break; end;` seguido de 2147-2151: `if (xmang in [1..MaxMangueras]) then begin if (TMangueras[xmang].estatus in [1,3]) then begin ... rsp:=ValidaCifra(xImporte,4,2);` y 2168 MeteACola('S'...). El bug es exclusivo de este driver (grep en los demás).
+- **Impacto:** Se puede autorizar un preset en una posición que está despachando por otra manguera. Esa venta no se publica en TRANSACTION, o se mezcla con los datos de la otra manguera, y la transacción se pierde o se cobra mal.
+- **Recomendación:** Cambiar 2141 y 2192 a `if not (TMangueras[i].estatus in [1,3]) then`. Después del ciclo, continuar solo si rsp='OK'. Validar con emulador: manguera 2 en estatus 5 y OCC a la manguera 1 debe responder 'Posicion de carga no esta disponible' sin encolar 'S'.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="HYA-02"></a>
+#### HYA-02 · 🟡 Media (originalmente alta) · protocolo · bug — AUTHORIZE se reporta exitoso aunque el preset se rechace o nunca llegue al dispensario
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 1222, 2131-2172, 2182-2224, 2268-2271, 1643-1685, 1987-1995
+- **Módulos afectados:** UIGASHONGYANG.pas, UIGASBRIDGE.pas
+- **Se atiende en:** [E5.2](../PLAN_OPTIMIZACION.md#e52--confirmación-real-de-prices-authorize-y-payment)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo es real. AutorizarVenta (1222) responde 'True|folioTabCmnd' antes de validar nada. OCC/OCL ponen rsp='OK' al hacer MeteACola (2159-2169 y 2210-2220). ProcesoComandoS/L (1643-1685) solo encienden SwPreset si no hay error y no informan el rechazo. Al vencer el timeout de 1 s (1986-1995) la manguera pasa a estatus 0 sin reintento. MeteACola (1456-1462) descarta en silencio cuando ApCola=50. En el Bridge (UIGASBRIDGE.pas 372-373 y 386-387) AUTHORIZE se confirma con 'True|0|' y CliSock=nil, asi que el folio del driver nunca llega a OpenGas. Matices: (1) no es exclusivo de HongYang. Bennett 2076, PAM 2108 y Team 932 usan el mismo AutorizarVenta, y la confirmacion inmediata del Bridge ya existia antes de 01e1868 (es el contrato del protocolo). Es un problema de arquitectura. (2) En HongYang todas las mangueras quedan en Prepago (SwPrepagoM:=True en 683 y 776, 'C' = enllava), asi que un preset perdido normalmente se traduce en una manguera que no despacha, cosa visible para el despachador. No hay despacho sin control ni perdida de producto. Por eso el impacto es operativo (venta trabada, reintentos) y la severidad baja a media.
+- **Qué pasa:** OCC/OCL responden 'OK' (TabCmnd.SwResp/Respuesta) en cuanto el 'S'/'L' entra a la cola, sin esperar el ACK del CPU. ProcesoComandoS/L solo encienden SwPreset si no viene el bit de error y no informan el rechazo. El timeout de 1 s descarta el comando sin reintento y MeteACola descarta en silencio con la cola llena. Encima, el Bridge trata AUTHORIZE como fire-and-forget (CliSock=nil y respuesta inmediata 'DISPENSERS|AUTHORIZE|True|0|'): el folio de TabCmnd que devuelve AutorizarVenta nunca llega a OpenGas y RESPCMND no sirve. Los rechazos del driver ('Manguera no existe', 'Posicion Bloqueada', 'Manguera no esta disponible', decimales) solo quedan en el log.
+- **Evidencia:** 1222: AddPeticionJSON(folio, 'True|'+IntToStr(EjecutaComando(cmd+...))+'|'); 2159-2169: if rsp='OK' then begin ... MeteACola('S'+...); SwSalir:=true; end; UIGASBRIDGE.pas 372-373: if metodoEnum in [PRICES_e, AUTHORIZE_e, PAYMENT_e] then p.CliSock:=nil.
+- **Impacto:** El POS da por autorizada una venta que el dispensario no recibió o rechazó. El cliente espera, el despachador reintenta a mano y, en prepago, puede haber cobro adelantado sin despacho.
+- **Recomendación:** Driver: guardar el folio de TabCmnd junto al elemento de cola y resolver la respuesta en ProcesoComandoS/L (OK o 'Rechazado por dispensario') o en el timeout ('Sin respuesta'). Bridge/OpenGas: esperar la respuesta de AUTHORIZE o exponer el folio del driver para que RESPCMND funcione. Probar con un emulador que conteste con bit de error y otro que no conteste.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** sí
+
+<a id="HYA-03"></a>
+#### HYA-03 · 🟡 Media (originalmente alta) · correccion · bug — Presets con más de 2 decimales se rechazan en silencio (no se portó la corrección de Wayne 2W)
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 2149-2158, 2200-2209
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E1.2](../PLAN_OPTIMIZACION.md#e12--presets-montos-decimales-y-validaciones)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Es real que HongYang no normaliza decimales: en 2150-2151 y 2201-2202 se llama ValidaCifra(x,4,2) directo. Wayne 2W (60e5fde, 2027-2034 y 2149-2156) y Gilbarco (2138-2144 y 2244-2250) si truncan cuando hay 5 decimales. ValidaCifra (2278-2310) rechaza solo si |AjustaFloat(x,2)-x| > 1e-9. Correccion a la descripcion: una cadena como '100.00000' pasa sin problema, porque los decimales extra son cero. Solo falla cuando hay digitos significativos despues del segundo decimal (p.ej. litros calculados 20.12345), asi que la prueba propuesta 'OCC 1 100.00000 1 0' no reproduce el fallo. Es cierto que cualquier importe <1, incluido 0<x<1, se convierte en 9999 (2152-2154). La consecuencia, con el Bridge en fire-and-forget y las mangueras enllavadas en prepago, es un preset que no se aplica y una venta trabada para esos montos. No hay despacho incorrecto. La frecuencia depende de que OpenGas mande decimales significativos; las correcciones en otros dos drivers sugieren que ocurre. La severidad baja a media.
+- **Qué pasa:** OCC y OCL validan con ValidaCifra(x,4,2), que responde 'Numero de decimales excede maximo permitido' si el valor no es exacto con 2 decimales. El commit 60e5fde corrigió esto en Wayne 2W porque OpenGas envía cantidades con 5 decimales (p.ej. litros calculados). Aquí el preset se descarta y, por el fire-and-forget del Bridge, OpenGas no se entera. Además, cualquier importe 0<x<1 se convierte en 9999 (venta 'lleno').
+- **Evidencia:** 2150-2154: xImporte:=StrToFLoat(...); rsp:=ValidaCifra(xImporte,4,2); if rsp='OK' then if (xImporte<1) then xImporte:=9999; 2201-2205: igual para litros con mínimo 0.5. UIGASWAYNE2W.pas (60e5fde) trunca a 2 decimales antes de validar.
+- **Impacto:** Ventas en litros (y algunas en importe) que no se pueden autorizar, sin aviso. Un preset de $0.50 autoriza un lleno.
+- **Recomendación:** Normalizar a 2 decimales antes de ValidaCifra, como en Wayne 2W (Trunc(x*100+0.5)/100 o recorte de la cadena). Tratar 0 explícitamente como 'lleno' y rechazar 0<x<1. Probar con 'OCL 1 20.12345 1 0' y 'OCC 1 100.00000 1 0'.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
+<a id="HYA-04"></a>
+#### HYA-04 · 🟡 Media (originalmente alta) · correccion · bug — HoraOcc de TRANSACTION queda con la hora de la última lectura de totales, no con la del fin de venta
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 732, 1570-1589, 1924-1940, 2236-2240, 705
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E1.8](../PLAN_OPTIMIZACION.md#e18--coherencia-del-estado-publicado-estatus-fin-de-venta-horaocc-estado)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Los hechos del codigo son exactos. HoraOcc solo se escribe en 732 (alta de PosCarga) y en 1578 (ProcesoComandoN, cuando la diferencia de totalizador es >0.01). SwCargaTotales solo se pone en True en 705 (init) y en 2238 (comando TOTAL, unicamente para PosManguera[PosActual2]), y se apaga en 1570. El ciclo 'N' de Timer1 (1924-1940) solo lee mangueras con SwCargaTotales. El reencolado de 'C' despues de la venta tambien vive solo en 1579-1580. Ese diseno viene del commit inicial 8ba4373. Otros drivers fijan HoraOcc al procesar la venta (p.ej. Wayne 2W 2058/2119/2174, Team 2668-2669). El Bridge responde TRANSACTION directamente con posObj.HoraOcc (UIGASBRIDGE.pas 729). Matiz: el sintoma depende del orden en que OpenGas llama, y eso no esta en los repos. Si OpenGas pide TOTALS antes de TRANSACTION, TOTALS espera la lectura N (SwAplicaCmnd=False hasta 2243) y HoraOcc queda actualizado, solo que con la hora de la lectura y no la del fin real. Si pide TRANSACTION primero, recibe la hora de la venta anterior. Es un defecto real de dato fiscal, pero condicionado; la severidad baja a media.
+- **Qué pasa:** HoraOcc solo se escribe al crear PosCarga (732) y en ProcesoComandoN cuando hay diferencia en el totalizador (1577-1578). ProcesoComandoN solo corre si SwCargaTotales=True. Eso ocurre al inicializar (705) y únicamente con un TOTAL, y solo para la manguera activa (2238); tras la primera lectura queda en False (1570). Al terminar una venta (5→1) HoraOcc no cambia. Si OpenGas pide TRANSACTION antes que TOTALS recibe la hora de la venta anterior o la de INITIALIZE. Ese mismo bloque es el único que reencola 'C' (prepago) tras la venta (1579-1580).
+- **Evidencia:** Las únicas referencias a 'HoraOcc' son 732 y 1578. SwCargaTotales: 705 (True), 1570 (False), 2238 (True por TOTAL). Team, PAM, Gilbarco y Wayne 2W actualizan HoraOcc al procesar la venta (UIGASTEAM.pas 1760/2669, UIGASPAM.pas 1199, UIGASWAYNE2W.pas 2804).
+- **Impacto:** Fecha y hora incorrectas en tickets, facturación y conciliaciones.
+- **Recomendación:** En ProcesoComandoA, al pasar de 5 a 1 con swcargando, fijar HoraFV:=Now, actualizar HoraOcc y poner SwCargaTotales:=True para leer totales automáticamente. Probar en emulador: venta, espera y TRANSACTION; HoraOcc debe ser la hora del fin.
+- **Esfuerzo:** S · **Riesgo del cambio:** medio · **Toca contrato:** no
+
+<a id="HYA-05"></a>
+#### HYA-05 · 🟡 Media (originalmente alta) · correccion · bug — TOTALS devuelve importes calculados (litros × precio actual) y solo refresca la manguera activa
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 2232-2255, 1558-1570
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E1.6](../PLAN_OPTIMIZACION.md#e16--totales-confiables)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Confirmado que el importe total se calcula como TotalLitros*LPrecios[Combustible] con el precio vigente (2248-2250) y no con el totalizador de importe que trae la respuesta N. ProcesoComandoN solo lee ExtraeBCD(ss,9,14) (1562), aunque el comentario de 1549-1553 documenta el importe en los bytes 15-20. Un cambio de precio altera retroactivamente el total monetario. Tambien es cierto que TOTAL solo encola 'N' para PosManguera[PosActual2] (2238-2239). Pero eso solo deja datos viejos si hubo venta en otra manguera sin un TOTAL posterior, o venta simultanea sin cambio de posactual2 (1358). En uso secuencial, con TOTALS despues de cada venta, la manguera activa es justamente la que vendio. Lo de LPrecios[0] es cierto (Combustible[3]=0 por inicializacion global en posiciones de 2 mangueras, y el .cfg trae -$R-, asi que no hay excepcion), pero se multiplica por TotalLitros[3]=0 y el resultado practico es 0.00, no un error visible. La dependencia del DecimalSeparator es menor (es-MX usa punto). Real en la parte del importe; el resto esta exagerado.
+- **Qué pasa:** TOTAL marca SwCargaTotales y encola 'N' solo para PosManguera[PosActual2]. Las demás mangueras de la posición conservan el TotalLitros de su última lectura (2244-2247), que puede tener horas si se despachó por otra manguera. El importe total que se responde es FormatoMoneda(TotalLitros*LPrecios[...]), no el totalizador de importe que el dispensario manda en los bytes 15-20 de la respuesta N; ProcesoComandoN solo lee los bytes 9-14 (1562). En posiciones con menos de 3 mangueras Combustible[3]=0 y se lee LPrecios[0], fuera de rango. FormatFloat('0.000') depende del DecimalSeparator.
+- **Evidencia:** 2238-2239: TMangueras[PosManguera[PosActual2]].SwCargaTotales:=True; MeteACola('N'+inttoclavenum(PosManguera[PosActual2],2)); 2248: rsp:='OK'+FormatFloat('0.000',ToTalLitros[1])+'|'+FormatoMoneda(ToTalLitros[1]*LPrecios[Combustible[1]])+...; 1562: totallitros:=ExtraeBCD(ss,9,14).
+- **Impacto:** Totales de turno y controles volumétricos con importes inexactos después de cambios de precio, y litros desactualizados en las mangueras no activas.
+- **Recomendación:** En TOTAL encolar 'N' para todas las mangueras de la posición y responder cuando todas tengan SwCargaTotales=False. Guardar por manguera el totalizador de importe con ExtraeBCD(ss,15,20) y devolver ese valor. Indexar LPrecios solo si Combustible está en 1..4. Formatear con TFormatSettings fijo.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
+
+<a id="HYA-07"></a>
+#### HYA-07 · 🟡 Media (originalmente alta) · robustez · bug — Una trama de longitud inesperada reinicia el puerto (forzado) aunque haya ventas en curso
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 1713-1746, 2729-2755, 2326-2332, 2382-2399
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E2.8](../PLAN_OPTIMIZACION.md#e28--recepción-serial-robusta-tramas-bcc-acknak)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Confirmado: cualquier longitud distinta de la esperada lleva a ReiniciarPuerto con forzado=True por omision (declaracion 123, case 1713-1746). ReiniciarPuerto (2729-2755) ignora PosicionesLibres, ejecuta Detener(0) + Sleep(200) + Iniciar(0) y graba LogDisp, LogDispPetRes (dos veces, porque GuardarLog ya llama GuardarLogPetRes) y LogDispComandos en el hilo de los eventos. Detener (2332) e Iniciar (2399) llaman AddPeticionJSON(0,'True|'), y como AddPeticionJSON deja maximo 2 elementos (2827-2828), esos dos expulsan resultados pendientes que todavia no se enviaron. Correcciones: (1) 'basta un byte de ruido' es inexacto. El BCC (suma mod 256, 884-893) se verifica ANTES que la longitud y sale en 1703-1711, asi que el ruido casi siempre cae en la ruta de error de BCC (HYA-08). Para reiniciar hace falta una trama con BCC valido y longitud inesperada: una respuesta tardia despues del timeout de 1 s cuando CharCmnd ya cambio, una trama corta de error, o un desalineo por bytes sobrantes en LineaBuff con probabilidad de 1/256. (2) Reiniciar 'con ventas en curso' no pierde la venta. TMangueras no se reinicia, el CPU del dispensario conserva la venta y el sondeo continua tras unos 200 ms. El impacto real son las peticiones expulsadas, el I/O de logs y la reentrada en TApdComPort. Esto ultimo (cerrar y abrir desde OnTriggerAvail) no es verificable sin el codigo de Async Pro; la certeza es baja, como dice el hallazgo. La severidad baja a media.
+- **Qué pasa:** ProcesaLineaRec llama ReiniciarPuerto con forzado=True (valor por omisión) ante cualquier longitud distinta de la esperada (A=12, C/D/U/S/L=3, V=7, N=21). Basta un byte de ruido, una respuesta tardía o una trama corta de error. ReiniciarPuerto(True) ignora PosicionesLibres y ejecuta Detener(0), Sleep(200) e Iniciar(0). Luego escribe tres archivos (LogDisp, LogDispPetRes y LogDispComandos) bloqueando el hilo principal. Detener(0) e Iniciar(0) agregan dos Peticiones con folio 0 que expulsan resultados pendientes. Además se cierra y reabre el TApdComPort desde su propio OnTriggerAvail (pSerialTriggerAvail→ProcesaLineaRec→ReiniciarPuerto), patrón que Async Pro desaconseja; según la versión podría diferir el cierre o provocar un AV (certeza baja).
+- **Evidencia:** 1714-1717: 'A':if length(LineaRsp)=12 then ProcesoComandoA(LineaRsp) else ReiniciarPuerto; 2735-2748: Detener(0); Sleep(200); ... Iniciar(0); ... if forzado then begin GuardarLog(0); GuardarLogPetRes(0); GuardaLogComandos; end; 2332/2399: AddPeticionJSON(folio,'True|') con folio 0.
+- **Impacto:** Un CPU que conteste tramas cortas provoca reinicios en cadena: sin sondeo durante ventas, escritura masiva de logs (riesgo de llenar el disco) y timeouts del Bridge por respuestas expulsadas.
+- **Recomendación:** Ante longitud inesperada: registrar, descartar, limpiar LineaBuff/LineaProc y hacer pSerial.FlushInBuffer, y contar el error por manguera. Reiniciar solo tras N errores consecutivos, con PosicionesLibres y fuera del evento serial (bandera atendida en Timer1). En Detener/Iniciar no llamar AddPeticionJSON si folio=0. Probar inyectando respuestas de 3 bytes a un comando 'A'.
+- **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
+
+<a id="HYA-09"></a>
+#### HYA-09 · 🟡 Media (originalmente alta) · robustez · bug — La cola de 50 comandos descarta en silencio y AMP/DMP 0 encola MaxPosiciones × MaxMangueras comandos
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 1456-1469, 2077-2097, 2105-2125, 1886-1892
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E8.3](../PLAN_OPTIMIZACION.md#e83--código-muerto-variables-globales-y-duplicación-interna)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — El mecanismo es real, pero se pierden menos comandos de lo que dice el hallazgo. Lineas revisadas: 1456-1469, 1846-1864, 1866-1893, 2061-2129 y 918-940; Timer1.Interval=15 en el .dfm. Lo confirmado: MeteACola (1459-1462) descarta sin log cuando ApCola>=50. Con AMP o DMP en posicion 0, el filtro por PosCarga esta comentado (2081 y 2109) dentro de un ciclo por posicion, asi que se encolan MaxPosiciones x MaxMangueras comandos 'C'/'D' y cada manguera recibe MaxPosiciones duplicados. Mientras ApCola>0, la fase 'A' saca un comando por tick y hace Exit antes de sondear (1886-1892), asi que no hay sondeo de estatus mientras se vacia la cola (unos 50 comandos x 15 ms mas la respuesta, del orden de 2-3 s). Lo que cambia: (1) la cola guarda primero un pase completo de todas las mangueras (xpos externo, i interno), asi que si MaxMangueras<=50 lo que se descarta son duplicados y el 'C'/'D' llega a todas. (2) Cada tick saca un elemento de la cola, asi que un OCC/OCL que llega en un tick posterior si se encola, en el lugar 50. Queda retrasado unos segundos detras de los duplicados, no perdido. Solo se pierde lo que se encola mientras la cola esta exactamente en 50: comandos de TabCmnd procesados en la misma pasada despues del AMP 0 (el ciclo 2070 sigue hasta un OCC/OCL que active SwSalir) y sobre todo una rafaga de PRICES (IniciaPrecios encola MaxMangueras 'U' de golpe, 932). En ese caso los 'U' se pierden en silencio, el Bridge ya confirmo PRICES a OpenGas y el precio queda desalineado (ver HYA-11). Ademas TabCmnd responde 'OK' sin saber si MeteACola encolo (2098, 2159-2168). Los repos no muestran si OpenGas envia SELFSERVICE/FULLSERVICE con posicion 0.
+- **Qué pasa:** MeteACola descarta sin log cuando ApCola>=50. En AMP/DMP con posición 0, el filtro por posición está comentado dentro de un ciclo por posición, así que cada manguera recibe MaxPosiciones comandos 'C'/'D' (p.ej. 8 posiciones × 16 mangueras = 128). La cola se llena y los 'S'/'L' (presets) o 'U' (precios) que llegan después se pierden, mientras TabCmnd ya respondió 'OK'. Mientras haya cola tampoco se sondean estatus (~50 ms por comando).
+- **Evidencia:** 1459-1462: if ApCola<50 then begin inc(ApCola); TColaCmnd[ApCola]:=xstr; end; 2079-2086: for xpos:=1 to MaxPosiciones do begin for i:=1 to MaxMangueras do begin //if (TMangueras[i].PosCarga=xpos) then begin MeteACola('C'+inttoclavenum(i,2)); (igual en DMP 2107-2114).
+- **Impacto:** Presets y cambios de precio perdidos sin aviso, y varios segundos sin sondeo después de un SELFSERVICE/FULLSERVICE global.
+- **Recomendación:** Con xpos=0, recorrer solo las mangueras (un 'C'/'D' por manguera). Hacer que MeteACola registre y devuelva False cuando la cola está llena, y propagar ese error a la respuesta del comando. Evitar duplicados (mismo comando y manguera) y considerar una cola dinámica.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
+
 <a id="HYA-12"></a>
-#### HYA-12 · 🟠 Alta · robustez · bug — Índices fuera de rango sin validar en INITIALIZE y en el ciclo (con -$R- corrompen variables globales)
+#### HYA-12 · 🟡 Media (originalmente alta) · robustez · bug — Índices fuera de rango sin validar en INITIALIZE y en el ciclo (con -$R- corrompen variables globales)
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 222-231, 597-604, 663-672, 725-787, 1564-1569, 1819-1821, 1898-1901, 2867-2875
 - **Módulos afectados:** UIGASHONGYANG.pas, PDISPENSARIOS.cfg
 - **Se atiende en:** [E1.7](../PLAN_OPTIMIZACION.md#e17--índices-fuera-de-rango-y-carga-de-posiciones-r-)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Las faltas de validacion existen y el .cfg confirma -$R- -$Q- y $A8. El impacto practico es menor del que se describe. Lineas revisadas: 222-251, 597-604, 643-794, 1022-1029, 1356, 1563-1569, 1812-1836, 1897-1909, 2856-2891; grep de LPrecios en todos los drivers y de Hoses/Total en el Bridge. (1) LPrecios[1..4] indexado por ProductId sin validar (603, 929, 1632). Si los globales quedan en el orden declarado, LPrecios[5] pisaria PreciosInicio y MaxMangueras (el corrimiento es real), y LPrecios[6] el puntero de Token. Pero los ocho drivers declaran [1..4] y PRICES es posicional, asi que ProductId>4 queda fuera de la convencion del sistema; es solo configuracion invalida. (2) Un DispenserId>32 indexa TPosCarga sin guarda (726-762): real con configuracion invalida. (3) 762 escribe Combustible[4], que cae en SwDisponible del mismo registro. La 780 es una LECTURA (PosMangueraDisp[4] = PosEstatus[1]), no una escritura: el HoseId del JSON sale mal. Lo grave es 1566-1567: la guarda PosComb in [1..4] permite TotalLitros[4], que con $A8 pisa SwDesHabilitado y el puntero del string ModoOpera (corrupcion real si alguna posicion tiene 4 mangueras). (4) Con IDs no contiguos, PublicaEstatusDispensarios lee TMangueras[0] (1820). Es solo lectura de memoria que cae en la cola de TPosCarga y en la practica es inocua. ApplyTotalLitrosToJSON indexa por xpos-1 (2871) y con IDs no contiguos o desordenados publica en otra posicion o en ninguna, pero el Bridge no lee Hoses[].Total (grep sin resultados) y TOTALS se responde por TabCmnd con TPosCarga[xpos] correcto. Hoy no tiene efecto externo. (5) Los globales de Delphi se inicializan en cero, asi que en el primer RUN MangCiclo=0: se lee TMangueras[0] y se escribe su ProxSondeo (con $A8 cae en TPosCarga[32].TotalLitros[3]), pero ComandoConsola descarta la manguera 0 por su guarda (1029) y no envia nada. Es inocuo. (6) No limpiar Combustible, TotalLitros ni PosMangueraDisp es cierto (663-672) y menor. Un ConfPos incompleto da un EConvertError generico (753-754), pero INITIALIZE devuelve False: no es silencioso. Conviene validar, pero todo depende de configuracion fuera de lo normal.
 - **Qué pasa:**
   PDISPENSARIOS.cfg compila con -$R- y -$Q-, así que estos accesos escriben memoria vecina en silencio:
   (1) LPrecios es array[1..4] y se indexa con ProductId en 603, 929 y 1632. Un ProductId fuera de 1..4 probablemente sobrescribe PreciosInicio, MaxMangueras y Token, declarados justo después.
@@ -337,30 +337,17 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 - **Esfuerzo:** M · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="HYA-13"></a>
-#### HYA-13 · 🟠 Alta · seguridad · bug — BLOCK/UNBLOCK no bloquean físicamente y el modo de operación se fuerza a 'Prepago'
+#### HYA-13 · 🟡 Media (originalmente alta) · seguridad · bug — BLOCK/UNBLOCK no bloquean físicamente y el modo de operación se fuerza a 'Prepago'
 
 - **Ubicación:** `UIGASHONGYANG.pas` líneas 743-746, 772-776, 2084, 2094, 2112, 2122, 2606-2628, 2649-2663
 - **Módulos afectados:** UIGASHONGYANG.pas
 - **Se atiende en:** [E5.4](../PLAN_OPTIMIZACION.md#e54--comandos-homogéneos-entre-marcas)
-- **Verificación:** sin verificación independiente
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Los hechos de codigo estan confirmados; el alcance es menor del que sugiere el titulo. Lineas revisadas: 743-746, 772-776, 2075-2129, 1576-1580, 2594-2670, 2342-2399, 1798-1810, 2136-2179; git log -L muestra que el forzado a 'Prepago' viene del commit inicial 8ba4373. Lo confirmado: ambas ramas de OperationMode asignan 'Prepago'. AMP y DMP solo cambian TMangueras[i].ModoOpera (y DMP tambien a 'Prepago', 2112 y 2122), nunca TPosCarga[xpos].ModoOpera. Por eso la condicion TPosCarga[xpos].ModoOpera='Normal' de Bloquear y Desbloquear (2611, 2622, 2653, 2660) nunca se cumple y BLOCK no envia nada fisico; solo marca SwDesHabilitado, que hace rechazar OCC/OCL (2136, 2187). Desbloquear envia 'AMP' en vez de 'DMP' (error de copia), aunque es codigo muerto. Iniciar no envia 'C'. Lo que cambia: en el modo por defecto (prepago forzado, 'C' enllavado) el dispensario no despacha sin preset, asi que rechazar presets equivale en la practica a bloquear. El hueco real se limita a: (a) posiciones pasadas a modo normal con FULLSERVICE/DMP, que envia 'D' y pone SwPrepagoM:=False, donde BLOCK no impide despachar; (b) tras un reinicio con el CPU desenllavado, solo hasta la primera venta, porque ProcesoComandoN reenvia 'C' si SwPrepagoM (1579-1580). Un detalle extra: Bloquear permite bloquear una posicion con un preset ya autorizado (Autorizado se traduce a 9, no a '2'), y ese preset sigue siendo despachable.
 - **Qué pasa:** AgregaPosCarga asigna ModoOpera:='Prepago' en las dos ramas del if de OperationMode. DMP también deja ModoOpera:='Prepago' (2112, 2122), aunque envía 'D' (modo normal, desenllavado) y pone SwPrepagoM:=False. Bloquear y Desbloquear solo envían 'AMP' si TPosCarga[xpos].ModoOpera='Normal', y eso nunca ocurre; además Desbloquear envía AMP en vez de DMP (error de copia). En la práctica BLOCK solo hace que el driver rechace presets (SwDesHabilitado). Si la posición está en modo normal tras un FULLSERVICE, se puede seguir despachando libremente. Al iniciar tampoco se envía 'C', así que el modo físico del CPU puede no coincidir con SwPrepagoM=True.
 - **Evidencia:** 743-746: if UpperCase(...)='FULLSERVICE' then TPosCarga[xpos].ModoOpera:='Prepago' else TPosCarga[xpos].ModoOpera:='Prepago'; 2611-2612: if TPosCarga[xpos].ModoOpera='Normal' then EjecutaComando('AMP '+IntToClaveNum(xpos,2)); 2653-2654: igual en Desbloquear.
 - **Impacto:** OpenGas cree bloqueada una posición que sigue despachando en modo normal (riesgo operativo y de fraude), y el OperationMode configurado se ignora.
 - **Recomendación:** Mantener el modo real por posición en TPosCarga.ModoOpera, actualizado por AMP/DMP. En BLOCK enviar 'C' (sin preset no despacha) y guardar el modo previo para restaurarlo en UNBLOCK. Respetar OperationMode y, en RUN, enviar 'C'/'D' según la configuración.
 - **Esfuerzo:** M · **Riesgo del cambio:** medio · **Toca contrato:** no
-
-<a id="HYA-14"></a>
-#### HYA-14 · 🟠 Alta · robustez · bug — Recursión infinita entre GuardarLog y GuardarLogPetRes si solo falla el guardado de peticiones
-
-- **Ubicación:** `UIGASHONGYANG.pas` líneas 816-832, 2436-2450
-- **Módulos afectados:** UIGASHONGYANG.pas
-- **Se atiende en:** [E2.4](../PLAN_OPTIMIZACION.md#e24--bitácoras-que-no-bloquean-append-incremental-rotación-y-sin-json-repetido)
-- **Verificación:** sin verificación independiente
-- **Qué pasa:** GuardarLog guarda ListaLog y luego llama GuardarLogPetRes(0) (2443). Si ListaLogPetRes.SaveToFile falla, su except llama GuardarLog(0) (827). GuardarLog vuelve a guardar ListaLog con éxito, vuelve a llamar GuardarLogPetRes, y así hasta EStackOverflow. Es plausible con el disco casi lleno: LogDispPetRes guarda el JSON completo de cada intercambio y es el archivo más grande. También con un archivo bloqueado.
-- **Evidencia:** 825-830: on e:Exception do begin AgregaLog('False|Excepcion: '+e.Message+'|'); GuardarLog(0); ...; 2442-2443: ListaLog.SaveToFile(...); GuardarLogPetRes(0);
-- **Impacto:** Caída del servicio por desbordamiento de pila, con cientos de reescrituras del log en segundos.
-- **Recomendación:** En el except de GuardarLogPetRes solo registrar en ListaLog, sin llamar GuardarLog. Proteger ambos procedimientos con una bandera de reentrada. Revisar el espacio libre antes de guardar.
-- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="HYA-15"></a>
 #### HYA-15 · 🟡 Media · protocolo · riesgo — El enlace Bridge-driver no delimita mensajes y Peticiones se limita a 2 (las entradas de folio 0 expulsan resultados)
@@ -612,6 +599,19 @@ No se usa ProcessMessages. Las esperas activas son EsperaTransmision, el Sleep(2
 - **Impacto:** Los bugs se replican y los fixes no se propagan.
 - **Recomendación:** Extraer una unidad común (UDispBase.pas) con log, JSON, TabCmnd y socket. En este driver, parametrizar ComandoX(addr,lado,codigo,datos) y unificar el procesamiento de ACK.
 - **Esfuerzo:** L · **Riesgo del cambio:** medio · **Toca contrato:** no
+
+<a id="HYA-06"></a>
+#### HYA-06 · ⚪ Baja (originalmente alta) · correccion · bug — La respuesta de TOTAL se trunca por RegCmnd.Respuesta string[80]
+
+- **Ubicación:** `UIGASHONGYANG.pas` líneas 194-202, 2248-2250, 2270, 2462-2469
+- **Módulos afectados:** UIGASHONGYANG.pas
+- **Se atiende en:** [E1.4](../PLAN_OPTIMIZACION.md#e14--tabla-de-comandos-tabcmnd-y-respuestas-de-comandos-asíncronos)
+- **Verificación:** ☑️ confirmado parcialmente por un verificador (ver nota) — Es real que RegCmnd.Comando y Respuesta son string[80] (198 y 201). La respuesta de TOTAL (2248-2250) se guarda en TabCmnd.Respuesta (2270) y RESPCMND la devuelve via ResultadoComando y RespuestaComando (2466). TotalesBomba (2550-2567) devuelve el folio del driver precisamente para que OpenGas use RESPCMND, asi que esa ruta si se usa. Calculando longitudes ('OK' + 3x(litros '0.000' + '|' + FormatoMoneda + '|') - 1): con totalizadores de alrededor de 1M L por manguera el total da unos 79 caracteres. Para pasar de 80 se necesitan 3 mangueras y al menos dos con importe calculado de 100M o mas (unos 4M L a 24-25 $/L), y eso suponiendo que FormatoMoneda, que es de ULIBGRAL y no esta en el repo, use separador de miles. En posiciones de 2 mangueras el tercer bloque es '0.000|0.00' y no hay riesgo. El recorte solo afecta la cola de la cadena, es decir el importe de la manguera 3, que de por si es calculado (HYA-05). Los litros quedan intactos salvo con totalizadores de mas de 10^9. Comando[80] es irrelevante porque los comandos son cortos. Real pero de alcance y efecto limitados; la severidad baja a baja.
+- **Qué pasa:** Con 3 mangueras la respuesta de TOTAL es 'OK' más tres bloques (litros '0.000' + '|' + importe FormatoMoneda + '|'). Con totalizadores de millones de litros (p.ej. 5000000.000 L y 120,000,000.00 = ~27 caracteres por manguera) pasa de 80 caracteres. Al asignarla a un ShortString de 80 se corta en silencio y RESPCMND devuelve el último bloque recortado. Comando también es string[80].
+- **Evidencia:** 201: Respuesta :string[80]; 2270: TabCmnd[xcmnd].Respuesta:=rsp; RespuestaComando 2466: resp:=copy(resp,3,Length(resp)-2)+'|'.
+- **Impacto:** Totales con dígitos perdidos en la tercera manguera en estaciones con totalizadores altos.
+- **Recomendación:** Cambiar Comando y Respuesta a string (AnsiString) o a string[255]. Agregar una prueba con totales de 9,999,999.999 L en 3 mangueras.
+- **Esfuerzo:** S · **Riesgo del cambio:** bajo · **Toca contrato:** no
 
 <a id="HYA-32"></a>
 #### HYA-32 · ⚪ Baja · configuracion · deuda_tecnica — Parámetros de tiempo y capacidad fijos en el código

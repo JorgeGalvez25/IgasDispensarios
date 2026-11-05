@@ -29,12 +29,12 @@
 | Concepto | Valor |
 |---|---|
 | Código auditado | `IgasDispensarios@26ccfb4` (21-oct-2026) e `IgasDispensariosBridge@99edafd` (30-sep-2026) |
-| Módulos incluidos | Bridge (`UIGASBRIDGE.pas`), interacción OpenGas ↔ Bridge ↔ drivers, y los drivers Wayne 2W, Wayne, Bennett, Team, PAM, Hong Yang y Gilbarco 2W |
+| Módulos incluidos | Bridge (`UIGASBRIDGE.pas`), interacción OpenGas ↔ Bridge ↔ drivers, los drivers Wayne 2W, Wayne, Bennett, Team, PAM, Hong Yang y Gilbarco 2W, y cuatro análisis transversales: modelo de hilos (HIL), seguridad y licenciamiento (SEG), rendimiento (PERF), y build y componentes compartidos (COM). Estos últimos solo reportan lo que no estaba ya en los análisis por módulo |
 | Fuera de alcance | **Kairos (Marca 7) y Triton (Marca 10)**, por decisión del negocio. Además, Kairos no usa el Bridge: abre su propio puerto 1001 y habla directo con OpenGas. OpenGas tampoco se revisó, porque no está en estos repositorios |
-| Método | Auditoría multiagente: un lector por módulo leyó el archivo completo y reportó hallazgos con archivo, líneas, evidencia, impacto y recomendación; un lector transversal analizó la interacción de punta a punta; verificadores escépticos revisaron los hallazgos críticos contra el código. El plan y las etapas los consolidó el autor de este documento |
-| Hallazgos vigentes | **384** (sin Kairos), en 9 módulos de análisis. Ver la [sección 10](#10-índice-de-hallazgos) |
+| Método | Auditoría multiagente: un lector por módulo leyó el archivo completo y reportó hallazgos con archivo, líneas, evidencia, impacto y recomendación; un lector transversal analizó la interacción de punta a punta; verificadores escépticos revisaron contra el código los hallazgos marcados como críticos y altos. El plan y las etapas los consolidó el autor de este documento |
+| Hallazgos vigentes | **436** (sin Kairos), en 13 módulos de análisis. Ver la [sección 10](#10-índice-de-hallazgos) |
 
-**Sobre la verificación.** Por el límite de uso de la sesión no todos los hallazgos tienen una segunda opinión. De los 14 hallazgos que el lector marcó como críticos, 14 fueron confirmados (total o parcialmente) por un verificador independiente; de los 100 marcados como altos, 43. 1 hallazgos fueron **descartados** por el verificador (aparecen al final de cada anexo) y 38 cambiaron de severidad. Los demás (la mayoría de los medios y bajos) se reportan como los encontró el lector, que siempre cita líneas y evidencia, pero **sin segunda opinión**. La columna «Verif.» del índice y cada anexo indican el estado de cada uno.
+**Sobre la verificación.** Por el límite de uso de la sesión no todos los hallazgos tienen una segunda opinión. De los 14 hallazgos que el lector marcó como críticos, 14 fueron confirmados (total o parcialmente) por un verificador independiente; de los 107 marcados como altos, 104. 1 hallazgos fueron **descartados** por el verificador (aparecen al final de cada anexo) y 75 cambiaron de severidad. Los demás (la mayoría de los medios y bajos) se reportan como los encontró el lector, que siempre cita líneas y evidencia, pero **sin segunda opinión**. La columna «Verif.» del índice y cada anexo indican el estado de cada uno.
 
 Por eso, **la primera tarea de la IA en cada item es confirmar el hallazgo en el código** antes de cambiar nada. Así lo pide la [plantilla de la sección 7](#7-cómo-trabajar-este-plan-con-una-ia). Si el hallazgo no se sostiene, se marca como descartado en el anexo y se sigue con el siguiente.
 
@@ -182,8 +182,8 @@ Por eso el plan propone extraer una **unidad común de enlace y comandos** (etap
 
 **En números:**
 
-- 384 hallazgos: 🔴 3 críticos, 🟠 84 altos, 🟡 225 medios y ⚪ 72 bajos.
-- 222 son bugs, 87 riesgos, 40 deuda técnica y 35 optimizaciones.
+- 436 hallazgos: 🔴 3 críticos, 🟠 54 altos, 🟡 293 medios y ⚪ 86 bajos.
+- 233 son bugs, 118 riesgos, 46 deuda técnica y 39 optimizaciones.
 - 52 tocan el contrato entre módulos.
 
 **Por módulo:**
@@ -193,14 +193,18 @@ Por eso el plan propone extraer una **unidad común de enlace y comandos** (etap
 | BRG · Bridge (UIGASBRIDGE.pas) | 41 | 0 | 5 | 25 | 11 |
 | E2E · Interacción de punta a punta OpenGas ↔ Bridge ↔ drivers | 42 | 0 | 7 | 31 | 4 |
 | W2W · Driver Wayne 2W (Marca 9) · UIGASWAYNE2W.pas | 44 | 0 | 4 | 35 | 5 |
-| WAY · Driver Wayne (Marca 1) · UIGASWAYNE.pas | 45 | 0 | 14 | 23 | 8 |
-| BEN · Driver Bennett (Marca 2) · UIGASBENNETT.pas | 43 | 1 | 9 | 23 | 10 |
-| TEA · Driver Team (Marca 3) · UIGASTEAM.pas | 35 | 0 | 7 | 19 | 9 |
-| PAM · Driver PAM 1000 (Marca 4) · UIGASPAM.pas | 50 | 1 | 10 | 26 | 13 |
-| HYA · Driver Hong Yang (Marca 5) · UIGASHONGYANG.pas | 37 | 0 | 14 | 18 | 5 |
-| GIL · Driver Gilbarco 2W (Marca 6) · UIGASGILBARCO.pas | 47 | 1 | 14 | 25 | 7 |
+| WAY · Driver Wayne (Marca 1) · UIGASWAYNE.pas | 45 | 0 | 10 | 27 | 8 |
+| BEN · Driver Bennett (Marca 2) · UIGASBENNETT.pas | 43 | 1 | 5 | 27 | 10 |
+| TEA · Driver Team (Marca 3) · UIGASTEAM.pas | 35 | 0 | 5 | 21 | 9 |
+| PAM · Driver PAM 1000 (Marca 4) · UIGASPAM.pas | 50 | 1 | 5 | 31 | 13 |
+| HYA · Driver Hong Yang (Marca 5) · UIGASHONGYANG.pas | 37 | 0 | 4 | 27 | 6 |
+| GIL · Driver Gilbarco 2W (Marca 6) · UIGASGILBARCO.pas | 47 | 1 | 6 | 33 | 7 |
+| HIL · Modelo de hilos | 9 | 0 | 2 | 5 | 2 |
+| PERF · Rendimiento (transversal) | 8 | 0 | 0 | 8 | 0 |
+| SEG · Seguridad y licenciamiento | 17 | 0 | 0 | 10 | 7 |
+| COM · Componentes compartidos y build | 18 | 0 | 1 | 13 | 4 |
 
-### Los 12 problemas que más cuestan hoy
+### Los problemas que más cuestan hoy
 
 1. **Mensajes TCP sin delimitar entre el Bridge y los drivers** (BRG-01, E2E-03). Dos respuestas pegadas pueden convertir un preset de `500` en `5000` o cambiar el parámetro de fin de venta. Un JSON partido o pegado hace perder el snapshot y los resultados. → E6.1, con mitigaciones antes en E3.2 y E4.1.
 2. **El Bridge confirma `True` a PRICES, AUTHORIZE y PAYMENT antes de que lleguen al driver** y descarta el resultado real (BRG-02, E2E-01). Si el driver los rechaza, o está caído, OpenGas nunca se entera. → E3.1 y E5.2.
@@ -225,6 +229,7 @@ Por eso el plan propone extraer una **unidad común de enlace y comandos** (etap
     - Varios drivers leen `TabCmnd[201]` fuera de rango (E2E-38).
     - Las respuestas se truncan a 80 caracteres (E2E-15).
     - → E1.4.
+13. **Hallazgos de seguridad reservados** (E8.5). Los repositorios son públicos, así que su detalle no se publica aquí: está en un anexo privado entregado al responsable. Algunos requieren decisiones urgentes que no dependen del código, y conviene atenderlos **antes** de la etapa 0.
 
 ---
 
@@ -264,7 +269,14 @@ Muchos hallazgos son **el mismo problema copiado en varios drivers**. Agruparlos
   - **Bennett** lo activa en `ServiceExecute`, así que el socket corre en el hilo del servicio y el resto en el principal: **carreras reales** (BEN-01).
 - **Arranque y paro:** las únicas carreras en los demás drivers están en el arranque (`Timer2` antes de `ServiceExecute`) y en el paro (`ServiceStop` toca listas desde el otro hilo) (W2W-28, WAY-23, HYA-23).
 
-→ E0.2 lo confirma con instrumentación; E2.5 y E2.6 lo corrigen.
+El análisis transversal de hilos agregó cuatro matices importantes:
+
+- **PAM con `modoAuto`** ejecuta `Inicializar` e `Iniciar` en el hilo del servicio y apaga `Timer2` antes de conectar: el driver puede no conectarse nunca (HIL-01).
+- **`OnStop` y `OnShutdown` corren en el hilo del servicio:** el paro no puede apagar timers ni cerrar puertos directamente; tiene que pedírselo al hilo principal (HIL-03).
+- **SHUTDOWN nunca detiene el servicio** en Team, Gilbarco y PAM, porque llama `ServiceThread.Terminate` desde el hilo principal (HIL-05).
+- **En Wayne 2W, `Timer1Timer` se reentra a sí mismo** durante la espera serial y un AUTHORIZE puede ejecutarse dos veces (HIL-02).
+
+→ E0.2 lo confirma con instrumentación y escribe el contrato de afinidad de hilos (HIL-09); E2.3, E2.5 y E2.6 lo corrigen.
 
 ### 4.4 Correctitud de ventas, presets, precios y totales
 
@@ -306,7 +318,12 @@ Muchos hallazgos son **el mismo problema copiado en varios drivers**. Agruparlos
 | Red sin control y bypass del checksum | BRG-09, E2E-17, BRG-22 | E5.5 |
 | LOGIN/Token decorativo, HASP comentado, licencia en el repo y emulación activable desde INITIALIZE | W2W-30, WAY-38, BEN-33, BEN-34, GIL-41, PAM-40, HYA-33, TEA-32, W2W-29 | E8.1 |
 | Duplicación entre drivers que ya divergió | E2E-41, HYA-36, W2W-44, BRG-37 | E7 |
-| Sin emulador ni pruebas | BEN-43, GIL-47, PAM-50, HYA-37 | E0.4, E7.4 |
+| Sin emulador ni pruebas | BEN-43, GIL-47, PAM-50, HYA-37, COM-14 | E0.4, E7.4 |
+| Dependencias muertas, DCU compartida, exe sin ligar a su revisión, un exe para todas las marcas | COM-02, COM-03, COM-04, COM-05, COM-07, COM-17, SEG-15 | E0.1 |
+| Instalador, nombre del servicio y permisos de instalación | COM-09, COM-16, SEG-08, COM-06 | E0.5, E2.3 |
+| Tiempos con reloj de pared y resolución del temporizador | PERF-02, PERF-03, HIL-08 | E2.9 |
+| `uLkJSON` y administrador de memoria | PERF-04, PERF-05, COM-10, COM-11 | E4.5 |
+| Hallazgos de seguridad reservados (detalle en el anexo privado) | 17 hallazgos | E8.5 |
 
 ---
 
@@ -392,7 +409,7 @@ flowchart LR
 - Se tiene la línea base de latencias, timeouts y tamaño de JSON de al menos 2 marcas en producción.
 
 #### E0.1 — Build reproducible de ambos ejecutables
-- **Hallazgos:** BRG-30, BRG-35, BRG-40, BEN-42, WAY-45, W2W-40, GIL-45
+- **Hallazgos:** BRG-30, BRG-35, BRG-40, BEN-42, WAY-45, W2W-40, GIL-45, COM-02, COM-03, COM-04, COM-05, COM-07, COM-17, SEG-15
 - **Qué hacer:**
   1. Agregar `build.bat` en cada repo. Debe llamar a `dcc32` con rutas relativas y `-$R+ -$Q+` en la configuración de *prueba* y la actual en la de *producción*.
   2. Versionar un `.rc` con `VERSIONINFO` compilado con `brcc32`, porque hoy `*.res` está en `.gitignore` y `{$R *.RES}` lo requiere.
@@ -401,30 +418,37 @@ flowchart LR
   5. Quitar del `uses` del Bridge las unidades sin uso (`DB`, `RxMemDS`, `Graphics`, `Dialogs`, `Controls`).
   6. Sacar `uLkJSON.pas` y `UVersionModulo.pas` a una carpeta común: un submódulo git, o un script que verifique que los hashes coincidan.
   7. Las unidades que el `.dpr` referencia y ya no están en el repo (`CRCs`, `IdHash*`) se documentan o se vendorizan.
+  8. **Mejor quitar que vendorizar** lo que solo sostiene código muerto: `OG_Hasp` en el `.dpr` exige un `hasp_windows_delphi.obj` que nunca se versionó; `CRCs`, Indy, LockBox y RxLib/DB solo sirven a `CRC16`, `Encrypt`/`Decrypt` y unidades sin uso (COM-02, COM-04).
+  9. Separar la carpeta de DCU de cada proyecto: hoy el Bridge toma el CRC-16 del protocolo OpenGas de un `CRCs.dcu` compartido sin fuente versionada. Llevarlo a una función propia versionada y verificada con tramas reales (COM-03).
+  10. Ligar cada exe a su revisión: `.rc` con `VERSIONINFO` generado desde `git describe`, tags por release y el SHA en `UVersionModulo` (COM-05). Firmar con Authenticode y publicar el SHA-256 de cada entregable (SEG-15).
+  11. Evaluar builds por marca (`{$IFDEF MARCA_xxx}`) para que corregir un driver no cambie el binario de todas las estaciones (COM-07).
+  12. Un `.gitignore` común que no ignore insumos del build (`.dof`, `.res`, `.obj` necesarios) (COM-17).
 - **Verificación:** compilar en una VM limpia solo con lo documentado. El MD5 del exe de producción debe salir idéntico, o con diferencia explicada, al compilado a mano con la misma configuración.
 - **Riesgo:** bajo. No toca la lógica.
 
 #### E0.2 — Identificar el hilo de cada evento (instrumentación)
-- **Hallazgos:** E2E-06, BEN-01, BRG-32, HYA-23, WAY-23, W2W-28, GIL-29
+- **Hallazgos:** E2E-06, BEN-01, BRG-32, HYA-23, WAY-23, W2W-28, GIL-29, HIL-09
 - **Qué hacer:**
   1. En cada driver, registrar una sola vez por arranque `GetCurrentThreadId` en `ServiceExecute`, `Timer1Timer`, `Timer2Timer`, `ClientSocket1Read`, `ClientSocket1Connect` y `pSerialTriggerAvail`. Usar una bandera por evento para no inundar el log.
   2. En el Bridge, agregar `Assert`/log equivalente en `SSocketOGClientRead`, `SSocketPDispClientRead` y `TimerTimeoutTimer`.
+  3. Escribir el **contrato de afinidad de hilos** («el hilo principal es dueño de todo»: `rootJSON`, `TPosCarga`, `TabCmnd`, listas de log, timers, socket y serial solo se tocan desde él; el hilo del servicio solo atiende al SCM y publica mensajes) en la cabecera de cada unidad y en `docs/`. Agregar una utilidad `AssertHiloPrincipal` para las rutinas sensibles (HIL-09).
 - **Verificación:** en Bennett se espera ver dos hilos distintos (socket en el hilo del servicio; timers y serial en el principal). En Wayne 2W, Team y Gilbarco, todo en el principal. Ese resultado confirma o corrige el plan de E2.6.
 - **Riesgo:** bajo.
 
 #### E0.3 — Métricas y correlación de punta a punta en el Bridge
-- **Hallazgos:** BRG-29, E2E-36, BRG-28, E2E-09 (parte de registro)
+- **Hallazgos:** BRG-29, E2E-36, BRG-28, E2E-09 (parte de registro), PERF-08
 - **Qué hacer:**
   1. Agregar a `TPeticion` `HoraAlta` (encolado) y medir en ms con `GetTickCount`.
   2. Al responder, registrar `folio cmd t_cola t_driver resultado(True/False)`.
   3. Guardar los últimos 50 folios vencidos y, si llega su resultado, registrar `RESULTADO TARDIO`.
   4. Cada 60 s, escribir la línea `STAT`: largo de la cola, en vuelo, timeouts, p50 y p95 por comando, errores de parseo, edad del snapshot, envíos por segundo del driver y conexiones.
   5. En los drivers, registrar `BRIDGE folio=N -> FolioCmnd=M` al encolar en `TabCmnd`.
+  6. En los drivers, una unidad común `UMetricas.pas` (contadores e histogramas con `QueryPerformanceCounter`, sin asignar memoria): duración de cada tick, RTT serial por comando, tiempo de vuelta con el Bridge y costo de `GenerateText` y de las bitácoras (PERF-08).
 - **Verificación:** con el simulador de E0.4, comparar los tiempos registrados con los del cliente. La línea `STAT` aparece cada minuto.
 - **Riesgo:** bajo. Cuidar el volumen de log, que se resuelve en E2.4.
 
 #### E0.4 — Simuladores de OpenGas y de driver + batería de pruebas de protocolo
-- **Hallazgos:** BEN-43, GIL-47, PAM-50, HYA-37, E2E-37 (pruebas de regresión), BRG-01 (casos de prueba)
+- **Hallazgos:** BEN-43, GIL-47, PAM-50, HYA-37, E2E-37 (pruebas de regresión), BRG-01 (casos de prueba), COM-14
 - **Qué hacer:**
   1. Crear un **simulador de OpenGas**: script (Python o Delphi consola) que mande tramas SOH/STX/ETX/CRC al 1001 y valide respuestas.
   2. Crear un **simulador de driver**: un cliente del 1004 que responda como un driver v1 y permita inyectar casos (JSON partido, dos JSON pegados, resultados tardíos, `LOGREQ` con «PING», reconexión, driver mudo).
@@ -435,16 +459,20 @@ flowchart LR
      - reinicio del Bridge con resultados viejos en `Peticiones`;
      - concatenación `AUTHORIZE…500` + `0|DISPENSERS|NOTHING`;
      - 60 TOTALS en un minuto.
-  4. Generalizar el modo emulación de Wayne 2W (`ModoEmulacion`) como guía para un **emulador serial** por marca. Empezar por la marca de mayor flota.
+  4. Generalizar el modo emulación de Wayne 2W (`ModoEmulacion`) como guía para un **emulador serial** por marca. Empezar por la marca de mayor flota. Ojo: esa emulación simula el negocio, no las tramas, así que **no prueba el protocolo serial** (COM-14). El emulador tiene que responder tramas reales capturadas en campo.
+  5. CI (por ejemplo GitHub Actions con FPC en modo Delphi) que compile y pruebe lo que no depende de la VCL: `uLkJSON` (round-trip, escapes, `Delete`, cadenas grandes) y las funciones puras de trama que se extraigan en E7.4 (COM-14).
 - **Verificación:** la batería corre contra el Bridge actual y **documenta los fallos actuales** (pruebas en rojo esperadas). Cada item de E1 a E6 debe poner en verde su prueba.
 - **Riesgo:** nulo en producción.
 
 #### E0.5 — Configuración documentada y validada al arrancar
-- **Hallazgos:** BRG-20, BRG-39, E2E-42, E2E-39 (parte de configuración), W2W-31, TEA-34, PAM-44, HYA-32, WAY-42
+- **Hallazgos:** BRG-20, BRG-39, E2E-42, E2E-39 (parte de configuración), W2W-31, TEA-34, PAM-44, HYA-32, WAY-42, COM-09, COM-16, SEG-08
 - **Qué hacer:**
   1. Agregar `PDispBridge.ini.ejemplo` y `PDISPENSARIOS.ini.ejemplo` por marca, con todas las claves comentadas, sus defaults y rangos.
   2. Al arrancar, registrar la configuración efectiva (sin secretos).
   3. Alinear el puerto del `.dfm` del Bridge a 1004.
+  4. **Instalador reproducible (COM-09):** sustituir `instalador.bat`, que apunta a una carpeta de Dropbox del desarrollador, por un `instalar.cmd` que use `%~dp0`, instale **los dos** servicios, cree las carpetas de log, copie los ini de ejemplo si no existen y configure la recuperación del servicio en el SCM (`sc failure`).
+  5. **Instalación endurecida (SEG-08):** instalar en `%ProgramFiles%` con permisos de solo lectura para usuarios y llevar las bitácoras a `%ProgramData%`, en lugar de carpetas que cualquier usuario puede escribir.
+  6. **Nombre del servicio (COM-16):** todos los drivers usan el mismo `DisplayName` («OpenGas Dispensarios»). Asignarlo en tiempo de ejecución con la marca, sin cambiar `Name`, para no romper instalaciones existentes.
 - **Verificación:** un ini con valores inválidos se registra con advertencia y se usan los defaults; el servicio no truena.
 - **Riesgo:** bajo.
 
@@ -507,7 +535,7 @@ flowchart LR
 - **Riesgo:** medio-alto. Los presets son dinero: hacer piloto con supervisión.
 
 #### E1.3 — Sondeo que se congela (livelocks y bloqueos de la máquina de estados)
-- **Hallazgos:** WAY-01, PAM-01, PAM-03, BEN-02, GIL-12, W2W-20, GIL-37, HYA-10, HYA-08, GIL-38, W2W-07
+- **Hallazgos:** WAY-01, PAM-01, PAM-03, BEN-02, GIL-12, W2W-20, GIL-37, HYA-10, HYA-08, GIL-38, W2W-07, PERF-01
 - **Qué hacer:**
   1. **Wayne (WAY-01):** límite de reintentos en el paso de totales (`NumPaso=4`); ante NAK o falta de respuesta, avanzar y marcar el TOTAL como fallido.
   2. **PAM (PAM-01):** garantizar que el `B00` se envíe aunque no haya comando en vuelo (después de HALT/RUN, `0`/`1` y timeout en `NumPaso=1`).
@@ -518,6 +546,7 @@ flowchart LR
   7. **Backoff de posiciones sin comunicación (GIL-37, HYA-10):** no marcar sin comunicación con una sola falla ni dejar de sondear 5 a 65 s en plena venta. Usar umbral de N fallas y backoff corto si estaba despachando.
   8. **Reintentos (HYA-08, GIL-38):** límites y backoff de reintentos por BCC o lectura.
   9. **Wayne 2W (W2W-07):** el segundo puerto (`pSerial2`, segmento extendido) nunca se abre y varios comandos siempre salen por el puerto 1. Abrirlo en RUN cuando haya posiciones en el segmento 2 y enrutar cada comando con `PonPuertoPos`.
+  10. **Wayne 2W (PERF-01):** el envío byte a byte espera `OutBuffUsed=0` sin plazo ni salida; si el puerto deja de vaciarse, el hilo principal queda colgado para siempre. Enviar la trama completa (`PutString`/`PutBlock`) y esperar el vaciado con un plazo.
 - **Verificación:** en el emulador o el banco: desconectar una bomba a mitad de venta, inyectar NAK repetidos y pedir TOTAL a una posición muda. El ciclo debe seguir visitando las demás posiciones (log de `PosCiclo`).
 - **Riesgo:** medio.
 
@@ -537,7 +566,7 @@ flowchart LR
 - **Riesgo:** bajo-medio.
 
 #### E1.5 — Precios: aplicar solo lo confirmado
-- **Hallazgos:** W2W-02, W2W-04, WAY-09, PAM-05, GIL-05, GIL-13, TEA-07, BEN-07, HYA-11
+- **Hallazgos:** W2W-02, W2W-04, WAY-09, PAM-05, GIL-05, GIL-13, TEA-07, BEN-07, HYA-11, SEG-06
 - **Qué hacer:**
   1. Validar PRICES: no programar 0.00, ni precios con más decimales de los soportados, ni de 100 o más donde no aplique.
   2. Actualizar `LPrecios`/`TPrecio` **solo** tras confirmar el cambio (ACK, o lectura de precio igual a la pedida). Ante NAK, reintentar con límite.
@@ -545,6 +574,7 @@ flowchart LR
   4. **Bennett (BEN-07):** programar los precios de INITIALIZE y no ignorar PRICES antes de la primera respuesta B.
   5. **Wayne 2W (W2W-04):** recalcular `TPrecio` tras un cambio de precio, porque es la base de la conversión importe→litros.
   6. Registrar en el log **ALERTA PRECIO NO APLICADO** por posición y producto.
+  7. **Tope superior por marca (SEG-06):** en Wayne 2W un precio mayor a 655.35 se envuelve módulo 655.36; en Hong Yang y Team desborda el campo de 4 dígitos. Validar con `ValidaCifra` antes de encolar y rechazar con `False|Precio fuera de rango|`.
 - **Verificación:** cambio de precios con la pistola levantada, con una posición sin comunicación y con un precio inválido. La lectura de precio de la bomba debe coincidir con el publicado.
 - **Riesgo:** medio.
 
@@ -619,15 +649,17 @@ flowchart LR
 - **Riesgo:** bajo.
 
 #### E2.3 — Arranque y paro ordenados del servicio
-- **Hallazgos:** E2E-34, W2W-27, TEA-23, PAM-38, BEN-24, GIL-29, GIL-30, W2W-28, PAM-39, GIL-42, BEN-41, TEA-10, WAY-34, BEN-28, PAM-37, WAY-18, E2E-39 (Bridge), BRG-10
+- **Hallazgos:** E2E-34, W2W-27, TEA-23, PAM-38, BEN-24, GIL-29, GIL-30, W2W-28, PAM-39, GIL-42, BEN-41, TEA-10, WAY-34, BEN-28, PAM-37, WAY-18, E2E-39 (Bridge), BRG-10, HIL-03, HIL-04, HIL-05, COM-06
 - **Qué hacer:**
   1. `Timer2.Enabled=False` en **todos** los `.dfm`. Habilitarlo al final de `ServiceExecute` con `PostMessage` a una ventana del hilo principal.
   2. Crear las listas de log **antes** de leer el ini, y leer el ini con `ReadInteger`/`StrToIntDef`.
-  3. Conectar `OnStop`/`OnShutdown` para apagar timers, cerrar puertos y guardar logs.
-  4. SHUTDOWN despierta el hilo del servicio (`PostThreadMessage`).
+  3. Conectar `OnStop`/`OnShutdown`, **pero sin hacer E/S desde el hilo del servicio**, que es donde corren: solo publican un mensaje al hilo principal para que él apague timers, cierre puertos y guarde logs, y esperan con plazo (HIL-03). Hacerlo directo sería E/S cruzada entre hilos.
+  4. SHUTDOWN y el watchdog de Team llaman `ServiceThread.Terminate` desde el hilo principal, y el servicio **nunca se detiene**. Usar `Controller(SERVICE_CONTROL_STOP)`, que despierta al hilo y pasa por `OnStop` (HIL-05).
   5. `Timer1` no se re-arma sin condición en los `finally` de `ComandoConsola` ni de `pSerialTriggerAvail`: respetar `detenido`.
   6. **Wayne (WAY-18):** el reinicio diario no termina el servicio con ventas pendientes.
-  7. **Bridge (BRG-10):**
+  7. **Supervisión (HIL-04):** el hilo principal escribe un latido (`GetTickCount`) en cada tick y el hilo del servicio lo vigila. Si el sondeo se cuelga, registrar y salir con error para que el SCM reinicie, en lugar de seguir «En ejecución» o dejar un proceso zombi con el COM abierto tras un STOP.
+  8. **Marca inválida (COM-06):** `StrToIntDef` y un `else` en el `case` del `.dpr` que registre en el Visor de eventos; hoy una Marca vacía, con texto o inexistente (como la 8) deja un proceso sin servicio y sin log.
+  9. **Bridge (BRG-10):**
      - reintentar el bind con backoff;
      - registrar en el Event Log;
      - salir con error para que el SCM aplique la política de recuperación.
@@ -635,7 +667,7 @@ flowchart LR
 - **Riesgo:** bajo-medio.
 
 #### E2.4 — Bitácoras que no bloquean: append incremental, rotación y sin JSON repetido
-- **Hallazgos:** E2E-11, E2E-32, BRG-08, BRG-15, BRG-16, W2W-08, W2W-09, W2W-42, WAY-15, GIL-25, GIL-26, HYA-14, HYA-26, HYA-27, TEA-19, TEA-20, BEN-12, BEN-27, PAM-28, PAM-47, WAY-29
+- **Hallazgos:** E2E-11, E2E-32, BRG-08, BRG-15, BRG-16, W2W-08, W2W-09, W2W-42, WAY-15, GIL-25, GIL-26, HYA-14, HYA-26, HYA-27, TEA-19, TEA-20, BEN-12, BEN-27, PAM-28, PAM-47, WAY-29, COM-13, SEG-13
 - **Qué hacer**, primero en el Bridge y en un driver piloto y luego por patrón:
   1. Registrar el JSON **solo cuando cambie** (comparar con el anterior) o en forma resumida: longitud, `Estado`, cadena de estatus y folios de `Peticiones`. PING y NOTHING se cuentan, no se registran uno por uno.
   2. Escribir en **append** a un archivo diario con rotación por tamaño (`TFileStream` y flush periodico desde un timer) en lugar de `SaveToFile` de 10 000 líneas.
@@ -645,6 +677,8 @@ flowchart LR
   6. `AgregaLog` sin concatenación carácter por carácter: si no hay caracteres de control, agregar la línea tal cual; si los hay, reservar con `SetLength`.
   7. `ForceDirectories(rutaLog)` al arrancar.
   8. Toda excepción tragada se registra con contexto (TEA-20, PAM-47, WAY-29).
+  9. Manejador global `Application.OnException` que escriba en el log del producto la clase, el mensaje y la dirección, y archivar el `.map` de cada build para poder traducir direcciones (COM-13).
+  10. Responder a OpenGas con códigos de error estables (`False|E101 Error interno|`) y dejar `e.Message` y las rutas absolutas solo en el log (SEG-13).
 - **Verificación:**
   - medir el tamaño de los logs y la CPU antes y después (métricas de E0.3);
   - `rutaLog` inexistente;
@@ -653,23 +687,27 @@ flowchart LR
 - **Riesgo:** bajo. Que soporte sepa dónde quedan los nuevos archivos.
 
 #### E2.5 — Reentrancia: comandos del Bridge durante una transacción serial
-- **Hallazgos:** E2E-19, W2W-12, GIL-10, TEA-06, WAY-17, PAM-15, PAM-14, BEN-22, GIL-28, W2W-14, HYA-24
+- **Hallazgos:** E2E-19, W2W-12, GIL-10, TEA-06, WAY-17, PAM-15, PAM-14, BEN-22, GIL-28, W2W-14, HYA-24, HIL-02
 - **Qué hacer:**
   1. En `ClientSocket1Read`, los comandos que alteran el ciclo (INITIALIZE, HALT, RUN, TERMINATE, SHUTDOWN, PRICES) **se encolan** y se aplican al inicio de `Timer1Timer`/`Timer2Timer`, que son puntos seguros. Otra opción es una bandera `EnTransaccionSerial` que difiera su ejecución.
   2. Prohibir E/S serial directa (`ComandoConsola`) desde el manejador del socket; todo pasa por `TabCmnd`/`ListaCmnd`.
   3. Reemplazar la espera activa con `ProcessRequests(False)` por `MsgWaitForMultipleObjects(…, 5 ms, QS_ALLINPUT)` más un bombeo controlado, o al menos agregar `Sleep(1)`. El objetivo es que la CPU no esté al 100 %.
   4. Team: `LinCmnd`/`CharCmnd` globales protegidos ante reentrancia (TEA-06).
+  5. **Wayne 2W (HIL-02):** `TransmiteComando` vuelve a armar `Timer1` dentro de la espera, así que `Timer1Timer` se reentra; un `ProcesaComandos` anidado puede ejecutar **dos veces** un AUTHORIZE. Agregar guardas de reentrancia (`if EnTimer1 then Exit`) en `Timer1Timer` y `ProcesaComandos`, y marcar cada comando «en proceso» antes de ejecutarlo.
 - **Verificación:**
   - con el simulador, mandar INITIALIZE y HALT en ráfaga durante una venta: sin AV, sin preset a otra posición y sin estados incoherentes;
   - la CPU del proceso queda por debajo del 10 % en reposo.
 - **Riesgo:** medio-alto. Es el cambio más delicado de la etapa: hacerlo driver por driver con emulador.
 
-#### E2.6 — Bennett: todo en un solo hilo
-- **Hallazgos:** BEN-01, E2E-06 (Bennett)
+#### E2.6 — Bennett y PAM: todo en un solo hilo
+- **Hallazgos:** BEN-01, E2E-06 (Bennett), HIL-01, HIL-06, HIL-07
 - **Qué hacer:**
-  1. Quitar `ClientSocket1.Active:=True` de `ServiceExecute` y dejar que conecte `Timer2Timer`, como en los demás drivers. Así el socket vive en el hilo principal junto con los timers y el serial.
-  2. Confirmarlo con la instrumentación de E0.2.
-- **Verificación:** el log de hilos muestra un solo ThreadId para socket, timers y serial. Prueba de carga con comandos en ráfaga durante ventas: sin AV.
+  1. **Orden obligatorio (HIL-07):** antes de mover el socket de Bennett, quitar `EsperaMiliSeg` de `ProcesaLinea` y encolar los comandos que cambian el ciclo (E2.5). Si no, la carrera entre hilos se convierte en reentrancia.
+  2. Quitar `ClientSocket1.Active:=True` de `ServiceExecute` y dejar que conecte `Timer2Timer`, como en los demás drivers. Así el socket vive en el hilo principal junto con los timers y el serial.
+  3. **PAM con `modoAuto` (HIL-01):** no llamar `Inicializar` ni `Iniciar` desde `ServiceExecute`. Hoy corren en el hilo del servicio y apagan `Timer2` antes de conectar, de modo que el driver puede no conectarse nunca al Bridge. Levantar una bandera y ejecutarlos en el primer tick de `Timer2`; `Iniciar` no apaga `Timer2` si no hay conexión.
+  4. Los `TTimer` solo se tocan desde el hilo principal: cambiar `Enabled` desde dos hilos no es atómico y puede dejar un timer disparando con `Enabled=False` (HIL-06).
+  5. Confirmarlo con la instrumentación de E0.2.
+- **Verificación:** el log de hilos muestra un solo ThreadId para socket, timers y serial. Prueba de carga con comandos en ráfaga durante ventas: sin AV. En PAM con `modoAuto`, el driver conecta y opera tras un reinicio del servicio.
 - **Riesgo:** medio.
 
 #### E2.7 — INITIALIZE idempotente y seguro con ventas en curso
@@ -696,6 +734,15 @@ flowchart LR
   7. Proteger el parseo de cada respuesta con `try/except` local (BEN-19, TEA-14).
 - **Verificación:** en el emulador, inyectar ruido, tramas partidas, dos tramas en un evento, BCC malo y NAK. Las lecturas se rechazan o reintentan sin corromper el estado.
 - **Riesgo:** medio.
+
+#### E2.9 — Tiempos monotónicos y resolución del temporizador
+- **Hallazgos:** PERF-02, PERF-03, HIL-08
+- **Qué hacer:**
+  1. Medir esperas, reintentos y watchdogs con un reloj monotónico (`QueryPerformanceCounter`, o `GetTickCount` con resta `Cardinal`) en una unidad común `UTiempo.pas`, en lugar de `Now`. Hoy un ajuste del reloj de Windows (NTP, cambio manual) congela el sondeo, retiene estados o provoca desconexiones (PERF-02).
+  2. Los plazos del código suponen precisión de milisegundos, pero `TTimer`, `Sleep` y `Now` se redondean a ~15.6 ms: el comportamiento cambia según el equipo. Llamar `timeBeginPeriod(1)` al iniciar el servicio (y `timeEndPeriod(1)` al salir) y registrar la resolución efectiva (PERF-03).
+  3. No reiniciar el periodo de `Timer1` en cada evento serial: con bytes continuos en la línea, el sondeo y los timeouts contados en ticks nunca se disparan. Dejar `Timer1` fijo mientras `estado=1` y medir los timeouts con el reloj monotónico (HIL-08).
+- **Verificación:** con un emulador, adelantar y atrasar el reloj de Windows 1 h durante una venta: el sondeo y los timeouts no se alteran. Medir el periodo real de `Timer1` antes y después.
+- **Riesgo:** bajo-medio.
 
 ---
 
@@ -771,13 +818,14 @@ flowchart LR
 - El tamaño de los logs cae al menos 80 %.
 
 #### E4.1 — Responder al Bridge en cuanto se procesa un comando y homologar la cadencia
-- **Hallazgos:** E2E-08 (parte sin contrato), W2W-11, GIL-06, PAM-07, TEA-26, E2E-26, HYA-16, WAY-14, BEN-11
+- **Hallazgos:** E2E-08 (parte sin contrato), W2W-11, GIL-06, PAM-07, TEA-26, E2E-26, HYA-16, WAY-14, BEN-11, PERF-07
 - **Qué hacer:**
   1. Cuando `ClientSocket1Read` procesa un comando distinto de NOTHING, enviar el JSON **en el siguiente tick**, sin esperar al turno 3 ni a los 750 ms.
   2. Homologar la cadencia «si cambió, o cada 250 ms como latido». Es compatible con el Bridge, cuyo umbral de obsolescencia es de 5 s.
   3. **Hong Yang (E2E-26, HYA-16):** usar una bandera `PeticionPendiente` en lugar de `Assigned(socketResponse)`.
   4. **PAM (PAM-07):** no reiniciar `Timer1` con cada trama.
   5. Los envíos no dependen de la duración del tick serial: el reloj de envío va aparte del de sondeo.
+  6. **Un mensaje en vuelo (PERF-07):** el driver no envía el siguiente JSON hasta recibir la respuesta del Bridge (con un plazo de 1 s, configurable). Así el Bridge nunca manda dos respuestas que puedan llegar pegadas, **sin cambiar el contrato**. Es la mitigación de BRG-01/E2E-03 mientras llega E6.1.
 - **Verificación:** con las métricas de E0.3, la latencia p50 y p95 por marca antes y después, y los envíos por segundo.
 - **Riesgo:** bajo-medio. Hay más mensajes cuando hay comandos y menos en reposo.
 
@@ -792,7 +840,7 @@ flowchart LR
 - **Riesgo:** bajo.
 
 #### E4.3 — Ciclo serial eficiente
-- **Hallazgos:** W2W-35, W2W-16, BEN-23, GIL-05, PAM-34, GIL-28, HYA-24, HYA-31, GIL-38, TEA-29
+- **Hallazgos:** W2W-35, W2W-16, BEN-23, GIL-05, PAM-34, GIL-28, HYA-24, HYA-31, GIL-38, TEA-29, PERF-06
 - **Qué hacer:**
   1. **Wayne 2W (W2W-16):** corregir la precedencia `(not estatus in [5,9])`, que hoy hace visitar siempre el paso 4.
   2. Saltar los pasos vacíos sin consumir un tick (W2W-35).
@@ -801,6 +849,7 @@ flowchart LR
   5. Esperas de paridad y de transmisión sin espera activa (HYA-24).
   6. **Hong Yang (HYA-31):** el reinicio de puerto programado respeta las ventas en curso.
   7. **Team (TEA-29):** el watchdog de `Timer1` no reabre el COM cada 5 s.
+  8. **Gilbarco (PERF-06):** cada posición inactiva consume 3 ticks (~190 ms) y solo uno hace E/S, porque los pasos 6 y 7 nunca se saltan. Portar los saltos de Wayne 2W (sin comandos pendientes → paso 7; sin cambio de precio → paso 8).
 - **Verificación:** tiempo de ciclo completo (todas las posiciones) antes y después, con las métricas por driver.
 - **Riesgo:** medio.
 
@@ -812,6 +861,16 @@ flowchart LR
   3. No meter miles de líneas en `Peticiones`.
 - **Verificación:** `LOGREQ 10000` responde en menos de 1 s y no congela el snapshot.
 - **Riesgo:** bajo. Confirmar con OpenGas si usa LOG o LOGREQ.
+
+#### E4.5 — uLkJSON y administrador de memoria
+- **Hallazgos:** PERF-04, PERF-05, COM-10, COM-11
+- **Qué hacer**, en la copia común de `uLkJSON.pas` (las dos copias deben seguir idénticas, BRG-40):
+  1. `js_string` en una sola pasada: hoy es O(escapes × longitud) y `strSpecialChars` concatena carácter por carácter. Parsear un resultado de LOG grande puede congelar el hilo único del Bridge (COM-10).
+  2. Corregir `TlkJSONlist.Delete`, que no conserva el orden, y `TlkJSONobject.Delete`, que desincroniza su índice. Es una trampa para cuando se amplíe `Peticiones` en E6.2 (COM-11).
+  3. En el Bridge, si el texto recibido es idéntico al anterior, solo actualizar la hora del último dato y no volver a parsearlo (PERF-05).
+  4. Agregar **FastMM4** como primera unidad de los dos `.dpr`. El administrador de memoria de Delphi 7 con este patrón de alto recambio se fragmenta y puede dar `EOutOfMemory` al volcar los logs. En QA, usar `FullDebugMode` para detectar fugas (PERF-04).
+- **Verificación:** pruebas de `uLkJSON` en CI (E0.4) y métricas de E0.3: tiempo de `ParseText` y memoria del proceso después de 24 h.
+- **Riesgo:** bajo-medio. FastMM cambia el comportamiento ante errores de memoria que hoy pasan desapercibidos: tratarlos como hallazgos.
 
 ---
 
@@ -1002,12 +1061,13 @@ flowchart LR
 - **Riesgo:** bajo.
 
 #### E8.3 — Código muerto, variables globales y duplicación interna
-- **Hallazgos:** W2W-43, WAY-39, BEN-38, BEN-39, BEN-40, GIL-46, PAM-41, PAM-42, HYA-35, TEA-33, BRG-36, E2E-43, BEN-36, PAM-33, PAM-35, HYA-09, HYA-17
+- **Hallazgos:** W2W-43, WAY-39, BEN-38, BEN-39, BEN-40, GIL-46, PAM-41, PAM-42, HYA-35, TEA-33, BRG-36, E2E-43, BEN-36, PAM-33, PAM-35, HYA-09, HYA-17, COM-15
 - **Qué hacer:**
   1. Eliminar el código comentado y las ramas inalcanzables.
   2. Eliminar las variables globales de unidad duplicadas con campos que las ocultan (`ListaCmnd`, `SwEsperaRsp`…) y `socketResponse`.
   3. **Hong Yang:** la cola de 50 comandos descarta en silencio (HYA-09), y AMP/DMP 0 encola MaxPosiciones × MaxMangueras comandos.
-  4. Otros pendientes menores.
+  4. **Team (COM-15):** `UIGASTEAM.pas` está en UTF-8 sin BOM, así que Delphi 7 compila «Posición» como «PosiciÃ³n» y así le llega a OpenGas. Dejar los literales en ASCII y agregar `.gitattributes` con la codificación de los `.pas`.
+  5. Otros pendientes menores.
 - **Verificación:** compila sin warnings nuevos y el emulador pasa.
 - **Riesgo:** bajo.
 
@@ -1018,6 +1078,12 @@ flowchart LR
   2. README de cada repo: compilación, instalación, ini y diagnóstico.
   3. Procedimiento de despliegue coordinado Bridge + drivers.
 - **Riesgo:** nulo.
+
+#### E8.5 — Hallazgos de seguridad reservados
+- **Hallazgos:** SEG-01, SEG-02, SEG-03, SEG-04, SEG-05, SEG-07, SEG-09, SEG-10, SEG-11, SEG-12, SEG-14, SEG-16, SEG-17, COM-01, COM-08, COM-12, COM-18
+- **Qué hacer:** atender estos hallazgos siguiendo el **anexo privado de seguridad**, que no se publica en el repositorio porque los repositorios son públicos. El responsable lo recibió por separado. Algunos requieren decisiones urgentes que no dependen del código (visibilidad y contenido del repositorio), así que conviene revisarlos **antes** de la etapa 0.
+- **Verificación:** la define el anexo privado para cada hallazgo.
+- **Riesgo:** alto si se pospone.
 
 ## 7. Cómo trabajar este plan con una IA
 
@@ -1057,22 +1123,24 @@ en el repo <IgasDispensarios | IgasDispensariosBridge>, rama <rama>.
 |---|---|---|
 | E0 Red de seguridad | E0.1 · E0.2 · E0.3 · E0.4 · E0.5 | ☐ ☐ ☐ ☐ ☐ |
 | E1 Bugs críticos de venta, cobro y sondeo | E1.1 · E1.1 · E1.2 · E1.3 · E1.4 · E1.5 · E1.6 · E1.7 | ☐ ☐ ☐ ☐ ☐ ☐ ☐ ☐ |
-| E2 Robustez de enlace y ciclo serial | E2.1 · E2.2 · E2.3 · E2.4 · E2.5 · E2.6 · E2.7 · E2.8 | ☐ ☐ ☐ ☐ ☐ ☐ ☐ ☐ |
+| E2 Robustez de enlace y ciclo serial | E2.1 · E2.2 · E2.3 · E2.4 · E2.5 · E2.6 · E2.7 · E2.8 · E2.9 | ☐ ☐ ☐ ☐ ☐ ☐ ☐ ☐ ☐ |
 | E3 Bridge robusto | E3.1 · E3.2 · E3.3 · E3.4 | ☐ ☐ ☐ ☐ |
-| E4 Rendimiento y latencia | E4.1 · E4.2 · E4.3 · E4.4 | ☐ ☐ ☐ ☐ |
+| E4 Rendimiento y latencia | E4.1 · E4.2 · E4.3 · E4.4 · E4.5 | ☐ ☐ ☐ ☐ ☐ |
 | E5 Contrato v1.1 | E5.1 · E5.2 · E5.3 · E5.4 · E5.5 | ☐ ☐ ☐ ☐ ☐ |
 | E6 Protocolo v2 | E6.1 · E6.2 · E6.3 | ☐ ☐ ☐ |
 | E7 Unidad común | E7.1 · E7.2 · E7.3 · E7.4 | ☐ ☐ ☐ ☐ |
-| E8 Seguridad, limpieza y documentación | E8.1 · E8.2 · E8.3 · E8.4 | ☐ ☐ ☐ ☐ |
+| E8 Seguridad, limpieza y documentación | E8.1 · E8.2 · E8.3 · E8.4 · E8.5 | ☐ ☐ ☐ ☐ ☐ |
 
 **Orden sugerido si hay poco tiempo:**
 
-- **Primero, cambios pequeños de alto valor:**
+- **Antes que nada:** E8.5 (hallazgos de seguridad reservados).
+- **Después, cambios pequeños de alto valor:**
   - E1.4 (TabCmnd)
   - E1.3 (sondeo congelado)
   - E1.2 (presets: PAM-02, HYA-01, W2W-23 y GIL-20)
   - E3.2 (PING y validación del snapshot)
   - E2.1 (sondeo sin Bridge)
+  - E4.1, paso 6 (un mensaje en vuelo: mitiga los mensajes pegados sin tocar el contrato)
 - **Después, el resto de E1** y E0.1/E0.4.
 
 ---
@@ -1090,15 +1158,14 @@ en el repo <IgasDispensarios | IgasDispensariosBridge>, rama <rama>.
 
 ## 9. Pendientes de la auditoría
 
-Por el límite de uso de la sesión, estas partes no se completaron. Conviene correrlas antes de iniciar las etapas que dependen de ellas:
+Ya se completaron los análisis por módulo, los cuatro transversales (hilos, seguridad, rendimiento, y build y componentes compartidos) y la verificación independiente de los hallazgos marcados como críticos y altos. Queda pendiente:
 
 | Pendiente | Por qué importa | Antes de |
 |---|---|---|
-| **Verificación independiente de los hallazgos altos y medios** | Hoy solo los críticos tienen una segunda opinión | Cada item: la regla 7.1-2 lo cubre |
-| **Análisis transversal del modelo de hilos** (con instrumentación real) | Confirmar en campo lo descrito en 4.3 | E2.5 y E2.6 (E0.2 lo cubre) |
-| **Análisis transversal de seguridad** (puertos, comandos peligrosos, licencias) | Lo encontrado se dedujo desde el Bridge y los drivers, sin una revisión dedicada | E5.5 y E8.1 |
-| **Análisis transversal de rendimiento con medición** | Las latencias de la sección 2.4 son teóricas | E4 (E0.3 lo cubre) |
-| **Componentes compartidos y build** (uLkJSON, UVersionModulo, OG_Hasp/hasp_unit, librerías Lb*, `.dpr`, `instalador.bat`, DLL) | Se cubrió en parte desde el Bridge y los drivers | E0.1 y E8 |
+| **Verificación independiente de los hallazgos medios y bajos** | Se reportan como los encontró el lector, sin segunda opinión. La verificación de los altos bajó un nivel a más de la mitad, así que conviene tomar con cautela la severidad de los medios | Cada item: la regla 7.1-2 lo cubre |
+| **Medición en campo** de hilos, latencias y tamaño de logs | La sección 2.4 y los hallazgos de rendimiento son análisis de código, no mediciones | E2 y E4 (E0.2 y E0.3 lo cubren) |
+| **Kairos (Marca 7) y Triton (Marca 10)** | Quedaron fuera de alcance por decisión del negocio. Ninguno tiene un análisis completo | Si vuelven al alcance |
+| **OpenGas** | No está en estos repositorios: no se pudo confirmar cómo empareja respuestas ni qué comandos usa (`0`/`1`, LOG/LOGREQ) | E3, E5 y E6 |
 
 Los anexos marcan con «sin verificación independiente» cada hallazgo que no pasó por un verificador.
 
@@ -1263,19 +1330,19 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | [WAY-03](hallazgos/WAY.md#WAY-03) | 🟠 | protocolo | Fin de venta 2->1 se publica con importe/volumen no finales (Estatus se escribe antes de la logica virtual) | E1.8 | ✅ |
 | [WAY-05](hallazgos/WAY.md#WAY-05) | 🟠 | correccion | Variable 'i' sin inicializar decide si se reanuda (G) o se libera (R) un dispensario detenido | E1.8 | ✅ |
 | [WAY-09](hallazgos/WAY.md#WAY-09) | 🟠 | correccion | Cambio de precios sin verificacion: precios invalidos o rechazados se descartan en silencio | E1.5 | ✅ |
-| [WAY-10](hallazgos/WAY.md#WAY-10) | 🟠 | protocolo | ACK y NAK no se distinguen, no hay reintentos y la cola de comandos se vacia si la consola tarda mas de 2 s | E2.8 | — |
-| [WAY-11](hallazgos/WAY.md#WAY-11) | 🟠 | robustez | Con la consola sin responder el driver deja de comunicarse con el Bridge (no hay latido) | E2.1 | — |
-| [WAY-12](hallazgos/WAY.md#WAY-12) | 🟠 | robustez | Reconexion al Bridge sin las correcciones ya aplicadas a Bennett/Wayne2W | E2.2 | — |
-| [WAY-13](hallazgos/WAY.md#WAY-13) | 🟠 | protocolo | Mensajes del socket sin delimitacion: respuestas concatenadas o parciales pierden comandos | E6.1 | — |
-| [WAY-14](hallazgos/WAY.md#WAY-14) | 🟠 | rendimiento | JSON completo regenerado, enviado y registrado en el log PetRes en cada trama serial | E4.1 | — |
-| [WAY-15](hallazgos/WAY.md#WAY-15) | 🟠 | robustez | Recursion mutua GuardarLog <-> GuardarLogPetRes y guardado de logs en cada excepcion sin rotacion | E2.4 | — |
-| [WAY-16](hallazgos/WAY.md#WAY-16) | 🟠 | correccion | AjusteWayne3 calcula con importe/volumen/precio de la lectura anterior y altera centavos | E1.1 | — |
-| [WAY-17](hallazgos/WAY.md#WAY-17) | 🟠 | concurrencia | Esperas activas en el hilo principal (EsperaMiliSeg/Sleep): bloqueo o reentrancia de Timer1Timer/ProcesaLinea | E2.5 | — |
+| [WAY-10](hallazgos/WAY.md#WAY-10) | 🟠 | protocolo | ACK y NAK no se distinguen, no hay reintentos y la cola de comandos se vacia si la consola tarda mas de 2 s | E2.8 | ✅ |
+| [WAY-15](hallazgos/WAY.md#WAY-15) | 🟠 | robustez | Recursion mutua GuardarLog <-> GuardarLogPetRes y guardado de logs en cada excepcion sin rotacion | E2.4 | ✅ |
+| [WAY-16](hallazgos/WAY.md#WAY-16) | 🟠 | correccion | AjusteWayne3 calcula con importe/volumen/precio de la lectura anterior y altera centavos | E1.1 | ✅ |
+| [WAY-17](hallazgos/WAY.md#WAY-17) | 🟠 | concurrencia | Esperas activas en el hilo principal (EsperaMiliSeg/Sleep): bloqueo o reentrancia de Timer1Timer/ProcesaLinea | E2.5 | ☑️ |
 | [WAY-18](hallazgos/WAY.md#WAY-18) | 🟠 | robustez | Reinicio diario termina el servicio sin re-arranque y aun con ventas pendientes | E2.3 | ☑️ |
 | [WAY-04](hallazgos/WAY.md#WAY-04) | 🟡 | correccion | La cadena de estados 'ss' se sobrescribe dentro del bucle de la trama 'B' | E1.8 | ☑️ |
 | [WAY-06](hallazgos/WAY.md#WAY-06) | 🟡 | protocolo | finventa de AUTHORIZE se lee del elemento 6 del comando, que no existe: la espera de fin de venta nunca se activa | E1.2 | ☑️ |
 | [WAY-07](hallazgos/WAY.md#WAY-07) | 🟡 | correccion | AgregaPosCarga no reinicia 'existe' por manguera: tras un producto repetido se descartan todas las mangueras siguientes | E1.7 | ☑️ |
 | [WAY-08](hallazgos/WAY.md#WAY-08) | 🟡 | robustez | Indices fuera de rango por parametros externos con range checking desactivado | E1.7 | ☑️ |
+| [WAY-11](hallazgos/WAY.md#WAY-11) | 🟡 | robustez | Con la consola sin responder el driver deja de comunicarse con el Bridge (no hay latido) | E2.1 | ☑️ |
+| [WAY-12](hallazgos/WAY.md#WAY-12) | 🟡 | robustez | Reconexion al Bridge sin las correcciones ya aplicadas a Bennett/Wayne2W | E2.2 | ☑️ |
+| [WAY-13](hallazgos/WAY.md#WAY-13) | 🟡 | protocolo | Mensajes del socket sin delimitacion: respuestas concatenadas o parciales pierden comandos | E6.1 | ☑️ |
+| [WAY-14](hallazgos/WAY.md#WAY-14) | 🟡 | rendimiento | JSON completo regenerado, enviado y registrado en el log PetRes en cada trama serial | E4.1 | ☑️ |
 | [WAY-19](hallazgos/WAY.md#WAY-19) | 🟡 | configuracion | Ajuste de digitos del preset inconsistente: DigitoAjustePreset/DigitoAjusteVol/Con_Precio nunca se inicializan | E1.2 | ☑️ |
 | [WAY-20](hallazgos/WAY.md#WAY-20) | 🟡 | correccion | Por omision el volumen publicado se recalcula como importe/precio (no es el medido) | E1.1 | — |
 | [WAY-21](hallazgos/WAY.md#WAY-21) | 🟡 | correccion | Heuristicas apiladas para el numero de decimales del importe (x10, /10, /100 vs /1000) | E1.1 | — |
@@ -1312,14 +1379,14 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 |---|---|---|---|---|---|
 | [BEN-02](hallazgos/BEN.md#BEN-02) | 🔴 | protocolo | TERMINATE apaga Timer2: el driver deja de emitir y el protocolo pull queda bloqueado | E1.3 | ✅ |
 | [BEN-01](hallazgos/BEN.md#BEN-01) | 🟠 | concurrencia | Acceso concurrente sin sincronizacion entre el hilo del servicio (socket) y el hilo principal (timers/serial) | E0.2, E2.6 | ☑️ |
-| [BEN-03](hallazgos/BEN.md#BEN-03) | 🟠 | protocolo | PosCarga[].HoraOcc nunca se actualiza: TRANSACTION via Bridge siempre da 1899-12-30T00:00 | E1.8 | — |
-| [BEN-04](hallazgos/BEN.md#BEN-04) | 🟠 | robustez | La perdida de comunicacion con la consola no se refleja: los estatus quedan congelados | E1.8 | — |
-| [BEN-05](hallazgos/BEN.md#BEN-05) | 🟠 | protocolo | No se valida el BCC de las tramas recibidas y se ignoran ACK y NAK (sin reintento) | E2.8 | — |
-| [BEN-06](hallazgos/BEN.md#BEN-06) | 🟠 | correccion | Un preset pendiente no caduca y se vuelve a aplicar cuando regresa la comunicacion | E1.2 | — |
-| [BEN-07](hallazgos/BEN.md#BEN-07) | 🟠 | correccion | Precios no programados: PRICES se ignora si aun no hubo respuesta B y los precios de INITIALIZE nunca se envian | E1.5 | — |
-| [BEN-08](hallazgos/BEN.md#BEN-08) | 🟠 | memoria_recursos | Escrituras fuera de rango en LPrecios[1..4] y en TComb/TPos/TMang[1..MCxP] | E1.7 | — |
-| [BEN-09](hallazgos/BEN.md#BEN-09) | 🟠 | protocolo | OpenGas nunca recibe el resultado real de AUTHORIZE, PRICES ni PAYMENT | E5.2 | — |
-| [BEN-10](hallazgos/BEN.md#BEN-10) | 🟠 | robustez | El sondeo serial se detiene cuando falla el Bridge (watchdog de 2 s) | E2.1 | — |
+| [BEN-03](hallazgos/BEN.md#BEN-03) | 🟠 | protocolo | PosCarga[].HoraOcc nunca se actualiza: TRANSACTION via Bridge siempre da 1899-12-30T00:00 | E1.8 | ✅ |
+| [BEN-04](hallazgos/BEN.md#BEN-04) | 🟠 | robustez | La perdida de comunicacion con la consola no se refleja: los estatus quedan congelados | E1.8 | ✅ |
+| [BEN-06](hallazgos/BEN.md#BEN-06) | 🟠 | correccion | Un preset pendiente no caduca y se vuelve a aplicar cuando regresa la comunicacion | E1.2 | ✅ |
+| [BEN-09](hallazgos/BEN.md#BEN-09) | 🟠 | protocolo | OpenGas nunca recibe el resultado real de AUTHORIZE, PRICES ni PAYMENT | E5.2 | ✅ |
+| [BEN-05](hallazgos/BEN.md#BEN-05) | 🟡 | protocolo | No se valida el BCC de las tramas recibidas y se ignoran ACK y NAK (sin reintento) | E2.8 | ☑️ |
+| [BEN-07](hallazgos/BEN.md#BEN-07) | 🟡 | correccion | Precios no programados: PRICES se ignora si aun no hubo respuesta B y los precios de INITIALIZE nunca se envian | E1.5 | ☑️ |
+| [BEN-08](hallazgos/BEN.md#BEN-08) | 🟡 | memoria_recursos | Escrituras fuera de rango en LPrecios[1..4] y en TComb/TPos/TMang[1..MCxP] | E1.7 | ☑️ |
+| [BEN-10](hallazgos/BEN.md#BEN-10) | 🟡 | robustez | El sondeo serial se detiene cuando falla el Bridge (watchdog de 2 s) | E2.1 | ☑️ |
 | [BEN-11](hallazgos/BEN.md#BEN-11) | 🟡 | rendimiento | El JSON completo se regenera y envia en cada trama serial | E4.1 | — |
 | [BEN-12](hallazgos/BEN.md#BEN-12) | 🟡 | rendimiento | Logs costosos: concatenacion caracter por caracter, Delete(0) O(n) y 10000 JSON completos en memoria | E2.4 | — |
 | [BEN-13](hallazgos/BEN.md#BEN-13) | 🟡 | rendimiento | ActualizaCampoJSON busca linealmente por nombre en cada actualizacion | E4.2 | — |
@@ -1362,11 +1429,11 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 |---|---|---|---|---|---|
 | [TEA-02](hallazgos/TEA.md#TEA-02) | 🟠 | correccion | Volumen final por totalizador sin validar: TotalLitrosInicio en 0 o desfasado da volúmenes absurdos o acumulados | E1.1 | ☑️ |
 | [TEA-03](hallazgos/TEA.md#TEA-03) | 🟠 | correccion | La línea sintética 'A' usa formatos de ancho fijo que se desbordan con 1000 L o más y corrompen importe, precio y volumen | E1.1 | ☑️ |
-| [TEA-04](hallazgos/TEA.md#TEA-04) | 🟠 | correccion | La corrección 'FIN DE VENTA CORREGIDO' de la ruta A1 no actualiza el JSON | E1.1 | — |
-| [TEA-05](hallazgos/TEA.md#TEA-05) | 🟠 | correccion | ProcesaComandos y ResultadoComando solo revisan TabCmnd[1..40]: los comandos en los slots 41..200 nunca se ejecutan | E1.4 | — |
-| [TEA-06](hallazgos/TEA.md#TEA-06) | 🟠 | concurrencia | Reentrancia en ComandoConsola durante EsperaMiliSeg(500) con LinCmnd/CharCmnd globales: el preset puede salir a otra posición o con monto 0 | E2.5 | — |
-| [TEA-07](hallazgos/TEA.md#TEA-07) | 🟠 | protocolo | Cambio de precios sin confirmación: LPrecios se actualiza aunque la bomba no aplique el A6, se envía un 'U' por posición e incluso a posiciones sin mangueras | E1.5 | — |
-| [TEA-08](hallazgos/TEA.md#TEA-08) | 🟠 | correccion | STOP/START (DVC/REANUDAR) no hacen nada en modo normal pero responden True | E5.4 | — |
+| [TEA-04](hallazgos/TEA.md#TEA-04) | 🟠 | correccion | La corrección 'FIN DE VENTA CORREGIDO' de la ruta A1 no actualiza el JSON | E1.1 | ✅ |
+| [TEA-05](hallazgos/TEA.md#TEA-05) | 🟠 | correccion | ProcesaComandos y ResultadoComando solo revisan TabCmnd[1..40]: los comandos en los slots 41..200 nunca se ejecutan | E1.4 | ✅ |
+| [TEA-07](hallazgos/TEA.md#TEA-07) | 🟠 | protocolo | Cambio de precios sin confirmación: LPrecios se actualiza aunque la bomba no aplique el A6, se envía un 'U' por posición e incluso a posiciones sin mangueras | E1.5 | ✅ |
+| [TEA-06](hallazgos/TEA.md#TEA-06) | 🟡 | concurrencia | Reentrancia en ComandoConsola durante EsperaMiliSeg(500) con LinCmnd/CharCmnd globales: el preset puede salir a otra posición o con monto 0 | E2.5 | ☑️ |
+| [TEA-08](hallazgos/TEA.md#TEA-08) | 🟡 | correccion | STOP/START (DVC/REANUDAR) no hacen nada en modo normal pero responden True | E5.4 | ☑️ |
 | [TEA-09](hallazgos/TEA.md#TEA-09) | 🟡 | protocolo | Con finventa=0 el estado 'Fin de carga' (3) dura un solo sondeo (A4) o nunca aparece (A3), y puede no llegar al Bridge | E1.8 | — |
 | [TEA-10](hallazgos/TEA.md#TEA-10) | 🟡 | robustez | Timer1 se vuelve a encender sin condición: con el servicio detenido, un BLOCK/UNBLOCK reactiva el sondeo y el watchdog reabre el puerto | E2.3 | — |
 | [TEA-11](hallazgos/TEA.md#TEA-11) | 🟡 | robustez | El sondeo serial depende de la conexión con el Bridge: al desconectarse se apaga Timer1 | E2.1 | — |
@@ -1405,14 +1472,14 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | [PAM-01](hallazgos/PAM.md#PAM-01) | 🔴 | robustez | El sondeo serial se bloquea para siempre: B00 se encola sin ningun comando en vuelo (HALT/RUN, '0'/'1', timeout en NumPaso=1) | E1.3 | ✅ |
 | [PAM-02](hallazgos/PAM.md#PAM-02) | 🟠 | correccion | Un preset de importe mayor a 9999 se convierte en venta libre ('S'+pos) | E1.2 | ☑️ |
 | [PAM-03](hallazgos/PAM.md#PAM-03) | 🟠 | robustez | Ciclo infinito en la lectura de totales (NumPaso=3) que deja de sondear la estacion entera | E1.3 | ☑️ |
-| [PAM-04](hallazgos/PAM.md#PAM-04) | 🟠 | correccion | EnviaPreset3 reporta error con un SwError de la trama ANTERIOR aunque el preset si se envio | E1.2 | — |
-| [PAM-05](hallazgos/PAM.md#PAM-05) | 🟠 | correccion | PRICES (CPREC) responde OK aunque el precio no se aplique: precio con 3 decimales o >= 100, NAK sin reintento, LPrecios actualizado antes de validar | E1.5 | — |
-| [PAM-06](hallazgos/PAM.md#PAM-06) | 🟠 | correccion | Escrituras y lecturas fuera de rango sin validar en arreglos globales, compiladas con {$R-} | E1.7 | — |
-| [PAM-07](hallazgos/PAM.md#PAM-07) | 🟠 | rendimiento | El JSON al Bridge (y con el los comandos de OpenGas) se atrasa un ciclo completo porque cada trama reinicia Timer1 | E4.1 | — |
-| [PAM-08](hallazgos/PAM.md#PAM-08) | 🟠 | robustez | La perdida de comunicacion con la PAM no se refleja en el JSON: Estatus queda congelado | E1.8 | — |
-| [PAM-09](hallazgos/PAM.md#PAM-09) | 🟠 | correccion | HoraOcc se publica como Now en cada lectura A final: la hora de la venta se mueve y aparecen ventas fantasma al arrancar | E1.8 | — |
-| [PAM-10](hallazgos/PAM.md#PAM-10) | 🟠 | correccion | Con ValidarManguera=Si, la primera lectura final pone la venta en ceros y se publica en el JSON | E1.1 | — |
-| [PAM-11](hallazgos/PAM.md#PAM-11) | 🟠 | protocolo | El BCC de las tramas recibidas nunca se valida | E2.8 | — |
+| [PAM-08](hallazgos/PAM.md#PAM-08) | 🟠 | robustez | La perdida de comunicacion con la PAM no se refleja en el JSON: Estatus queda congelado | E1.8 | ✅ |
+| [PAM-10](hallazgos/PAM.md#PAM-10) | 🟠 | correccion | Con ValidarManguera=Si, la primera lectura final pone la venta en ceros y se publica en el JSON | E1.1 | ✅ |
+| [PAM-11](hallazgos/PAM.md#PAM-11) | 🟠 | protocolo | El BCC de las tramas recibidas nunca se valida | E2.8 | ✅ |
+| [PAM-04](hallazgos/PAM.md#PAM-04) | 🟡 | correccion | EnviaPreset3 reporta error con un SwError de la trama ANTERIOR aunque el preset si se envio | E1.2 | ☑️ |
+| [PAM-05](hallazgos/PAM.md#PAM-05) | 🟡 | correccion | PRICES (CPREC) responde OK aunque el precio no se aplique: precio con 3 decimales o >= 100, NAK sin reintento, LPrecios actualizado antes de validar | E1.5 | ☑️ |
+| [PAM-06](hallazgos/PAM.md#PAM-06) | 🟡 | correccion | Escrituras y lecturas fuera de rango sin validar en arreglos globales, compiladas con {$R-} | E1.7 | ☑️ |
+| [PAM-07](hallazgos/PAM.md#PAM-07) | 🟡 | rendimiento | El JSON al Bridge (y con el los comandos de OpenGas) se atrasa un ciclo completo porque cada trama reinicia Timer1 | E4.1 | ☑️ |
+| [PAM-09](hallazgos/PAM.md#PAM-09) | 🟡 | correccion | HoraOcc se publica como Now en cada lectura A final: la hora de la venta se mueve y aparecen ventas fantasma al arrancar | E1.8 | ☑️ |
 | [PAM-12](hallazgos/PAM.md#PAM-12) | 🟡 | robustez | Una desconexion del Bridge detiene tambien el sondeo de la PAM: se pierden ventas durante la caida | E2.1 | ☑️ |
 | [PAM-13](hallazgos/PAM.md#PAM-13) | 🟡 | protocolo | Armado de tramas fragil: una trama por evento, sin resincronizar en STX, y LineaBuff se borra en cada envio | E2.8 | — |
 | [PAM-14](hallazgos/PAM.md#PAM-14) | 🟡 | concurrencia | Comandos directos (ComandoConsola) con otro comando en vuelo: colisiones half-duplex y ACK atribuido al comando equivocado | E2.5 | — |
@@ -1459,20 +1526,19 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 
 | ID | Sev. | Categoría | Título | Item | Verif. |
 |---|---|---|---|---|---|
-| [HYA-01](hallazgos/HYA.md#HYA-01) | 🟠 | correccion | La precedencia de 'not' anula el chequeo de posición ocupada en OCC/OCL | E1.2 | — |
-| [HYA-02](hallazgos/HYA.md#HYA-02) | 🟠 | protocolo | AUTHORIZE se reporta exitoso aunque el preset se rechace o nunca llegue al dispensario | E5.2 | — |
-| [HYA-03](hallazgos/HYA.md#HYA-03) | 🟠 | correccion | Presets con más de 2 decimales se rechazan en silencio (no se portó la corrección de Wayne 2W) | E1.2 | — |
-| [HYA-04](hallazgos/HYA.md#HYA-04) | 🟠 | correccion | HoraOcc de TRANSACTION queda con la hora de la última lectura de totales, no con la del fin de venta | E1.8 | — |
-| [HYA-05](hallazgos/HYA.md#HYA-05) | 🟠 | correccion | TOTALS devuelve importes calculados (litros × precio actual) y solo refresca la manguera activa | E1.6 | — |
-| [HYA-06](hallazgos/HYA.md#HYA-06) | 🟠 | correccion | La respuesta de TOTAL se trunca por RegCmnd.Respuesta string[80] | E1.4 | — |
-| [HYA-07](hallazgos/HYA.md#HYA-07) | 🟠 | robustez | Una trama de longitud inesperada reinicia el puerto (forzado) aunque haya ventas en curso | E2.8 | — |
-| [HYA-08](hallazgos/HYA.md#HYA-08) | 🟠 | robustez | Los reintentos por BCC son ilimitados y, con la prioridad de la cola, un CPU con respuestas corruptas paraliza el sondeo | E1.3 | — |
-| [HYA-09](hallazgos/HYA.md#HYA-09) | 🟠 | robustez | La cola de 50 comandos descarta en silencio y AMP/DMP 0 encola MaxPosiciones × MaxMangueras comandos | E8.3 | — |
-| [HYA-10](hallazgos/HYA.md#HYA-10) | 🟠 | robustez | Un solo timeout marca la posición sin comunicación y la deja 5 s sin sondeo, aun en plena venta | E1.3 | — |
-| [HYA-11](hallazgos/HYA.md#HYA-11) | 🟠 | correccion | El precio publicado puede no coincidir con el del dispensario (el cambio se asume antes de confirmarse) | E1.5 | — |
-| [HYA-12](hallazgos/HYA.md#HYA-12) | 🟠 | robustez | Índices fuera de rango sin validar en INITIALIZE y en el ciclo (con -$R- corrompen variables globales) | E1.7 | — |
-| [HYA-13](hallazgos/HYA.md#HYA-13) | 🟠 | seguridad | BLOCK/UNBLOCK no bloquean físicamente y el modo de operación se fuerza a 'Prepago' | E5.4 | — |
-| [HYA-14](hallazgos/HYA.md#HYA-14) | 🟠 | robustez | Recursión infinita entre GuardarLog y GuardarLogPetRes si solo falla el guardado de peticiones | E2.4 | — |
+| [HYA-08](hallazgos/HYA.md#HYA-08) | 🟠 | robustez | Los reintentos por BCC son ilimitados y, con la prioridad de la cola, un CPU con respuestas corruptas paraliza el sondeo | E1.3 | ✅ |
+| [HYA-10](hallazgos/HYA.md#HYA-10) | 🟠 | robustez | Un solo timeout marca la posición sin comunicación y la deja 5 s sin sondeo, aun en plena venta | E1.3 | ✅ |
+| [HYA-11](hallazgos/HYA.md#HYA-11) | 🟠 | correccion | El precio publicado puede no coincidir con el del dispensario (el cambio se asume antes de confirmarse) | E1.5 | ✅ |
+| [HYA-14](hallazgos/HYA.md#HYA-14) | 🟠 | robustez | Recursión infinita entre GuardarLog y GuardarLogPetRes si solo falla el guardado de peticiones | E2.4 | ✅ |
+| [HYA-01](hallazgos/HYA.md#HYA-01) | 🟡 | correccion | La precedencia de 'not' anula el chequeo de posición ocupada en OCC/OCL | E1.2 | ☑️ |
+| [HYA-02](hallazgos/HYA.md#HYA-02) | 🟡 | protocolo | AUTHORIZE se reporta exitoso aunque el preset se rechace o nunca llegue al dispensario | E5.2 | ☑️ |
+| [HYA-03](hallazgos/HYA.md#HYA-03) | 🟡 | correccion | Presets con más de 2 decimales se rechazan en silencio (no se portó la corrección de Wayne 2W) | E1.2 | ☑️ |
+| [HYA-04](hallazgos/HYA.md#HYA-04) | 🟡 | correccion | HoraOcc de TRANSACTION queda con la hora de la última lectura de totales, no con la del fin de venta | E1.8 | ☑️ |
+| [HYA-05](hallazgos/HYA.md#HYA-05) | 🟡 | correccion | TOTALS devuelve importes calculados (litros × precio actual) y solo refresca la manguera activa | E1.6 | ☑️ |
+| [HYA-07](hallazgos/HYA.md#HYA-07) | 🟡 | robustez | Una trama de longitud inesperada reinicia el puerto (forzado) aunque haya ventas en curso | E2.8 | ☑️ |
+| [HYA-09](hallazgos/HYA.md#HYA-09) | 🟡 | robustez | La cola de 50 comandos descarta en silencio y AMP/DMP 0 encola MaxPosiciones × MaxMangueras comandos | E8.3 | ☑️ |
+| [HYA-12](hallazgos/HYA.md#HYA-12) | 🟡 | robustez | Índices fuera de rango sin validar en INITIALIZE y en el ciclo (con -$R- corrompen variables globales) | E1.7 | ☑️ |
+| [HYA-13](hallazgos/HYA.md#HYA-13) | 🟡 | seguridad | BLOCK/UNBLOCK no bloquean físicamente y el modo de operación se fuerza a 'Prepago' | E5.4 | ☑️ |
 | [HYA-15](hallazgos/HYA.md#HYA-15) | 🟡 | protocolo | El enlace Bridge-driver no delimita mensajes y Peticiones se limita a 2 (las entradas de folio 0 expulsan resultados) | E6.1 | — |
 | [HYA-16](hallazgos/HYA.md#HYA-16) | 🟡 | rendimiento | El filtro 'publicar JSON solo al cambiar' no tiene efecto y el JSON se regenera completo cada 3 ticks | E4.1 | — |
 | [HYA-17](hallazgos/HYA.md#HYA-17) | 🟡 | robustez | Parámetros de comandos sin validar y comandos pendientes que nunca expiran | E1.4, E8.3 | — |
@@ -1491,6 +1557,7 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | [HYA-30](hallazgos/HYA.md#HYA-30) | 🟡 | configuracion | Las conversiones numéricas dependen de la configuración regional y los precios inválidos se aceptan | E8.2 | — |
 | [HYA-31](hallazgos/HYA.md#HYA-31) | 🟡 | robustez | El reinicio de puerto programado cada 6 h tiene un aplazamiento que no funciona | E4.3 | — |
 | [HYA-36](hallazgos/HYA.md#HYA-36) | 🟡 | mantenibilidad | Duplicación interna y con los demás drivers | E7.1, E7.3 | — |
+| [HYA-06](hallazgos/HYA.md#HYA-06) | ⚪ | correccion | La respuesta de TOTAL se trunca por RegCmnd.Respuesta string[80] | E1.4 | ☑️ |
 | [HYA-32](hallazgos/HYA.md#HYA-32) | ⚪ | configuracion | Parámetros de tiempo y capacidad fijos en el código | E0.5 | — |
 | [HYA-33](hallazgos/HYA.md#HYA-33) | ⚪ | seguridad | La autenticación y el licenciamiento no tienen efecto real | E8.1 | — |
 | [HYA-34](hallazgos/HYA.md#HYA-34) | ⚪ | memoria_recursos | La inicialización del servicio es frágil y tiene fugas menores | E2.7 | — |
@@ -1504,20 +1571,18 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | ID | Sev. | Categoría | Título | Item | Verif. |
 |---|---|---|---|---|---|
 | [GIL-01](hallazgos/GIL.md#GIL-01) | 🔴 | protocolo | Estatus 3 (fin de venta) se publica antes de leer la venta: TRANSACTION puede devolver datos de la venta en proceso | E1.8 | ✅ |
-| [GIL-02](hallazgos/GIL.md#GIL-02) | 🟠 | correccion | EsperaFinVenta se lee del token 6, que no existe: el estatus 3 nunca queda fijo hasta PAYMENT | E1.2 | — |
-| [GIL-03](hallazgos/GIL.md#GIL-03) | 🟠 | protocolo | Una dirección de bomba mayor que 16 desborda el byte de comando: el sondeo de la posición 17 autoriza la bomba 1 | E1.7 | — |
-| [GIL-04](hallazgos/GIL.md#GIL-04) | 🟠 | correccion | CPREC sale con Exit sin responder: queda activo para siempre, repite los cambios de precio y bloquea los comandos de slots posteriores | E1.4 | — |
-| [GIL-05](hallazgos/GIL.md#GIL-05) | 🟠 | rendimiento | CPREC aplica todo el cambio de precios dentro de un solo tick: decenas de segundos sin enviar JSON, el Bridge marca datos obsoletos y corta a OpenGas | E1.5, E4.3 | — |
-| [GIL-06](hallazgos/GIL.md#GIL-06) | 🟠 | protocolo | El JSON al Bridge solo sale cada 3 ticks de Timer1, y un tick puede durar varios segundos por los reintentos seriales | E4.1 | — |
-| [GIL-07](hallazgos/GIL.md#GIL-07) | 🟠 | correccion | ResultadoComando solo busca en TabCmnd[1..40]: RESPCMND devuelve '*' para comandos en los slots 41..200 | E1.4 | — |
-| [GIL-08](hallazgos/GIL.md#GIL-08) | 🟠 | correccion | El fallback de totales calculados publica totales falsos y OpenGas no tiene forma de saber que son estimados | E1.6, E5.3 | — |
-| [GIL-09](hallazgos/GIL.md#GIL-09) | 🟠 | correccion | Los totalizadores de 8 dígitos (12 dígitos BCD) desbordan Integer en BcdToInt y DataControlWordValue | E1.6 | — |
-| [GIL-10](hallazgos/GIL.md#GIL-10) | 🟠 | concurrencia | Reentrancia: ServiceThread.ProcessRequests(False) dentro de la espera serial ejecuta comandos del Bridge y Timer2 a mitad de una transacción | E2.5 | — |
-| [GIL-11](hallazgos/GIL.md#GIL-11) | 🟠 | robustez | Reconexión al Bridge frágil: el sondeo serial se detiene, la espera no bombea mensajes y no hay OnError ni watchdog | E2.1, E2.2 | — |
-| [GIL-12](hallazgos/GIL.md#GIL-12) | 🟠 | correccion | La transición 2→1 sin haber visto el EOT no dispara la lectura de la venta | E1.3 | — |
-| [GIL-13](hallazgos/GIL.md#GIL-13) | 🟠 | correccion | CPREC no verifica el estado de la posición ni reintenta; el mecanismo de reintento del paso 7 es código muerto | E1.5 | — |
-| [GIL-25](hallazgos/GIL.md#GIL-25) | 🟠 | rendimiento | Bitácoras: el JSON completo se guarda en cada envío, char por char, con 10000 líneas en memoria y SaveToFile en cada error o TRACE | E2.4 | — |
-| [GIL-26](hallazgos/GIL.md#GIL-26) | 🟠 | robustez | Recursión mutua entre GuardarLog y GuardarLogPetRes cuando falla el guardado de LogDispPetRes | E2.4 | — |
+| [GIL-02](hallazgos/GIL.md#GIL-02) | 🟠 | correccion | EsperaFinVenta se lee del token 6, que no existe: el estatus 3 nunca queda fijo hasta PAYMENT | E1.2 | ✅ |
+| [GIL-04](hallazgos/GIL.md#GIL-04) | 🟠 | correccion | CPREC sale con Exit sin responder: queda activo para siempre, repite los cambios de precio y bloquea los comandos de slots posteriores | E1.4 | ✅ |
+| [GIL-05](hallazgos/GIL.md#GIL-05) | 🟠 | rendimiento | CPREC aplica todo el cambio de precios dentro de un solo tick: decenas de segundos sin enviar JSON, el Bridge marca datos obsoletos y corta a OpenGas | E1.5, E4.3 | ✅ |
+| [GIL-08](hallazgos/GIL.md#GIL-08) | 🟠 | correccion | El fallback de totales calculados publica totales falsos y OpenGas no tiene forma de saber que son estimados | E1.6, E5.3 | ✅ |
+| [GIL-09](hallazgos/GIL.md#GIL-09) | 🟠 | correccion | Los totalizadores de 8 dígitos (12 dígitos BCD) desbordan Integer en BcdToInt y DataControlWordValue | E1.6 | ✅ |
+| [GIL-13](hallazgos/GIL.md#GIL-13) | 🟠 | correccion | CPREC no verifica el estado de la posición ni reintenta; el mecanismo de reintento del paso 7 es código muerto | E1.5 | ✅ |
+| [GIL-03](hallazgos/GIL.md#GIL-03) | 🟡 | protocolo | Una dirección de bomba mayor que 16 desborda el byte de comando: el sondeo de la posición 17 autoriza la bomba 1 | E1.7 | ☑️ |
+| [GIL-06](hallazgos/GIL.md#GIL-06) | 🟡 | protocolo | El JSON al Bridge solo sale cada 3 ticks de Timer1, y un tick puede durar varios segundos por los reintentos seriales | E4.1 | ☑️ |
+| [GIL-07](hallazgos/GIL.md#GIL-07) | 🟡 | correccion | ResultadoComando solo busca en TabCmnd[1..40]: RESPCMND devuelve '*' para comandos en los slots 41..200 | E1.4 | ☑️ |
+| [GIL-10](hallazgos/GIL.md#GIL-10) | 🟡 | concurrencia | Reentrancia: ServiceThread.ProcessRequests(False) dentro de la espera serial ejecuta comandos del Bridge y Timer2 a mitad de una transacción | E2.5 | ☑️ |
+| [GIL-11](hallazgos/GIL.md#GIL-11) | 🟡 | robustez | Reconexión al Bridge frágil: el sondeo serial se detiene, la espera no bombea mensajes y no hay OnError ni watchdog | E2.1, E2.2 | ☑️ |
+| [GIL-12](hallazgos/GIL.md#GIL-12) | 🟡 | correccion | La transición 2→1 sin haber visto el EOT no dispara la lectura de la venta | E1.3 | ☑️ |
 | [GIL-14](hallazgos/GIL.md#GIL-14) | 🟡 | correccion | Índices de grado, manguera y combustible inconsistentes (TMang, TPosx, índice i, TPosTotales y orden del JSON) | E1.7 | — |
 | [GIL-15](hallazgos/GIL.md#GIL-15) | 🟡 | correccion | ApplyTotalLitrosToJSON busca la posición por índice del arreglo (xpos-1) en lugar de por DispenserId | E1.7 | — |
 | [GIL-16](hallazgos/GIL.md#GIL-16) | 🟡 | correccion | TOTAL calcula los pesos con el precio actual, lee LPrecios[0] fuera de rango y descarta el totalizador de pesos del equipo | E1.6 | — |
@@ -1529,6 +1594,8 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | [GIL-22](hallazgos/GIL.md#GIL-22) | 🟡 | configuracion | Conversión de flotantes dependiente de DecimalSeparator del sistema | E8.2 | — |
 | [GIL-23](hallazgos/GIL.md#GIL-23) | 🟡 | configuracion | Las variables GtwDivImporte y GtwDivLitros de INITIALIZE se ignoran en las posiciones configuradas | E8.2 | — |
 | [GIL-24](hallazgos/GIL.md#GIL-24) | 🟡 | correccion | El volumen reportado por el equipo se reemplaza por importe/precio con tolerancia de 0.01 L | E1.1 | — |
+| [GIL-25](hallazgos/GIL.md#GIL-25) | 🟡 | rendimiento | Bitácoras: el JSON completo se guarda en cada envío, char por char, con 10000 líneas en memoria y SaveToFile en cada error o TRACE | E2.4 | ☑️ |
+| [GIL-26](hallazgos/GIL.md#GIL-26) | 🟡 | robustez | Recursión mutua entre GuardarLog y GuardarLogPetRes cuando falla el guardado de LogDispPetRes | E2.4 | ☑️ |
 | [GIL-27](hallazgos/GIL.md#GIL-27) | 🟡 | robustez | La reapertura del puerto en el except de TransmiteComando pierde los data triggers $F0/$8A; un RUN repetido los acumula | E2.8 | — |
 | [GIL-28](hallazgos/GIL.md#GIL-28) | 🟡 | rendimiento | Esperas activas y Sleep fijos en el diálogo serial | E2.5, E4.3 | — |
 | [GIL-29](hallazgos/GIL.md#GIL-29) | 🟡 | concurrencia | Carrera de arranque y de paro entre el hilo principal (Timer2) y el hilo del servicio (ServiceExecute) | E0.2, E2.3 | — |
@@ -1550,6 +1617,86 @@ Ordenado por módulo y severidad. La columna **Verif.** indica: ✅ confirmado p
 | [GIL-44](hallazgos/GIL.md#GIL-44) | ⚪ | protocolo | HoraOcc tiene resolución de minuto y es la hora de lectura, no la del fin de venta | E5.1 | — |
 | [GIL-45](hallazgos/GIL.md#GIL-45) | ⚪ | configuracion | Valores hardcodeados y sin validar: tracing APRO siempre activo, anchos BCD fijos y GtwTimeout/GtwTiempoCmnd sin límites | E0.1 | — |
 | [GIL-46](hallazgos/GIL.md#GIL-46) | ⚪ | mantenibilidad | Código muerto, comentado y variables sin uso | E8.3 | — |
+
+</details>
+
+<details><summary><b>HIL · Modelo de hilos</b> (9 hallazgos)</summary>
+
+| ID | Sev. | Categoría | Título | Item | Verif. |
+|---|---|---|---|---|---|
+| [HIL-01](hallazgos/HIL.md#HIL-01) | 🟠 | concurrencia | PAM modoAuto: Iniciar corre en el hilo del servicio y apaga Timer2 antes de conectar; el driver puede no conectarse nunca al Bridge | E2.6 | — |
+| [HIL-02](hallazgos/HIL.md#HIL-02) | 🟠 | concurrencia | Amplía W2W-12: Timer1Timer se reentra dentro de EsperaMiliseg porque TransmiteComando vuelve a armar Timer1 (50 ms); un ProcesaComandos anidado puede ejecutar dos veces un AUTHORIZE | E2.5 | — |
+| [HIL-03](hallazgos/HIL.md#HIL-03) | 🟡 | robustez | Paro sin orden: OnDisconnect corre en el hilo del servicio y vuelve a armar Timer2, el sondeo sigue tras STOPPED, Gilbarco reabre el COM por un AV con ServiceThread=nil y 5 drivers pierden la bitácora | E2.3 | — |
+| [HIL-04](hallazgos/HIL.md#HIL-04) | 🟡 | robustez | El hilo del servicio no supervisa al hilo principal: si el sondeo se cuelga, el servicio sigue 'En ejecución', y un STOP deja un proceso zombi con el COM abierto | E2.3 | — |
+| [HIL-05](hallazgos/HIL.md#HIL-05) | 🟡 | robustez | Amplía GIL-42/PAM-39 y corrige TEA-29: SHUTDOWN y el watchdog de Team llaman ServiceThread.Terminate desde el hilo principal y el servicio nunca se detiene | E2.3 | — |
+| [HIL-07](hallazgos/HIL.md#HIL-07) | 🟡 | concurrencia | Riesgo de migración: mover el socket de Bennett al hilo principal (E2.6) sin quitar antes las EsperaMiliSeg de ProcesaLinea convierte la carrera en reentrancia | E2.6 | — |
+| [HIL-09](hallazgos/HIL.md#HIL-09) | 🟡 | mantenibilidad | No hay un contrato de afinidad de hilos ni utilidades para cumplirlo: modelo objetivo y migración por etapas | E0.2 | — |
+| [HIL-06](hallazgos/HIL.md#HIL-06) | ⚪ | concurrencia | Amplía E2E-06: TTimer.Enabled se cambia desde dos hilos; SetEnabled/UpdateTimer no es atómico y puede dejar un timer disparando con Enabled=False | E2.6 | — |
+| [HIL-08](hallazgos/HIL.md#HIL-08) | ⚪ | robustez | Cada evento serial reinicia el periodo de Timer1: con bytes continuos en la línea, el sondeo y los timeouts contados en ticks nunca se disparan | E2.9 | — |
+
+</details>
+
+<details><summary><b>PERF · Rendimiento (transversal)</b> (8 hallazgos)</summary>
+
+| ID | Sev. | Categoría | Título | Item | Verif. |
+|---|---|---|---|---|---|
+| [PERF-01](hallazgos/PERF.md#PERF-01) | 🟡 | robustez | Amplía W2W-14: el envío byte a byte espera OutBuffUsed=0 sin plazo ni salida; si el puerto deja de vaciarse, el hilo principal queda colgado | E1.3 | ☑️ |
+| [PERF-02](hallazgos/PERF.md#PERF-02) | 🟡 | robustez | Esperas, reintentos y watchdogs se miden con la hora de pared (Now): un ajuste del reloj congela el sondeo, retiene estados o provoca desconexiones | E2.9 | — |
+| [PERF-03](hallazgos/PERF.md#PERF-03) | 🟡 | rendimiento | Los plazos del código suponen precisión de milisegundos, pero Windows redondea TTimer, Sleep y Now a ~15.6 ms; el resultado cambia según el equipo y los otros procesos | E2.9 | — |
+| [PERF-04](hallazgos/PERF.md#PERF-04) | 🟡 | memoria_recursos | Los dos servicios usan el administrador de memoria de Delphi 7 con un patrón de asignación de alto recambio: riesgo de fragmentación y de EOutOfMemory al volcar los logs | E4.5 | — |
+| [PERF-05](hallazgos/PERF.md#PERF-05) | 🟡 | rendimiento | uLkJSON tiene costos ocultos por llamada (copias de WideString, objetos temporales, configuración regional y búfer de 50 KB), y el Bridge reparsea snapshots idénticos | E4.5 | — |
+| [PERF-06](hallazgos/PERF.md#PERF-06) | 🟡 | rendimiento | Amplía W2W-35 a Gilbarco: cada posición inactiva consume 3 ticks (~190 ms) y solo uno hace E/S, porque los pasos 6 y 7 nunca se saltan | E4.3 | — |
+| [PERF-07](hallazgos/PERF.md#PERF-07) | 🟡 | protocolo | Amplía BRG-01/E2E-03: los drivers envían sin esperar la respuesta del Bridge; limitar a un mensaje en vuelo evita la concatenación sin cambiar el contrato y baja la latencia | E4.1 | — |
+| [PERF-08](hallazgos/PERF.md#PERF-08) | 🟡 | observabilidad | Amplía E2E-36 y BRG-29 a los drivers: no se mide la duración de los ticks, el RTT serial, el tiempo de vuelta ni el costo del JSON y de los logs | E0.3 | — |
+
+</details>
+
+<details><summary><b>SEG · Seguridad y licenciamiento</b> (17 hallazgos)</summary>
+
+| ID | Sev. | Categoría | Título | Item | Verif. |
+|---|---|---|---|---|---|
+| [SEG-01](hallazgos/SEG.md#SEG-01) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | ☑️ |
+| [SEG-02](hallazgos/SEG.md#SEG-02) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | ☑️ |
+| [SEG-03](hallazgos/SEG.md#SEG-03) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | ☑️ |
+| [SEG-04](hallazgos/SEG.md#SEG-04) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-05](hallazgos/SEG.md#SEG-05) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-06](hallazgos/SEG.md#SEG-06) | 🟡 | seguridad | PRICES no tiene tope superior: en Wayne 2W el precio se envuelve módulo 655.36, y en Hong Yang y Team desborda el campo de 4 dígitos | E1.5 | — |
+| [SEG-07](hallazgos/SEG.md#SEG-07) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-08](hallazgos/SEG.md#SEG-08) | 🟡 | seguridad | Servicios como LocalSystem, instalados desde una carpeta de usuario, con logs, ini y DLL en rutas que pueden escribir usuarios sin privilegios | E0.5 | — |
+| [SEG-09](hallazgos/SEG.md#SEG-09) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-10](hallazgos/SEG.md#SEG-10) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-11](hallazgos/SEG.md#SEG-11) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-12](hallazgos/SEG.md#SEG-12) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-13](hallazgos/SEG.md#SEG-13) | ⚪ | seguridad | Las respuestas a OpenGas exponen rutas absolutas y textos internos de excepción, y la ruta que devuelve TRACE puede no existir | E2.4 | — |
+| [SEG-14](hallazgos/SEG.md#SEG-14) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-15](hallazgos/SEG.md#SEG-15) | ⚪ | seguridad | No se verifica la integridad ni la firma del ejecutable y sus DLL: el MD5 en el log solo sirve para identificar | E0.1 | — |
+| [SEG-16](hallazgos/SEG.md#SEG-16) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [SEG-17](hallazgos/SEG.md#SEG-17) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+
+</details>
+
+<details><summary><b>COM · Componentes compartidos y build</b> (18 hallazgos)</summary>
+
+| ID | Sev. | Categoría | Título | Item | Verif. |
+|---|---|---|---|---|---|
+| [COM-01](hallazgos/COM.md#COM-01) | 🟠 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [COM-02](hallazgos/COM.md#COM-02) | 🟡 | build_despliegue | OG_Hasp en el .dpr exige hasp_windows_delphi.obj, que nunca se versionó y que *.obj ignora; ningún driver lo usa | E0.1 | — |
+| [COM-03](hallazgos/COM.md#COM-03) | 🟡 | build_despliegue | Los dos proyectos se acoplan por una carpeta de DCU compartida: el CRC del protocolo OpenGas sale de un CRCs.dcu sin fuente versionada | E0.1 | — |
+| [COM-04](hallazgos/COM.md#COM-04) | 🟡 | mantenibilidad | CRCs, Indy, LockBox, RxLib/DB y OG_Hasp solo sostienen código muerto o decorativo: conviene quitarlos en lugar de vendorizarlos | E0.1 | — |
+| [COM-05](hallazgos/COM.md#COM-05) | 🟡 | observabilidad | El ejecutable no se puede ligar a una revisión: .dof y .res fuera del repo, sin tags, y sin el SHA que antes llevaba el .dpr | E0.1 | — |
+| [COM-06](hallazgos/COM.md#COM-06) | 🟡 | robustez | Marca inválida, vacía o ausente: StrToInt sin default y un case sin else dejan un proceso sin servicio y sin log (la Marca 8 no existe) | E2.3 | — |
+| [COM-07](hallazgos/COM.md#COM-07) | 🟡 | build_despliegue | Un solo ejecutable enlaza las 9 marcas: cualquier cambio en un driver cambia el binario, y su MD5, en todas las estaciones | E0.1 | — |
+| [COM-08](hallazgos/COM.md#COM-08) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [COM-09](hallazgos/COM.md#COM-09) | 🟡 | build_despliegue | instalador.bat apunta a la carpeta Dropbox del desarrollador y no instala el Bridge, ni configura la recuperación del servicio, ni crea las carpetas de log | E0.5 | — |
+| [COM-10](hallazgos/COM.md#COM-10) | 🟡 | rendimiento | js_string de uLkJSON es O(escapes × longitud) y strSpecialChars concatena carácter por carácter: parsear un resultado de LOG puede congelar el hilo único del Bridge | E4.5 | — |
+| [COM-11](hallazgos/COM.md#COM-11) | 🟡 | correccion | TlkJSONlist.Delete no conserva el orden y TlkJSONobject.Delete desincroniza el índice: una trampa para cuando se amplíe Peticiones | E4.5 | — |
+| [COM-12](hallazgos/COM.md#COM-12) | 🟡 | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
+| [COM-13](hallazgos/COM.md#COM-13) | 🟡 | observabilidad | Las excepciones no controladas solo llegan al Visor de eventos y sin dirección útil: no hay manejador global ni se archiva el .map | E2.4 | — |
+| [COM-14](hallazgos/COM.md#COM-14) | 🟡 | pruebas | Sin CI ni pruebas automatizadas; la emulación de Wayne 2W simula el negocio y no las tramas, así que generalizarla no prueba el protocolo serial | E0.4 | — |
+| [COM-15](hallazgos/COM.md#COM-15) | ⚪ | correccion | UIGASTEAM.pas está en UTF-8 sin BOM: Delphi 7 compila 'Posición' como 'PosiciÃ³n' y así le llega a OpenGas; no hay .gitattributes | E8.3 | — |
+| [COM-16](hallazgos/COM.md#COM-16) | ⚪ | configuracion | Todos los drivers usan el DisplayName 'OpenGas Dispensarios' con un Name distinto por marca: no caben dos marcas en un equipo y cambiar la Marca deja el servicio con el nombre equivocado | E0.5 | — |
+| [COM-17](hallazgos/COM.md#COM-17) | ⚪ | build_despliegue | .gitignore copiado y divergente: ignora entradas del build (.dof, .bpg, .obj, .res) y repite reglas | E0.1 | — |
+| [COM-18](hallazgos/COM.md#COM-18) | ⚪ | seguridad | Hallazgo de seguridad reservado (anexo privado) | E8.5 | — |
 
 </details>
 
