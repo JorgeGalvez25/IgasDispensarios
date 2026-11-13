@@ -53,6 +53,7 @@ type
     ConfTeam:String;
     TresDecimTotTeam:String;
     ProtocoloExtendido:Boolean; // Sondeo A4, bloqueo fisico A0 y valvulas A8 (ini: ProtocoloExtendido=Si)
+    SimulaFinVenta:Boolean;     // Cada venta queda en fin de venta (3) hasta recibir FINV (ini: SimulaFinVenta=Si)
     PosCmndN:Integer;           // Posicion del ultimo A9 enviado
     Con_DigitoAjuste:Integer;
     CodigoTeam:String;
@@ -313,6 +314,7 @@ begin
 
     ConfTeam:=config.ReadString('CONF','ConfTeam','');
     ProtocoloExtendido:=UpperCase(config.ReadString('CONF','ProtocoloExtendido',''))='SI';
+    SimulaFinVenta:=UpperCase(config.ReadString('CONF','SimulaFinVenta',''))='SI';
 
     rootJSON:=TlkJSONObject.Create;
     SetEstadoJSON(estado);
@@ -734,8 +736,7 @@ begin
 end;
 
 function Togcvdispensarios_team.AgregaPosCarga(posiciones: TlkJSONbase): string;
-var i,j,k,xpos,xcomb:Integer;
-    existe:boolean;
+var i,j,xpos,xcomb:Integer;
     mangueras:TlkJSONbase;
     cPos:string;
     
@@ -856,11 +857,8 @@ begin
           Dispensario:=StrToInt(ExtraeElemStrSep(cPos,1,':'));
           Lado:=StrToInt(ExtraeElemStrSep(cPos,2,':'));
           xcomb:=mangueras.Child[j].Field['ProductId'].Value;
-          existe:=false;
-          for k:=1 to NoComb do
-            if TComb[k]=xcomb then
-              existe:=true;
-          if not existe then begin
+          // Cada manguera ocupa su lugar, aunque repita producto
+          if NoComb<MCxP then begin
             inc(NoComb);
             TComb[NoComb]:=xcomb;
             if mangueras.Child[j].Field['HoseId'].Value>0 then
@@ -1785,10 +1783,12 @@ begin
                    TotalesPendientes:=NoComb;
                    IntentosTotales:=0;
                    HoraTotales:=0;
+                   // Venta en espera de FINV: se reporta como fin de venta (3); sin despacho queda disponible
+                   if SimulaFinVenta and (volumen>0) then begin
+                     finventa:=2;
+                     estatus:=7;
+                   end;
                  end;
-               
-                 if (estatus=8) then
-                   finventa:=2;
                except
                  AgregaLog(lin+' '+fechapaq(date)+' '+HoraPaq(time));
                end;
@@ -2487,8 +2487,6 @@ begin
             end;
             if s1[8]='1' then // bit 0
               estatus:=9;
-            if (estatus=1)and(finventa=1) then
-              estatus:=8;
             if (estatus=1)and(finventa=2) then
               estatus:=7;
 
@@ -2704,13 +2702,7 @@ begin
               else estatus:=1;
             end;
 
-            if (estatus=1) and (finventa=1) then estatus:=8;
             if (estatus=1) and (finventa=2) then estatus:=7;
-            // A4 ya trae el importe final: no hay lectura A1 pendiente y la venta queda en espera de FINV
-            if estatus=8 then begin
-              finventa:=2;
-              estatus:=7;
-            end;
 
             if estatus<>estatusAnterior then
               HoraActividad:=Now;
@@ -2743,6 +2735,9 @@ begin
               // Se reporta fin de carga aunque la bomba pase directo a espera sin ss=30
               if estatus=1 then
                 estatus:=7;
+              // A4 ya trae el importe final: la venta queda en espera de FINV si hubo despacho
+              if SimulaFinVenta and (volumen>0) then
+                finventa:=2;
               SwParado:=false;
               swdesp:=true;
               HoraFinVenta:=Now;
