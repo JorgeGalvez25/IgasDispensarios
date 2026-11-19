@@ -2856,17 +2856,23 @@ var
   hoseObj      : TlkJSONobject;
   totalNode    : TlkJSONbase;
   hoseIdx      : Integer;
-  posIndex0    : Integer;
+  i            : Integer;
 begin
   posCargaList := rootJSON.Field['PosCarga'] as TlkJSONlist;
   if posCargaList = nil then
     Exit;
 
-  posIndex0 := xpos - 1;
-  if (posIndex0 < 0) or (posIndex0 >= posCargaList.Count) then
+  // PosCarga va en el orden de INITIALIZE: se busca por DispenserId
+  posObj := nil;
+  for i := 0 to posCargaList.Count - 1 do
+    if (posCargaList.Child[i].Field['DispenserId'] <> nil) and
+       (posCargaList.Child[i].Field['DispenserId'].Value = xpos) then begin
+      posObj := TlkJSONobject(posCargaList.Child[i]);
+      Break;
+    end;
+  if posObj = nil then
     Exit;
 
-  posObj   := TlkJSONobject(posCargaList.Child[posIndex0]);
   hosesList := posObj.Field['Hoses'] as TlkJSONlist;
   if hosesList = nil then
     Exit;
