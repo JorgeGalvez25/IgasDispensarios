@@ -578,8 +578,7 @@ end;
 function Togcvdispensarios_wayne2w.AgregaPosCarga(
   posiciones: TlkJSONbase): string;
 var
-  i,j,k,xpos,xcomb,xc:integer;
-  existe:boolean;
+  i,j,xpos,xcomb,xc:integer;
   mangueras:TlkJSONbase;
   posArr  : TlkJSONlist;
   posObj      : TlkJSONObject;
@@ -682,12 +681,9 @@ begin
 
           mangueras:=posiciones.Child[i].Field['Hoses'];
           for j:=0 to mangueras.Count-1 do begin
-            existe:=false;
             xcomb:=mangueras.Child[j].Field['ProductId'].Value;
-            for k:=1 to NoComb do
-              if TComb[k]=xcomb then
-                existe:=true;
-            if not existe then begin
+            // Cada manguera ocupa su lugar, aunque repita producto
+            if NoComb<MCxP then begin
               inc(NoComb);
               TComb[NoComb]:=xcomb;
               TMang[NoComb]:=mangueras.Child[j].Field['HoseId'].Value;
@@ -2849,9 +2845,11 @@ begin
                 4:if (estatus=5)and(not swdeshabil)  then begin
                       SwVigilaPreset:=false;
                       AgregaLog('E> Autoriza Prepago: '+inttoclavenum(PosCiclo,2));
-                      if (SwPreset)and(PosPreset=PosMangLev) then begin
+                      // Se autoriza la manguera levantada si despacha el producto del preset
+                      if (SwPreset)and(PosPreset in [1..NoComb])and(PosMangLev in [1..NoComb])and
+                         (TComb[PosPreset]=TComb[PosMangLev]) then begin
                         if EnviaPresetPesosBomba(PosCiclo,TipoPreset,ValorPreset) then
-                          if AutorizaPm(PosCiclo,PosPreset) then begin
+                          if AutorizaPm(PosCiclo,PosMangLev) then begin
                             swpreset2:=true;
                             IniciaVigilanciaPreset(PosCiclo);
                           end;
