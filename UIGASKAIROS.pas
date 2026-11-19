@@ -1837,7 +1837,7 @@ begin
   for xpos:=1 to MaxPosCarga do with TPosCarga[xpos] do begin
     if not SwDesHabil then begin
       case estatus of
-        0:xestado:=xestado+'0'; // Sin Comunicaciï¿½n
+        0:xestado:=xestado+'0'; // Sin Comunicación
         1:xestado:=xestado+'1'; // Inactivo (Idle)
         2:xestado:=xestado+'2'; // Cargando (In Use)
         3,4:if not swcargando then
@@ -2404,7 +2404,7 @@ begin
               end;
             end
             else  // EOT
-              rsp:='Posicion aï¿½n no esta en fin de venta';
+              rsp:='Posicion aún no esta en fin de venta';
           end
           else rsp:='Posicion de Carga no Existe';
 

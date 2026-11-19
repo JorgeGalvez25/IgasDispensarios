@@ -1777,7 +1777,7 @@ begin
                    SwLecturaFinalPendiente:=false;
                    HoraFinVenta:=Now;
 
-                   // Despu茅s de la lectura final del display, forzar totalizadores frescos.
+                   // Despu閟 de la lectura final del display, forzar totalizadores frescos.
                    SwCargaTotales:=true;
                    SwEsperandoTotales:=true;
                    TotalesPendientes:=NoComb;
@@ -1900,7 +1900,7 @@ begin
               xestadoPos:='2' // Mantener como cargando hasta recibir A1 final.
             else begin
               case estatus of
-                0:xestadoPos:='0'; // Sin Comunicaci贸n
+                0:xestadoPos:='0'; // Sin Comunicaci髇
                 1:xestadoPos:='1'; // Inactivo (Idle)
                 5,8:xestadoPos:='2'; // Cargando (In Use)
                 7:if not swcargando then
@@ -2057,7 +2057,7 @@ begin
             SnImporte:=StrToFLoat(ExtraeElemStrSep(TabCmnd[xcmnd].Comando,3,' '));
             if SnImporte=0 then SnImporte:=9999;
             if (SnImporte<1)or(SnImporte>9999) then
-              rsp:='Importe fuera de rango v谩lido: de 1.00 a 9999.00';
+              rsp:='Importe fuera de rango v醠ido: de 1.00 a 9999.00';
           except
             rsp:='Error en Importe';
           end;
@@ -2094,7 +2094,7 @@ begin
               TPosCarga[SnPosCarga].boucher:=ExtraeElemStrSep(TabCmnd[xcmnd].Comando,7,' ');
               EnviaPreset(rsp,xcomb,false);
             end
-            else rsp:='Combustible no existe en esta posici贸n';
+            else rsp:='Combustible no existe en esta posici髇';
           end;
         end;
       end
@@ -2152,7 +2152,7 @@ begin
         precios := ExtraeElemStrSep(TabCmnd[xcmnd].Comando, 2, ' ');
         
         // 1. Primero, actualizar la memoria global de precios (LPrecios)
-        // Se asume un m谩ximo de 4 productos seg煤n tu arreglo LPrecios[1..4]
+        // Se asume un m醲imo de 4 productos seg鷑 tu arreglo LPrecios[1..4]
         for ii := 1 to 4 do begin
           precioComb := StrToFloatDef(ExtraeElemStrSep(precios, ii, '|'), -1);
           if precioComb > 0 then
@@ -2176,7 +2176,7 @@ begin
             // Determinar Manguera 2
             xcomb := CombustibleEnPosicion(xpos, 2);
             ii := Trunc(LPrecios[xcomb] * 100 + 0.5);
-            ss := ss + IntToClaveNum(ii, 4) + '0000'; // Tercera vac铆a
+            ss := ss + IntToClaveNum(ii, 4) + '0000'; // Tercera vac韆
           end
           else begin
             // Determinar Manguera 2
@@ -2981,12 +2981,12 @@ begin
   rsp:='OK';
   xpos:=SnPosCarga;
   if not (TPosCarga[xpos].estatus=1) then begin
-    rsp:='Posici贸n no Disponible';
+    rsp:='Posici髇 no Disponible';
     exit;
   end;
   if TPosCarga[xpos].SwDesHabilitado then begin
     AgregaLog('Preset no enviado Pos: '+IntToStr(xpos)+' - SwDesHabil='+BoolToStr(TPosCarga[xpos].SwDesHabilitado,True));
-    rsp:='Posici贸n Deshabilitada';
+    rsp:='Posici髇 Deshabilitada';
     exit;
   end;
   if SnLitros>=0.5 then
